@@ -2,3 +2,7 @@ __pycache__
 *.pyc
 .env*
 uploads
+.venv
+.pytest_cache
+.mypy_cache
+.DS_Store

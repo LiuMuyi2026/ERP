@@ -175,6 +175,30 @@ Services:
 - `frontend` — Next.js on port 3000
 - `n8n` — n8n automation on port 5678
 
+## Render Deployment (Recommended)
+
+This repo includes a ready-to-use Render blueprint at `render.yaml`.
+
+### One-time setup
+
+1. Push this repo to GitHub.
+2. In Render, choose **New +** → **Blueprint**.
+3. Select this repo and deploy `render.yaml`.
+4. After the first deploy, open service variables and set:
+   - `nexus-backend`:
+     - `GEMINI_API_KEY` (required for AI features)
+     - `CORS_ORIGINS` (set to your frontend Render domain + optional localhost)
+     - `APP_BASE_URL` (set to your frontend Render domain)
+   - `nexus-frontend`:
+     - `NEXT_PUBLIC_API_URL` (set to your backend Render domain)
+     - `NEXT_PUBLIC_APP_URL` (set to your frontend Render domain)
+
+### Notes
+
+- Backend uses `backend/Dockerfile.render`.
+- Frontend uses `frontend/Dockerfile`.
+- Whisper real-time transcription is optional and excluded from default deploy dependencies to keep image size small.
+
 ### Data repair (before strict FK migrations)
 
 If a tenant has historical orphan rows (for example finance payment rows referencing deleted records), run:

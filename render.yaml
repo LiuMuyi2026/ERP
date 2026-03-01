@@ -1,0 +1,62 @@
+databases:
+  - name: nexus-postgres
+    databaseName: nexus_platform
+    user: nexus
+
+services:
+  - type: web
+    name: nexus-backend
+    env: docker
+    rootDir: backend
+    dockerfilePath: ./Dockerfile.render
+    autoDeploy: true
+    healthCheckPath: /health
+    envVars:
+      - key: SECRET_KEY
+        generateValue: true
+      - key: ALGORITHM
+        value: HS256
+      - key: ACCESS_TOKEN_EXPIRE_MINUTES
+        value: "1440"
+      - key: POSTGRES_HOST
+        fromDatabase:
+          name: nexus-postgres
+          property: host
+      - key: POSTGRES_PORT
+        fromDatabase:
+          name: nexus-postgres
+          property: port
+      - key: POSTGRES_USER
+        fromDatabase:
+          name: nexus-postgres
+          property: user
+      - key: POSTGRES_PASSWORD
+        fromDatabase:
+          name: nexus-postgres
+          property: password
+      - key: POSTGRES_DB
+        fromDatabase:
+          name: nexus-postgres
+          property: database
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: N8N_API_URL
+        value: ""
+      - key: N8N_API_KEY
+        value: ""
+      - key: CORS_ORIGINS
+        value: "http://localhost:3000"
+      - key: APP_BASE_URL
+        value: "http://localhost:3000"
+
+  - type: web
+    name: nexus-frontend
+    env: docker
+    rootDir: frontend
+    dockerfilePath: ./Dockerfile
+    autoDeploy: true
+    envVars:
+      - key: NEXT_PUBLIC_API_URL
+        sync: false
+      - key: NEXT_PUBLIC_APP_URL
+        sync: false
