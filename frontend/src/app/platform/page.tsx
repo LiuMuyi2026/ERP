@@ -118,7 +118,17 @@ export default function PlatformDashboard() {
         )}
 
         <div className="bg-white rounded-lg border shadow-sm">
-...
+          <div className="px-4 py-3 border-b flex items-center justify-between">
+            <h2 className="text-sm font-bold text-gray-700">Tenants</h2>
+            <button
+              onClick={() => setShowCreate(true)}
+              className="text-xs font-bold px-3 py-1.5 rounded-md bg-indigo-600 text-white hover:bg-indigo-700"
+            >
+              Create Tenant
+            </button>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
             <thead><tr className="border-b">
               {['Name', 'Slug', 'Status', 'Schema', 'Created', 'AI', ''].map(h => (
                 <th key={h} className="text-left p-4 text-sm font-medium text-gray-500">{h}</th>
@@ -155,7 +165,8 @@ export default function PlatformDashboard() {
                 </tr>
               ))}
             </tbody>
-...
+            </table>
+          </div>
       {/* AI Config Modal */}
       {showAIConfig && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
