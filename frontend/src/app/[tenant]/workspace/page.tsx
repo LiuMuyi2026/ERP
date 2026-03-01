@@ -275,6 +275,14 @@ export default function WorkspacePage() {
     });
   }, []); // eslint-disable-line
 
+  // Sync activeWsId when URL ws param changes (e.g. sidebar navigation)
+  useEffect(() => {
+    const wsParam = searchParams.get('ws');
+    if (wsParam && wsParam !== activeWsId && workspaces.some(w => w.id === wsParam)) {
+      setActiveWsId(wsParam);
+    }
+  }, [searchParams]); // eslint-disable-line
+
   // Reload pages when workspace / filters change
   useEffect(() => {
     if (!activeWsId) return;
