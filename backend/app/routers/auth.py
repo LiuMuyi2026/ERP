@@ -146,16 +146,23 @@ async def change_password(body: ChangePasswordRequest, ctx: dict = Depends(get_c
 
 
 @router.get("/me")
-async def get_me(credentials: HTTPAuthorizationCredentials = Depends(security)):
-    from app.deps import decode_token
-    payload = decode_token(credentials.credentials)
+async def get_me(ctx: dict = Depends(get_current_user_with_tenant)):
+    db = ctx["db"]
+    user_id = ctx["sub"]
+    result = await db.execute(
+        text("SELECT email, full_name, avatar_url FROM users WHERE id = :id"),
+        {"id": user_id},
+    )
+    row = result.fetchone()
     return {
-        "id": payload.get("sub"),
-        "email": payload.get("email"),
-        "role": payload.get("role"),
-        "tenant_id": payload.get("tenant_id"),
-        "tenant_slug": payload.get("tenant_slug"),
-        "permissions": payload.get("permissions", []),
+        "id": user_id,
+        "email": row.email if row else None,
+        "role": ctx.get("role"),
+        "tenant_id": ctx.get("tenant_id"),
+        "tenant_slug": ctx.get("tenant_slug"),
+        "permissions": ctx.get("permissions", []),
+        "full_name": row.full_name if row else None,
+        "avatar_url": row.avatar_url if row else None,
     }
 
 

@@ -1217,7 +1217,7 @@ async def list_sidebar_tree(ctx: dict = Depends(get_current_user_with_tenant)):
     
     # 1. Fetch Workspaces (include current user's membership role for permission checks)
     ws_res = await db.execute(
-        text("""SELECT DISTINCT w.id, w.name, w.visibility, w.icon, w.owner_id, w.created_at,
+        text("""SELECT w.id, w.name, w.visibility, w.icon, w.owner_id, w.created_at,
                        COALESCE(w.position, 0) AS position,
                        wm.role AS current_user_role
                 FROM workspaces w
