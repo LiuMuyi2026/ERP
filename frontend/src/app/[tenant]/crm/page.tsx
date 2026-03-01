@@ -14,7 +14,7 @@ type Lead = {
   id: string; full_name: string; company?: string; email?: string;
   phone?: string; whatsapp?: string; status: string; source?: string;
   follow_up_status?: string; ai_summary?: string; assigned_to?: string;
-  created_by?: string; updated_at?: string; last_contacted_at?: string;
+  created_by?: string; created_at?: string; updated_at?: string; last_contacted_at?: string;
   is_cold?: boolean; cold_lead_reason?: string;
   custom_fields?: Record<string, any>;
 };
@@ -46,6 +46,14 @@ type Overview = {
 };
 type TenantUser = { id: string; email: string; full_name: string | null; role: string; position_name?: string | null };
 type TrendPoint = { period: string; count: number };
+type ViewScope = { type: 'all' } | { type: 'user'; userId: string; userName: string };
+type KpiPanelType = 'leads_open' | 'accounts_active' | 'contracts_total'
+  | 'orders_running' | 'approvals_pending' | 'receivable_outstanding' | 'payable_outstanding';
+type Payable = {
+  id: string; contract_id: string; contract_no: string; due_date?: string;
+  amount: number; paid_amount: number; currency: string; status: string;
+  invoice_no?: string; supplier_name?: string; assigned_name?: string;
+};
 
 // ── Funnel stages (6-stage workflow) ──────────────────────────────────────
 type FunnelStage = { key: string; labelKey: string; icon: string; color: string; bg: string };
@@ -225,6 +233,347 @@ function FunnelChart({ statusCounts, onStageClick, resolvedStages, filterTitle, 
         );
       })}
     </div>
+  );
+}
+
+// ── KPI Detail Panel (right-side drawer) ──────────────────────────────────────
+const KPI_META: Record<KpiPanelType, { title: string; accent: string }> = {
+  leads_open: { title: '线索池', accent: '#7c3aed' },
+  accounts_active: { title: '活跃客户', accent: '#0284c7' },
+  contracts_total: { title: '合同列表', accent: '#059669' },
+  orders_running: { title: '履约进行中', accent: '#d97706' },
+  approvals_pending: { title: '待审批', accent: '#dc2626' },
+  receivable_outstanding: { title: '待收款', accent: '#c2410c' },
+  payable_outstanding: { title: '待付款', accent: '#15803d' },
+};
+
+function KpiDetailPanel({ type, onClose, viewScope }: {
+  type: KpiPanelType;
+  onClose: () => void;
+  viewScope: ViewScope;
+}) {
+  const router = useRouter();
+  const params = useParams<{ tenant: string }>();
+  const meta = KPI_META[type];
+  const [search, setSearch] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [leads, setLeads] = useState<Lead[]>([]);
+  const [contracts, setContracts] = useState<Contract[]>([]);
+  const [receivables, setReceivables] = useState<Receivable[]>([]);
+  const [payables, setPayables] = useState<Payable[]>([]);
+  const [approvals, setApprovals] = useState<PendingApproval[]>([]);
+
+  useEffect(() => {
+    const qs = viewScope.type === 'user' ? `?user_id=${viewScope.userId}` : '';
+    const amp = viewScope.type === 'user' ? `&user_id=${viewScope.userId}` : '';
+    setLoading(true);
+    (async () => {
+      try {
+        if (type === 'leads_open' || type === 'accounts_active') {
+          const d = await api.get(`/api/crm/leads${qs ? qs + '&' : '?'}limit=500`);
+          setLeads(Array.isArray(d) ? d : []);
+        } else if (type === 'contracts_total' || type === 'orders_running') {
+          const d = await api.get(`/api/crm/contracts${qs ? qs + '&' : '?'}limit=200`);
+          setContracts(Array.isArray(d) ? d : []);
+        } else if (type === 'approvals_pending') {
+          const d = await api.get('/api/crm/risks/pending-approvals');
+          setApprovals(Array.isArray(d) ? d : []);
+        } else if (type === 'receivable_outstanding') {
+          const d = await api.get(`/api/crm/receivables${qs}`);
+          setReceivables(Array.isArray(d) ? d : []);
+        } else if (type === 'payable_outstanding') {
+          const d = await api.get(`/api/crm/payables${qs}`);
+          setPayables(Array.isArray(d) ? d : []);
+        }
+      } catch {}
+      finally { setLoading(false); }
+    })();
+  }, [type, viewScope]);
+
+  function goToLead(id: string) {
+    router.push(`/${params.tenant}/crm/customer-360/${id}`);
+  }
+
+  function renderContent() {
+    if (loading) return <div className="h-40 flex items-center justify-center text-sm" style={{ color: '#9B9A97' }}>加载中...</div>;
+
+    switch (type) {
+      case 'leads_open': {
+        const filtered = leads.filter(l =>
+          !['converted', 'lost'].includes(l.status) && !l.is_cold &&
+          (!search || l.full_name?.toLowerCase().includes(search.toLowerCase()) || l.company?.toLowerCase().includes(search.toLowerCase()))
+        );
+        return (
+          <div className="space-y-1">
+            {filtered.map(lead => (
+              <div key={lead.id}
+                className="flex items-center gap-3 px-3 py-2.5 rounded-xl cursor-pointer transition-all group"
+                style={{ border: '1px solid transparent' }}
+                onMouseEnter={e => { e.currentTarget.style.background = '#f5f3ff'; e.currentTarget.style.borderColor = '#e9d5ff'; }}
+                onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.borderColor = 'transparent'; }}
+                onClick={() => goToLead(lead.id)}>
+                <div className="flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center text-white text-sm font-bold"
+                  style={{ background: meta.accent }}>
+                  {(lead.full_name || '?')[0].toUpperCase()}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-semibold truncate" style={{ color: 'var(--notion-text)' }}>{lead.full_name}</span>
+                    {lead.company && <span className="text-xs truncate" style={{ color: '#9B9A97' }}>· {lead.company}</span>}
+                  </div>
+                  <div className="flex items-center gap-2 mt-0.5">
+                    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium ${LEAD_STATUS_COLORS[lead.status] ?? 'bg-gray-100 text-gray-500'}`}>
+                      {lead.status}
+                    </span>
+                    <span className="text-[10px]" style={{ color: '#C2C0BC' }}>
+                      {lead.created_at ? new Date(lead.created_at).toLocaleDateString('zh-CN', { month: 'short', day: 'numeric' }) : ''}
+                    </span>
+                  </div>
+                </div>
+                <svg className="opacity-0 group-hover:opacity-100 flex-shrink-0" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#9B9A97" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <polyline points="9 18 15 12 9 6"/>
+                </svg>
+              </div>
+            ))}
+            {filtered.length === 0 && <div className="text-sm text-center py-8" style={{ color: '#9B9A97' }}>暂无数据</div>}
+          </div>
+        );
+      }
+      case 'accounts_active': {
+        const filtered = leads.filter(l =>
+          l.last_contacted_at && new Date(l.last_contacted_at) >= new Date(Date.now() - 30 * 24 * 60 * 60 * 1000) &&
+          (!search || l.full_name?.toLowerCase().includes(search.toLowerCase()) || l.company?.toLowerCase().includes(search.toLowerCase()))
+        ).sort((a, b) => new Date(b.last_contacted_at!).getTime() - new Date(a.last_contacted_at!).getTime());
+        return (
+          <div className="space-y-1">
+            {filtered.map(lead => (
+              <div key={lead.id}
+                className="flex items-center gap-3 px-3 py-2.5 rounded-xl cursor-pointer transition-all group"
+                style={{ border: '1px solid transparent' }}
+                onMouseEnter={e => { e.currentTarget.style.background = '#f0f9ff'; e.currentTarget.style.borderColor = '#bae6fd'; }}
+                onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.borderColor = 'transparent'; }}
+                onClick={() => goToLead(lead.id)}>
+                <div className="flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center text-white text-sm font-bold"
+                  style={{ background: meta.accent }}>
+                  {(lead.full_name || '?')[0].toUpperCase()}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <span className="text-sm font-semibold truncate block" style={{ color: 'var(--notion-text)' }}>{lead.full_name}</span>
+                  <span className="text-[10px]" style={{ color: '#9B9A97' }}>
+                    最近联系: {new Date(lead.last_contacted_at!).toLocaleDateString('zh-CN', { month: 'short', day: 'numeric' })}
+                    {lead.company ? ` · ${lead.company}` : ''}
+                  </span>
+                </div>
+              </div>
+            ))}
+            {filtered.length === 0 && <div className="text-sm text-center py-8" style={{ color: '#9B9A97' }}>暂无活跃客户</div>}
+          </div>
+        );
+      }
+      case 'contracts_total': {
+        const filtered = contracts.filter(c =>
+          !search || c.contract_no?.toLowerCase().includes(search.toLowerCase()) || c.account_name?.toLowerCase().includes(search.toLowerCase())
+        );
+        return (
+          <div className="space-y-1">
+            {filtered.map(c => (
+              <div key={c.id}
+                className="flex items-center gap-3 px-3 py-2.5 rounded-xl cursor-pointer transition-all"
+                style={{ border: '1px solid transparent' }}
+                onMouseEnter={e => { e.currentTarget.style.background = '#f0fdf4'; e.currentTarget.style.borderColor = '#bbf7d0'; }}
+                onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.borderColor = 'transparent'; }}>
+                <div className="flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-bold" style={{ background: meta.accent }}>
+                  {c.contract_no?.[0] ?? '#'}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <span className="text-sm font-semibold truncate block font-mono" style={{ color: 'var(--notion-text)' }}>{c.contract_no}</span>
+                  <span className="text-[10px]" style={{ color: '#9B9A97' }}>
+                    {c.account_name ?? '—'} · {c.currency} {Number(c.contract_amount).toLocaleString()}
+                  </span>
+                </div>
+                <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium ${
+                  c.status === 'active' ? 'bg-green-100 text-green-700' : c.status === 'draft' ? 'bg-gray-100 text-gray-600' : 'bg-blue-100 text-blue-700'
+                }`}>{c.status}</span>
+              </div>
+            ))}
+            {filtered.length === 0 && <div className="text-sm text-center py-8" style={{ color: '#9B9A97' }}>暂无合同</div>}
+          </div>
+        );
+      }
+      case 'orders_running': {
+        const running = contracts.filter(c =>
+          c.task_total > 0 && c.task_done < c.task_total &&
+          (!search || c.contract_no?.toLowerCase().includes(search.toLowerCase()))
+        );
+        return (
+          <div className="space-y-1">
+            {running.map(c => {
+              const pct = c.task_total > 0 ? Math.round((c.task_done / c.task_total) * 100) : 0;
+              return (
+                <div key={c.id}
+                  className="flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all"
+                  style={{ border: '1px solid transparent' }}
+                  onMouseEnter={e => { e.currentTarget.style.background = '#fffbeb'; e.currentTarget.style.borderColor = '#fde68a'; }}
+                  onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.borderColor = 'transparent'; }}>
+                  <div className="flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-bold" style={{ background: meta.accent }}>
+                    {pct}%
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <span className="text-sm font-semibold truncate block font-mono" style={{ color: 'var(--notion-text)' }}>{c.contract_no}</span>
+                    <div className="flex items-center gap-2 mt-1">
+                      <div className="flex-1 h-1.5 rounded-full" style={{ background: '#e5e7eb' }}>
+                        <div className="h-full rounded-full" style={{ width: `${pct}%`, background: meta.accent }} />
+                      </div>
+                      <span className="text-[10px] flex-shrink-0" style={{ color: '#9B9A97' }}>{c.task_done}/{c.task_total}</span>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+            {running.length === 0 && <div className="text-sm text-center py-8" style={{ color: '#9B9A97' }}>暂无进行中的履约</div>}
+          </div>
+        );
+      }
+      case 'approvals_pending': {
+        return (
+          <div className="space-y-1">
+            {approvals.map(a => (
+              <div key={a.id}
+                className="flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all"
+                style={{ border: '1px solid transparent' }}
+                onMouseEnter={e => { e.currentTarget.style.background = '#fef2f2'; e.currentTarget.style.borderColor = '#fecaca'; }}
+                onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.borderColor = 'transparent'; }}>
+                <div className="flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-bold" style={{ background: meta.accent }}>!</div>
+                <div className="flex-1 min-w-0">
+                  <span className="text-sm font-semibold truncate block font-mono" style={{ color: 'var(--notion-text)' }}>{a.contract_no}</span>
+                  <span className="text-[10px]" style={{ color: '#9B9A97' }}>
+                    {a.action} · 审批人: {a.required_approver}
+                  </span>
+                </div>
+                <span className="text-[10px]" style={{ color: '#C2C0BC' }}>
+                  {a.requested_at ? new Date(a.requested_at).toLocaleDateString('zh-CN', { month: 'short', day: 'numeric' }) : ''}
+                </span>
+              </div>
+            ))}
+            {approvals.length === 0 && <div className="text-sm text-center py-8" style={{ color: '#9B9A97' }}>暂无待审批</div>}
+          </div>
+        );
+      }
+      case 'receivable_outstanding': {
+        const open = receivables.filter(r =>
+          r.status !== 'closed' && r.status !== 'paid' &&
+          (!search || r.contract_no?.toLowerCase().includes(search.toLowerCase()) || r.invoice_no?.toLowerCase().includes(search.toLowerCase()))
+        );
+        return (
+          <div className="space-y-1">
+            {open.map(r => {
+              const outstanding = Number(r.amount) - Number(r.received_amount);
+              return (
+                <div key={r.id}
+                  className="flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all"
+                  style={{ border: '1px solid transparent' }}
+                  onMouseEnter={e => { e.currentTarget.style.background = '#fff7ed'; e.currentTarget.style.borderColor = '#fed7aa'; }}
+                  onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.borderColor = 'transparent'; }}>
+                  <div className="flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-bold" style={{ background: meta.accent }}>$</div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-semibold truncate font-mono" style={{ color: 'var(--notion-text)' }}>{r.contract_no}</span>
+                      {r.invoice_no && <span className="text-[10px] px-1.5 py-0.5 rounded bg-gray-100" style={{ color: '#9B9A97' }}>{r.invoice_no}</span>}
+                    </div>
+                    <span className="text-[10px]" style={{ color: '#9B9A97' }}>
+                      应收 {r.currency} {Number(r.amount).toLocaleString()} · 已收 {Number(r.received_amount).toLocaleString()} · <b style={{ color: meta.accent }}>欠款 {outstanding.toLocaleString()}</b>
+                    </span>
+                  </div>
+                  <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium ${
+                    r.status === 'overdue' ? 'bg-red-100 text-red-700' : r.status === 'partial' ? 'bg-yellow-100 text-yellow-700' : 'bg-orange-100 text-orange-700'
+                  }`}>{r.status}</span>
+                </div>
+              );
+            })}
+            {open.length === 0 && <div className="text-sm text-center py-8" style={{ color: '#9B9A97' }}>暂无待收款</div>}
+          </div>
+        );
+      }
+      case 'payable_outstanding': {
+        const open = payables.filter(p =>
+          p.status !== 'paid' &&
+          (!search || p.contract_no?.toLowerCase().includes(search.toLowerCase()) || p.supplier_name?.toLowerCase().includes(search.toLowerCase()))
+        );
+        return (
+          <div className="space-y-1">
+            {open.map(p => {
+              const outstanding = Number(p.amount) - Number(p.paid_amount);
+              return (
+                <div key={p.id}
+                  className="flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all"
+                  style={{ border: '1px solid transparent' }}
+                  onMouseEnter={e => { e.currentTarget.style.background = '#f0fdf4'; e.currentTarget.style.borderColor = '#bbf7d0'; }}
+                  onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.borderColor = 'transparent'; }}>
+                  <div className="flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-bold" style={{ background: meta.accent }}>$</div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-semibold truncate font-mono" style={{ color: 'var(--notion-text)' }}>{p.contract_no}</span>
+                      {p.supplier_name && <span className="text-[10px] px-1.5 py-0.5 rounded bg-gray-100" style={{ color: '#9B9A97' }}>{p.supplier_name}</span>}
+                    </div>
+                    <span className="text-[10px]" style={{ color: '#9B9A97' }}>
+                      应付 {p.currency} {Number(p.amount).toLocaleString()} · 已付 {Number(p.paid_amount).toLocaleString()} · <b style={{ color: meta.accent }}>欠款 {outstanding.toLocaleString()}</b>
+                    </span>
+                  </div>
+                  <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium ${
+                    p.status === 'overdue' ? 'bg-red-100 text-red-700' : p.status === 'partial' ? 'bg-yellow-100 text-yellow-700' : 'bg-orange-100 text-orange-700'
+                  }`}>{p.status}</span>
+                </div>
+              );
+            })}
+            {open.length === 0 && <div className="text-sm text-center py-8" style={{ color: '#9B9A97' }}>暂无待付款</div>}
+          </div>
+        );
+      }
+    }
+  }
+
+  return (
+    <>
+      <div className="fixed inset-0 z-[80] bg-black/20" onClick={onClose} />
+      <div className="fixed right-0 top-0 h-full z-[90] flex flex-col"
+        style={{ width: 640, background: 'var(--notion-card, white)', borderLeft: '1px solid var(--notion-border)', boxShadow: '-6px 0 32px rgba(0,0,0,0.10)' }}>
+        {/* Accent bar + Header */}
+        <div className="flex-shrink-0" style={{ height: 3, background: meta.accent }} />
+        <div className="flex items-center gap-3 px-5 py-4 flex-shrink-0" style={{ borderBottom: '1px solid var(--notion-border)', background: 'var(--notion-hover)' }}>
+          <span className="font-bold text-base flex-1" style={{ color: 'var(--notion-text)' }}>{meta.title}</span>
+          {viewScope.type === 'user' && (
+            <span className="text-[10px] px-2 py-0.5 rounded-full font-medium" style={{ background: '#f5f3ff', color: '#7c3aed' }}>
+              {viewScope.userName}
+            </span>
+          )}
+          <button onClick={onClose} className="p-1.5 rounded-lg transition-colors flex-shrink-0"
+            style={{ color: '#9B9A97' }}
+            onMouseEnter={e => { e.currentTarget.style.background = 'rgba(0,0,0,0.06)'; e.currentTarget.style.color = '#37352F'; }}
+            onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = '#9B9A97'; }}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+            </svg>
+          </button>
+        </div>
+        {/* Search */}
+        {['leads_open', 'accounts_active', 'contracts_total', 'receivable_outstanding', 'payable_outstanding'].includes(type) && (
+          <div className="px-5 py-2 flex-shrink-0" style={{ borderBottom: '1px solid var(--notion-border)' }}>
+            <input
+              type="text"
+              placeholder="搜索..."
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              className="w-full px-3 py-1.5 rounded-lg text-sm outline-none"
+              style={{ background: 'var(--notion-hover)', border: '1px solid var(--notion-border)', color: 'var(--notion-text)' }}
+            />
+          </div>
+        )}
+        {/* Content */}
+        <div className="flex-1 overflow-auto p-4">
+          {renderContent()}
+        </div>
+      </div>
+    </>
   );
 }
 
@@ -574,7 +923,7 @@ function InquiryPanel({ type, leads, loading, view, onViewChange, onClose }: {
   );
 }
 
-function CRMDashboardTab({ onStageClick }: { onStageClick?: (key: string) => void }) {
+function CRMDashboardTab({ onStageClick, globalScope }: { onStageClick?: (key: string) => void; globalScope?: ViewScope }) {
   const tCrm = useTranslations('crm');
   const tCommon = useTranslations('common');
   const FUNNEL_STAGES_RESOLVED = getFunnelStages(tCrm);
@@ -590,6 +939,9 @@ function CRMDashboardTab({ onStageClick }: { onStageClick?: (key: string) => voi
   const [trendLoading, setTrendLoading] = useState(false);
   const [unfLoading, setUnfLoading] = useState(false);
   const [funnelLoading, setFunnelLoading] = useState(false);
+
+  // Build scope query param from globalScope
+  const scopeQs = globalScope?.type === 'user' ? `&user_id=${globalScope.userId}` : '';
 
   // Todo state
   type TodoItem = { lead_id: string; full_name: string; company?: string; status: string; type: string; days_since?: number };
@@ -618,7 +970,8 @@ function CRMDashboardTab({ onStageClick }: { onStageClick?: (key: string) => voi
     setPanelOpen(true);
     setPanelLoading(true);
     try {
-      const allLeads: Lead[] = await api.get(`/api/crm/leads`);
+      const qs = globalScope?.type === 'user' ? `?user_id=${globalScope.userId}` : '';
+      const allLeads: Lead[] = await api.get(`/api/crm/leads${qs}`);
       if (type === 'new') {
         setPanelLeads([...allLeads].sort((a, b) =>
           new Date(b.updated_at ?? 0).getTime() - new Date(a.updated_at ?? 0).getTime()
@@ -632,26 +985,29 @@ function CRMDashboardTab({ onStageClick }: { onStageClick?: (key: string) => voi
 
   const granMap: Record<TrendPeriod, string> = { day: 'day', week: 'week', month: 'month' };
 
+  // Effective scope: if globalScope specifies a user, use user_id; otherwise fall back to internal scope picker
+  const effectiveScope = globalScope?.type === 'user' ? 'all' : scope;
+
   useEffect(() => {
     setTrendLoading(true);
-    api.get(`/api/crm/analytics/leads-trend?period=${trendPeriod}&scope=${scope}`)
+    api.get(`/api/crm/analytics/leads-trend?period=${trendPeriod}&scope=${effectiveScope}${scopeQs}`)
       .then(d => setTrend(Array.isArray(d) ? d : []))
       .finally(() => setTrendLoading(false));
-  }, [trendPeriod, scope]);
+  }, [trendPeriod, effectiveScope, scopeQs]);
 
   useEffect(() => {
     setUnfLoading(true);
-    api.get(`/api/crm/analytics/unfollowed?period=${unfPeriod}&scope=${scope}`)
+    api.get(`/api/crm/analytics/unfollowed?period=${unfPeriod}&scope=${effectiveScope}${scopeQs}`)
       .then(d => setUnf(Array.isArray(d) ? d : []))
       .finally(() => setUnfLoading(false));
-  }, [unfPeriod, scope]);
+  }, [unfPeriod, effectiveScope, scopeQs]);
 
   useEffect(() => {
     setFunnelLoading(true);
-    api.get(`/api/crm/analytics/funnel?period=${funnelPeriod}&scope=${scope}`)
+    api.get(`/api/crm/analytics/funnel?period=${funnelPeriod}&scope=${effectiveScope}${scopeQs}`)
       .then(d => setFunnel(d?.leads ?? {}))
       .finally(() => setFunnelLoading(false));
-  }, [funnelPeriod, scope]);
+  }, [funnelPeriod, effectiveScope, scopeQs]);
 
   const totalNew = trend.reduce((s, d) => s + d.count, 0);
   const totalUnf = unf.reduce((s, d) => s + d.count, 0);
@@ -664,11 +1020,13 @@ function CRMDashboardTab({ onStageClick }: { onStageClick?: (key: string) => voi
 
   return (
     <div className="space-y-5">
-      {/* Global scope */}
-      <div className="flex items-center justify-between">
-        <span className="text-sm font-medium" style={{ color: '#9B9A97' }}>{tCrm('dataScope')}</span>
-        <ScopePicker value={scope} onChange={setScope} labels={[tCrm('allData'), tCrm('myData')]} />
-      </div>
+      {/* Global scope - hidden when parent provides a user-specific scope */}
+      {(!globalScope || globalScope.type === 'all') && (
+        <div className="flex items-center justify-between">
+          <span className="text-sm font-medium" style={{ color: '#9B9A97' }}>{tCrm('dataScope')}</span>
+          <ScopePicker value={scope} onChange={setScope} labels={[tCrm('allData'), tCrm('myData')]} />
+        </div>
+      )}
 
       {/* Todo section */}
       {todos.length > 0 && (
@@ -2162,6 +2520,8 @@ export default function CRMPage() {
   const tCommon = useTranslations('common');
   const me = getCurrentUser();
   const meIsAdmin = me?.role === 'tenant_admin' || me?.role === 'platform_admin';
+  const router = useRouter();
+  const params = useParams<{ tenant: string }>();
   const [tab, setTab] = useState<TabKey>('dashboard');
   const [overview, setOverview] = useState<Overview | null>(null);
   const [loading, setLoading] = useState(true);
@@ -2169,11 +2529,20 @@ export default function CRMPage() {
   const [poolLeads, setPoolLeads] = useState<Lead[]>([]);
   const [contracts, setContracts] = useState<Contract[]>([]);
   const [receivables, setReceivables] = useState<Receivable[]>([]);
+  const [payables, setPayables] = useState<Payable[]>([]);
   const [pendingApprovals, setPendingApprovals] = useState<PendingApproval[]>([]);
   const [tenantUsers, setTenantUsers] = useState<TenantUser[]>([]);
   const [approvalDeciding, setApprovalDeciding] = useState<{ id: string; decision: 'approved' | 'rejected' } | null>(null);
   const [decisionNotes, setDecisionNotes] = useState('');
   const [leadsFunnelFilter, setLeadsFunnelFilter] = useState('');
+
+  // View scope: admin can switch between all data and per-user view
+  const [viewScope, setViewScope] = useState<ViewScope>(
+    meIsAdmin ? { type: 'all' } : { type: 'user', userId: me?.sub ?? '', userName: me?.full_name || me?.name || me?.email || '' }
+  );
+
+  // KPI detail panel
+  const [kpiPanel, setKpiPanel] = useState<KpiPanelType | null>(null);
   const [showLeadModal, setShowLeadModal] = useState(false);
   const [showContractModal, setShowContractModal] = useState(false);
   const [showReceivableModal, setShowReceivableModal] = useState(false);
@@ -2265,12 +2634,15 @@ export default function CRMPage() {
 
   async function loadAll() {
     setLoading(true);
-    const [ov, ld, pl, ct, rc, ap, users, prods] = await Promise.all([
-      api.get('/api/crm/overview').catch(() => null),
-      api.get('/api/crm/leads').catch(() => []),
-      api.get('/api/crm/leads?pool=public').catch(() => []),
-      api.get('/api/crm/contracts').catch(() => []),
-      api.get('/api/crm/receivables').catch(() => []),
+    const qs = viewScope.type === 'user' ? `?user_id=${viewScope.userId}` : '';
+    const amp = viewScope.type === 'user' ? `&user_id=${viewScope.userId}` : '';
+    const [ov, ld, pl, ct, rc, py, ap, users, prods] = await Promise.all([
+      api.get(`/api/crm/overview${qs}`).catch(() => null),
+      api.get(`/api/crm/leads${qs}`).catch(() => []),
+      api.get(`/api/crm/leads?pool=public${amp}`).catch(() => []),
+      api.get(`/api/crm/contracts${qs}`).catch(() => []),
+      api.get(`/api/crm/receivables${qs}`).catch(() => []),
+      api.get(`/api/crm/payables${qs}`).catch(() => []),
       api.get('/api/crm/risks/pending-approvals').catch(() => []),
       api.get('/api/admin/users').catch(() => []),
       api.get('/api/inventory/products').catch(() => []),
@@ -2280,13 +2652,21 @@ export default function CRMPage() {
     setPoolLeads(Array.isArray(pl) ? pl : []);
     setContracts(Array.isArray(ct) ? ct : []);
     setReceivables(Array.isArray(rc) ? rc : []);
+    setPayables(Array.isArray(py) ? py : []);
     setPendingApprovals(Array.isArray(ap) ? ap : []);
     setTenantUsers(Array.isArray(users) ? users : []);
     setInventoryProducts(Array.isArray(prods) ? prods : []);
     setLoading(false);
   }
 
-  useEffect(() => { loadAll(); }, []);
+  useEffect(() => { loadAll(); }, [viewScope]);
+
+  // Auto-refresh when user navigates back to this page (e.g., from customer-360)
+  useEffect(() => {
+    function onFocus() { loadAll(); }
+    window.addEventListener('focus', onFocus);
+    return () => window.removeEventListener('focus', onFocus);
+  }, [viewScope]);
 
   const contractOptions = useMemo(() => contracts.map(c => ({ id: c.id, label: c.contract_no })), [contracts]);
 
@@ -2396,27 +2776,85 @@ export default function CRMPage() {
   return (
     <div className="h-full flex flex-col">
       {/* Header */}
-      <div className="px-8 pt-8 pb-4">
+      <div className="px-8 pt-8 pb-4 flex items-center justify-between">
         <h1 className="text-2xl font-bold mb-1" style={{ color: 'var(--notion-text)' }}>{tCrm('crmHub')}</h1>
+        {/* View scope switcher */}
+        {meIsAdmin ? (
+          <div className="relative">
+            <select
+              value={viewScope.type === 'all' ? '__all__' : viewScope.userId}
+              onChange={e => {
+                const v = e.target.value;
+                if (v === '__all__') {
+                  setViewScope({ type: 'all' });
+                } else {
+                  const u = tenantUsers.find(u => u.id === v);
+                  setViewScope({ type: 'user', userId: v, userName: u?.full_name || u?.email || v });
+                }
+              }}
+              className="pl-7 pr-3 py-1.5 rounded-lg text-xs font-medium outline-none cursor-pointer appearance-none"
+              style={{
+                background: viewScope.type === 'user' ? '#f5f3ff' : 'var(--notion-hover)',
+                border: viewScope.type === 'user' ? '2px solid #7c3aed' : '1px solid var(--notion-border)',
+                color: viewScope.type === 'user' ? '#7c3aed' : 'var(--notion-text)',
+                minWidth: 160,
+              }}
+            >
+              <option value="__all__">全部数据（管理员）</option>
+              {tenantUsers.map(u => (
+                <option key={u.id} value={u.id}>{u.full_name || u.email}{u.position_name ? ` · ${u.position_name}` : ''}</option>
+              ))}
+            </select>
+            <svg className="absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" width="14" height="14" viewBox="0 0 24 24" fill="none"
+              stroke={viewScope.type === 'user' ? '#7c3aed' : '#9B9A97'} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>
+            </svg>
+          </div>
+        ) : (
+          <span className="text-xs font-medium px-3 py-1.5 rounded-lg" style={{ background: 'var(--notion-hover)', color: '#9B9A97', border: '1px solid var(--notion-border)' }}>
+            我的数据
+          </span>
+        )}
       </div>
 
       {/* KPI row */}
       <div className="px-8 pb-4 grid grid-cols-7 gap-3">
-        {[
-          { label: tCrm('kpiLeadPool'), value: overview?.leads_open ?? 0 },
-          { label: tCrm('kpiActiveCustomers'), value: overview?.accounts_active ?? 0 },
-          { label: tCrm('kpiContractsTotal'), value: overview?.contracts_total ?? 0 },
-          { label: tCrm('kpiFulfilling'), value: overview?.orders_running ?? 0 },
-          { label: tCrm('kpiPendingApproval'), value: overview?.approvals_pending ?? 0 },
-          { label: tCrm('kpiOutstandingReceivable'), value: Number(overview?.receivable_outstanding || 0).toLocaleString() },
-          { label: '应付未付', value: Number(overview?.payable_outstanding || 0).toLocaleString() },
-        ].map(k => (
-          <div key={k.label} className="rounded-xl px-4 py-3" style={{ background: '#f7f6f3', border: '1px solid var(--notion-border)' }}>
-            <p className="text-xs font-medium" style={{ color: 'var(--notion-text-muted)' }}>{k.label}</p>
-            <p className="text-xl font-bold" style={{ color: 'var(--notion-text)' }}>{k.value}</p>
-          </div>
-        ))}
+        {([
+          { label: tCrm('kpiLeadPool'), value: overview?.leads_open ?? 0, kpiType: 'leads_open' as KpiPanelType, accent: '#7c3aed' },
+          { label: tCrm('kpiActiveCustomers'), value: overview?.accounts_active ?? 0, kpiType: 'accounts_active' as KpiPanelType, accent: '#0284c7' },
+          { label: tCrm('kpiContractsTotal'), value: overview?.contracts_total ?? 0, kpiType: 'contracts_total' as KpiPanelType, accent: '#059669' },
+          { label: tCrm('kpiFulfilling'), value: overview?.orders_running ?? 0, kpiType: 'orders_running' as KpiPanelType, accent: '#d97706' },
+          { label: tCrm('kpiPendingApproval'), value: overview?.approvals_pending ?? 0, kpiType: 'approvals_pending' as KpiPanelType, accent: '#dc2626' },
+          { label: tCrm('kpiOutstandingReceivable'), value: Number(overview?.receivable_outstanding || 0).toLocaleString(), kpiType: 'receivable_outstanding' as KpiPanelType, accent: '#c2410c' },
+          { label: '应付未付', value: Number(overview?.payable_outstanding || 0).toLocaleString(), kpiType: 'payable_outstanding' as KpiPanelType, accent: '#15803d' },
+        ]).map(k => {
+          const isActive = kpiPanel === k.kpiType;
+          return (
+            <div key={k.label}
+              onClick={() => setKpiPanel(isActive ? null : k.kpiType)}
+              className="rounded-xl px-4 py-3 cursor-pointer transition-all group/kpi"
+              style={{
+                background: isActive ? `${k.accent}10` : '#f7f6f3',
+                border: isActive ? `2px solid ${k.accent}` : '1px solid var(--notion-border)',
+              }}>
+              <p className="text-xs font-medium" style={{ color: isActive ? k.accent : 'var(--notion-text-muted)' }}>{k.label}</p>
+              <p className="text-xl font-bold" style={{ color: isActive ? k.accent : 'var(--notion-text)' }}>{k.value}</p>
+              <p className="text-[10px] mt-0.5 transition-opacity opacity-0 group-hover/kpi:opacity-100" style={{ color: k.accent }}>
+                点击查看详情 →
+              </p>
+            </div>
+          );
+        })}
       </div>
+
+      {/* KPI Detail Panel */}
+      {kpiPanel && (
+        <KpiDetailPanel
+          type={kpiPanel}
+          onClose={() => setKpiPanel(null)}
+          viewScope={viewScope}
+        />
+      )}
 
       {/* Toolbar */}
       <div className="px-8 pb-4 flex items-center gap-3 border-b" style={{ borderColor: 'var(--notion-border)' }}>
@@ -2446,7 +2884,7 @@ export default function CRMPage() {
       {/* Content */}
       <div className="flex-1 overflow-auto px-8 py-4">
         {tab === 'dashboard' && (
-          <CRMDashboardTab onStageClick={(key) => { setTab('leads'); setLeadsFunnelFilter(key); }} />
+          <CRMDashboardTab onStageClick={(key) => { setTab('leads'); setLeadsFunnelFilter(key); }} globalScope={viewScope} />
         )}
         {tab === 'leads' && (
           <LeadsTab

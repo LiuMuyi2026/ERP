@@ -896,10 +896,9 @@ function CustomersTab() {
     return () => clearTimeout(timer);
   }, [search, load]);
 
-  const avgScore = customers.length
-    ? Math.round(customers.reduce((s, c) => s + c.customer_score, 0) / customers.length) : 0;
-  const highCount = customers.filter(c => c.customer_score >= 80).length;
-  const lowCount = customers.filter(c => c.customer_score < 40).length;
+  const convertedCount = customers.filter(c => c.contract_count > 0 || c.status === 'converted').length;
+  const totalContractValue = customers.reduce((s, c) => s + (Number(c.total_contract_value) || 0), 0);
+  const distinctCountries = new Set(customers.map(c => c.country).filter(Boolean)).size;
 
   return (
     <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
@@ -907,9 +906,9 @@ function CustomersTab() {
       <div style={{ padding: '16px 32px', display: 'flex', gap: 16, borderBottom: '1px solid var(--notion-border)' }}>
         {[
           { label: '客户总数', value: total, color: '#4338ca', bg: '#e0e7ff' },
-          { label: '平均了解度', value: `${avgScore}%`, color: '#059669', bg: '#d1fae5' },
-          { label: '深度了解', value: highCount, color: '#10b981', bg: '#ecfdf5' },
-          { label: '待提升', value: lowCount, color: '#ef4444', bg: '#fef2f2' },
+          { label: '成交客户', value: convertedCount, color: '#059669', bg: '#d1fae5' },
+          { label: '合同总额', value: totalContractValue > 0 ? `$${totalContractValue.toLocaleString()}` : '$0', color: '#7c3aed', bg: '#ede9fe' },
+          { label: '覆盖国家/地区', value: distinctCountries, color: '#0284c7', bg: '#e0f2fe' },
         ].map((s, i) => (
           <div key={i} style={{ padding: '10px 18px', borderRadius: 10, background: s.bg, border: `1px solid ${s.color}22`, minWidth: 100 }}>
             <div style={{ fontSize: 11, color: s.color, fontWeight: 500, marginBottom: 4 }}>{s.label}</div>

@@ -232,18 +232,37 @@ _PAYABLE_UPDATE_FIELDS = {
 
 
 @router.get("/overview")
-async def overview(ctx: dict = Depends(get_current_user_with_tenant)):
+async def overview(
+    user_id: Optional[str] = None,
+    ctx: dict = Depends(get_current_user_with_tenant),
+):
     db = ctx["db"]
-    r = await db.execute(text("""
+    role = ctx.get("role", "")
+    if role not in ("tenant_admin", "platform_admin"):
+        user_id = ctx["sub"]
+
+    if user_id:
+        lead_scope = "AND (assigned_to = :uid OR created_by = :uid)"
+        contract_scope = "AND (sales_owner_id = :uid OR created_by = :uid)"
+        order_scope = "AND o.contract_no IN (SELECT contract_no FROM crm_contracts WHERE sales_owner_id = :uid OR created_by = :uid)"
+        approval_scope = "AND ap.order_id IN (SELECT o2.id FROM export_flow_orders o2 JOIN crm_contracts c2 ON c2.contract_no = o2.contract_no WHERE c2.sales_owner_id = :uid OR c2.created_by = :uid)"
+        recv_scope = "AND (assigned_to = :uid)"
+        pay_scope = "AND (assigned_to = :uid)"
+        params: dict = {"uid": user_id}
+    else:
+        lead_scope = contract_scope = order_scope = approval_scope = recv_scope = pay_scope = ""
+        params = {}
+
+    r = await db.execute(text(f"""
         SELECT
-            (SELECT COUNT(*) FROM leads WHERE status IN ('new','contacted','qualified')),
-            (SELECT COUNT(*) FROM crm_accounts WHERE status = 'active'),
-            (SELECT COUNT(*) FROM crm_contracts),
-            (SELECT COUNT(*) FROM export_flow_orders WHERE stage NOT IN ('closed','cancelled')),
-            (SELECT COUNT(*) FROM export_flow_approvals WHERE status = 'pending'),
-            (SELECT COALESCE(SUM(amount - received_amount), 0) FROM crm_receivables WHERE status != 'closed'),
-            (SELECT COALESCE(SUM(amount - paid_amount), 0) FROM crm_payables WHERE status != 'paid')
-    """))
+            (SELECT COUNT(*) FROM leads WHERE status NOT IN ('converted','lost') AND duplicate_of IS NULL AND (is_cold IS NULL OR is_cold = FALSE) {lead_scope}),
+            (SELECT COUNT(*) FROM leads WHERE last_contacted_at >= NOW() - INTERVAL '30 days' AND duplicate_of IS NULL AND (is_cold IS NULL OR is_cold = FALSE) AND status NOT IN ('lost') {lead_scope}),
+            (SELECT COUNT(*) FROM crm_contracts WHERE 1=1 {contract_scope}),
+            (SELECT COUNT(*) FROM export_flow_orders o WHERE o.stage NOT IN ('closed','cancelled') {order_scope}),
+            (SELECT COUNT(*) FROM export_flow_approvals ap WHERE ap.status = 'pending' {approval_scope}),
+            (SELECT COALESCE(SUM(amount - received_amount), 0) FROM crm_receivables WHERE status NOT IN ('closed', 'paid') {recv_scope}),
+            (SELECT COALESCE(SUM(amount - paid_amount), 0) FROM crm_payables WHERE status != 'paid' {pay_scope})
+    """), params)
     row = r.fetchone()
     return {
         "leads_open": row[0] or 0,
@@ -269,13 +288,21 @@ def _period_since(period: str):
 async def leads_trend(
     period: str = "day",
     scope: str = "all",
+    user_id: Optional[str] = None,
     ctx: dict = Depends(get_current_user_with_tenant),
 ):
     db = ctx["db"]
+    role = ctx.get("role", "")
+    if role not in ("tenant_admin", "platform_admin"):
+        user_id = ctx["sub"]
+
     since, trunc = _period_since(period)
     params: dict = {"since": since}
     scope_sql = "1=1"
-    if scope == "mine":
+    if user_id:
+        scope_sql = "(assigned_to = :uid OR created_by = :uid)"
+        params["uid"] = user_id
+    elif scope == "mine":
         scope_sql = "(assigned_to = :uid OR created_by = :uid)"
         params["uid"] = ctx["sub"]
     rows = await db.execute(
@@ -294,13 +321,21 @@ async def leads_trend(
 async def unfollowed_trend(
     period: str = "day",
     scope: str = "all",
+    user_id: Optional[str] = None,
     ctx: dict = Depends(get_current_user_with_tenant),
 ):
     db = ctx["db"]
+    role = ctx.get("role", "")
+    if role not in ("tenant_admin", "platform_admin"):
+        user_id = ctx["sub"]
+
     since, trunc = _period_since(period)
     params: dict = {"since": since}
     scope_sql = "1=1"
-    if scope == "mine":
+    if user_id:
+        scope_sql = "(assigned_to = :uid OR created_by = :uid)"
+        params["uid"] = user_id
+    elif scope == "mine":
         scope_sql = "(assigned_to = :uid OR created_by = :uid)"
         params["uid"] = ctx["sub"]
     rows = await db.execute(
@@ -321,9 +356,14 @@ async def unfollowed_trend(
 async def analytics_funnel(
     period: str = "all",
     scope: str = "all",
+    user_id: Optional[str] = None,
     ctx: dict = Depends(get_current_user_with_tenant),
 ):
     db = ctx["db"]
+    role = ctx.get("role", "")
+    if role not in ("tenant_admin", "platform_admin"):
+        user_id = ctx["sub"]
+
     time_sql = "1=1"
     if period == "week":
         time_sql = "created_at >= NOW() - INTERVAL '7 days'"
@@ -333,7 +373,10 @@ async def analytics_funnel(
         time_sql = "created_at >= NOW() - INTERVAL '365 days'"
     params: dict = {}
     scope_sql = "1=1"
-    if scope == "mine":
+    if user_id:
+        scope_sql = "(assigned_to = :uid OR created_by = :uid)"
+        params["uid"] = user_id
+    elif scope == "mine":
         scope_sql = "(assigned_to = :uid OR created_by = :uid)"
         params["uid"] = ctx["sub"]
     lead_rows = await db.execute(
@@ -396,18 +439,21 @@ async def list_leads(
     status: Optional[str] = None,
     search: Optional[str] = None,
     pool: Optional[str] = None,
+    user_id: Optional[str] = None,
     skip: int = 0,
     limit: int = 50,
     ctx: dict = Depends(get_current_user_with_tenant),
 ):
     db = ctx["db"]
+    role = ctx.get("role", "")
+    if role not in ("tenant_admin", "platform_admin"):
+        user_id = ctx["sub"]
+
     where = ["duplicate_of IS NULL"]
     params: dict = {"skip": skip, "limit": limit}
     if pool == "public":
-        # Public pool: cold leads visible to all users
         where.append("is_cold = TRUE")
     else:
-        # Normal pool: exclude cold leads
         where.append("(is_cold IS NULL OR is_cold = FALSE)")
         if status:
             where.append("status = :status")
@@ -415,6 +461,9 @@ async def list_leads(
     if search:
         where.append("(full_name ILIKE :search OR email ILIKE :search OR company ILIKE :search)")
         params["search"] = f"%{search}%"
+    if user_id:
+        where.append("(assigned_to = :uid OR created_by = :uid)")
+        params["uid"] = user_id
     query = f"SELECT * FROM leads WHERE {' AND '.join(where)} ORDER BY created_at DESC LIMIT :limit OFFSET :skip"
     rows = await db.execute(text(query), params)
     return [dict(r._mapping) for r in rows.fetchall()]
@@ -796,12 +845,27 @@ async def create_account(body: AccountCreate, ctx: dict = Depends(get_current_us
 
 
 @router.get("/contracts")
-async def list_contracts(limit: int = 50, offset: int = 0, ctx: dict = Depends(get_current_user_with_tenant)):
+async def list_contracts(
+    limit: int = 50,
+    offset: int = 0,
+    user_id: Optional[str] = None,
+    ctx: dict = Depends(get_current_user_with_tenant),
+):
+    role = ctx.get("role", "")
+    if role not in ("tenant_admin", "platform_admin"):
+        user_id = ctx["sub"]
+
     limit = min(max(limit, 1), 200)
     offset = max(offset, 0)
+    scope_sql = ""
+    params: dict = {"limit": limit, "offset": offset}
+    if user_id:
+        scope_sql = "WHERE (c.sales_owner_id = :uid OR c.created_by = :uid)"
+        params["uid"] = user_id
+
     rows = await ctx["db"].execute(
         text(
-            """
+            f"""
             SELECT c.*,
                    a.name AS account_name,
                    COALESCE(ts.total_count, 0) AS task_total,
@@ -836,11 +900,12 @@ async def list_contracts(limit: int = 50, offset: int = 0, ctx: dict = Depends(g
                 WHERE ap.status = 'pending'
                 GROUP BY o.contract_no
             ) ap ON ap.contract_no = c.contract_no
+            {scope_sql}
             ORDER BY c.created_at DESC
             LIMIT :limit OFFSET :offset
             """
         ),
-        {"limit": limit, "offset": offset},
+        params,
     )
     return [dict(r._mapping) for r in rows.fetchall()]
 
@@ -911,15 +976,30 @@ async def create_contract(body: ContractCreate, ctx: dict = Depends(get_current_
                     },
                 )
 
+    # Resolve sales_owner_id from the linked lead's assigned_to
+    sales_owner_id = None
+    if body.lead_id:
+        owner_row = await db.execute(
+            text("SELECT assigned_to FROM leads WHERE id = CAST(:lid AS uuid)"),
+            {"lid": body.lead_id},
+        )
+        owner = owner_row.fetchone()
+        if owner and owner.assigned_to:
+            sales_owner_id = str(owner.assigned_to)
+    if not sales_owner_id:
+        sales_owner_id = ctx["sub"]
+
     await db.execute(
         text(
             """
             INSERT INTO crm_contracts (
                 id, contract_no, account_id, lead_id, order_id, contract_amount, currency,
-                payment_method, incoterm, sign_date, eta, status, risk_level, remarks, created_by
+                payment_method, incoterm, sign_date, eta, status, risk_level, remarks,
+                sales_owner_id, created_by
             ) VALUES (
                 :id, :contract_no, :account_id, :lead_id, :order_id, :contract_amount, :currency,
-                :payment_method, :incoterm, :sign_date, :eta, :status, :risk_level, :remarks, :created_by
+                :payment_method, :incoterm, :sign_date, :eta, :status, :risk_level, :remarks,
+                :sales_owner_id, :created_by
             )
             """
         ),
@@ -938,6 +1018,7 @@ async def create_contract(body: ContractCreate, ctx: dict = Depends(get_current_
             "status": body.status,
             "risk_level": body.risk_level,
             "remarks": body.remarks,
+            "sales_owner_id": sales_owner_id,
             "created_by": ctx["sub"],
         },
     )
@@ -1228,10 +1309,23 @@ async def _contract_activation_gl_posting(db, contract_id: str, user_id: str):
 
 
 @router.get("/receivables")
-async def list_receivables(ctx: dict = Depends(get_current_user_with_tenant)):
+async def list_receivables(
+    user_id: Optional[str] = None,
+    ctx: dict = Depends(get_current_user_with_tenant),
+):
+    role = ctx.get("role", "")
+    if role not in ("tenant_admin", "platform_admin"):
+        user_id = ctx["sub"]
+
+    scope_sql = ""
+    params: dict = {}
+    if user_id:
+        scope_sql = "WHERE r.assigned_to = :uid"
+        params["uid"] = user_id
+
     rows = await ctx["db"].execute(
         text(
-            """
+            f"""
             SELECT r.*, c.contract_no,
                    l.full_name AS lead_name,
                    u.full_name AS assigned_name
@@ -1239,9 +1333,11 @@ async def list_receivables(ctx: dict = Depends(get_current_user_with_tenant)):
             JOIN crm_contracts c ON c.id = r.contract_id
             LEFT JOIN leads l ON l.id = r.lead_id
             LEFT JOIN users u ON u.id = r.assigned_to
+            {scope_sql}
             ORDER BY COALESCE(r.due_date, CURRENT_DATE) ASC
             """
-        )
+        ),
+        params,
     )
     return [dict(r._mapping) for r in rows.fetchall()]
 
@@ -1385,18 +1481,33 @@ async def update_payment_proof(payment_id: str, body: dict, ctx: dict = Depends(
 # ---------------------------------------------------------------------------
 
 @router.get("/payables")
-async def list_payables(ctx: dict = Depends(get_current_user_with_tenant)):
+async def list_payables(
+    user_id: Optional[str] = None,
+    ctx: dict = Depends(get_current_user_with_tenant),
+):
+    role = ctx.get("role", "")
+    if role not in ("tenant_admin", "platform_admin"):
+        user_id = ctx["sub"]
+
+    scope_sql = ""
+    params: dict = {}
+    if user_id:
+        scope_sql = "WHERE p.assigned_to = :uid"
+        params["uid"] = user_id
+
     rows = await ctx["db"].execute(
         text(
-            """
+            f"""
             SELECT p.*, c.contract_no,
                    u.full_name AS assigned_name
             FROM crm_payables p
             JOIN crm_contracts c ON c.id = p.contract_id
             LEFT JOIN users u ON u.id = p.assigned_to
+            {scope_sql}
             ORDER BY COALESCE(p.due_date, CURRENT_DATE) ASC
             """
-        )
+        ),
+        params,
     )
     return [dict(r._mapping) for r in rows.fetchall()]
 
@@ -2013,7 +2124,9 @@ async def list_customers(
     """
     db = ctx["db"]
     where_parts = [
-        "(l.status IN ('converted','payment','fulfillment','booking','procuring','quoted','negotiating') OR c.contract_count > 0)"
+        "(l.status IN ('converted','payment','fulfillment','booking','procuring','quoted','negotiating') OR c.contract_count > 0)",
+        "l.duplicate_of IS NULL",
+        "(l.is_cold IS NULL OR l.is_cold = FALSE)",
     ]
     params: dict = {"skip": skip, "limit": limit}
 
