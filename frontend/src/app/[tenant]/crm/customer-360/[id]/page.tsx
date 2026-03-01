@@ -554,14 +554,124 @@ function CommsTab({ leadId, interactions, onRefresh }: {
   );
 }
 
-// ── Profile Tab ─────────────────────────────────────────────────────────────────
+// ── Profile Tab (5 categories with completeness %) ──────────────────────────
+type ProfileCategory = {
+  id: string;
+  title: string;
+  fields: { label: string; key: string; opts?: { type?: string; options?: string[] } }[];
+};
+
+function getProfileCategories(t: any): ProfileCategory[] {
+  return [
+    {
+      id: 'contact',
+      title: '联系方式',
+      fields: [
+        { label: t('fieldEmail'), key: 'email', opts: { type: 'email' } },
+        { label: t('fieldPhone'), key: 'phone', opts: { type: 'tel' } },
+        { label: t('fieldWhatsApp'), key: 'whatsapp' },
+        { label: 'Instagram', key: 'cf_instagram' },
+        { label: '社交平台', key: 'cf_social_platform' },
+        { label: '联系地址', key: 'cf_contact_address' },
+      ],
+    },
+    {
+      id: 'personal',
+      title: '个人信息',
+      fields: [
+        { label: t('fieldName'), key: 'full_name' },
+        { label: '性别', key: 'cf_gender', opts: { options: ['male', 'female', 'other'] } },
+        { label: t('fieldTitle'), key: 'title' },
+        { label: t('fieldSource'), key: 'source' },
+        { label: '信仰', key: 'cf_religion' },
+        { label: '国家/地区', key: 'cf_country' },
+        { label: '城市', key: 'cf_city' },
+        { label: '省/州', key: 'cf_region_province' },
+      ],
+    },
+    {
+      id: 'company',
+      title: '公司信息',
+      fields: [
+        { label: t('fieldCompanyName'), key: 'company' },
+        { label: '公司网站', key: 'cf_company_website' },
+        { label: '行业', key: 'cf_industry' },
+        { label: '主营产品', key: 'cf_main_products' },
+        { label: '公司简介', key: 'cf_about_company' },
+        { label: '公司规模', key: 'cf_company_size' },
+        { label: '职位', key: 'cf_position' },
+        { label: 'CEO 姓名', key: 'cf_ceo_name' },
+        { label: 'CEO 爱好', key: 'cf_ceo_hobbies' },
+        { label: 'CEO 信仰', key: 'cf_ceo_beliefs' },
+        { label: 'CEO 性格', key: 'cf_ceo_personality' },
+        { label: 'CEO 政治理念', key: 'cf_ceo_political_views' },
+        { label: '月度用量', key: 'cf_monthly_usage' },
+        { label: '季度用量', key: 'cf_quarterly_usage' },
+        { label: '行业产品品质', key: 'cf_industry_product_quality', opts: { options: ['优质', '中上', '中等', '一般', '低端'] } },
+      ],
+    },
+    {
+      id: 'business',
+      title: '业务信息',
+      fields: [
+        { label: '状态', key: 'status' },
+        { label: '客户类型', key: 'cf_customer_type' },
+        { label: '客户质量', key: 'cf_customer_quality' },
+        { label: '客户等级', key: 'cf_customer_grade', opts: { options: ['S', 'A', 'B', 'C', 'D'] } },
+        { label: 'GRADE', key: 'cf_grade' },
+        { label: '产品品类', key: 'cf_product_category' },
+        { label: '需求产品', key: 'cf_required_products' },
+        { label: '终端用途', key: 'cf_end_usage' },
+      ],
+    },
+    {
+      id: 'commercial',
+      title: '商务信息',
+      fields: [
+        { label: '年采购额', key: 'cf_annual_purchase' },
+        { label: '下游付款', key: 'cf_downstream_payment' },
+        { label: '竞对', key: 'cf_competitor' },
+        { label: '预算', key: 'cf_budget' },
+        { label: '采购周期', key: 'cf_purchase_cycle' },
+        { label: '决策人', key: 'cf_decision_maker' },
+        { label: '攻略笔记', key: 'cf_attack_notes' },
+        { label: '需求备注', key: 'cf_requirements_notes' },
+        { label: '联系备注', key: 'cf_contact_notes' },
+      ],
+    },
+  ];
+}
+
+function computeCompleteness(lead: Record<string, any>, fields: { key: string }[]): number {
+  let filled = 0;
+  for (const f of fields) {
+    const val = f.key.startsWith('cf_')
+      ? lead.custom_fields?.[f.key.slice(3)]
+      : lead[f.key];
+    if (val && String(val).trim()) filled++;
+  }
+  return fields.length > 0 ? Math.round((filled / fields.length) * 100) : 0;
+}
+
+function CompletenessBar({ pct }: { pct: number }) {
+  const color = pct < 30 ? '#ef4444' : pct < 70 ? '#3b82f6' : '#10b981';
+  return (
+    <div className="flex items-center gap-2">
+      <div className="w-16 h-1.5 rounded-full overflow-hidden" style={{ background: '#e5e7eb' }}>
+        <div className="h-full rounded-full transition-all" style={{ width: `${pct}%`, background: color }} />
+      </div>
+      <span className="text-[10px] font-bold" style={{ color }}>{pct}%</span>
+    </div>
+  );
+}
+
 function ProfileTab({ leadId, lead, onRefresh }: {
   leadId: string; lead: Record<string, any>; onRefresh: () => void;
 }) {
   const t = useTranslations('customer360');
-  const LEAD_STATUS = getLeadStatus(t);
   const LEAD_STATUSES = getLeadStatuses(t);
   const SOURCES = getSources(t);
+  const categories = getProfileCategories(t);
   const [editing, setEditing] = useState<string | null>(null);
   const [draft, setDraft] = useState<Record<string, any>>({});
   const [saving, setSaving] = useState(false);
@@ -593,16 +703,12 @@ function ProfileTab({ leadId, lead, onRefresh }: {
   }
 
   function field(label: string, key: string, opts?: { type?: string; options?: string[] }) {
-    const val = editing === 'basic' || editing === 'company' || editing === 'followup'
-      ? (key.startsWith('cf_')
-        ? draft.custom_fields?.[key.slice(3)] ?? ''
-        : draft[key] ?? '')
-      : (key.startsWith('cf_')
-        ? lead.custom_fields?.[key.slice(3)] ?? ''
-        : lead[key] ?? '');
+    const currentData = editing ? draft : lead;
+    const val = key.startsWith('cf_')
+      ? currentData.custom_fields?.[key.slice(3)] ?? ''
+      : currentData[key] ?? '';
 
     const isEditing = editing !== null;
-    const editable = isEditing;
 
     function onChange(v: string) {
       if (key.startsWith('cf_')) {
@@ -615,8 +721,8 @@ function ProfileTab({ leadId, lead, onRefresh }: {
     return (
       <div key={key} className="flex items-start gap-3 py-2"
         style={{ borderBottom: '1px solid var(--notion-border)' }}>
-        <span className="text-[11px] w-20 flex-shrink-0 pt-1" style={{ color: '#9B9A97' }}>{label}</span>
-        {editable ? (
+        <span className="text-[11px] w-24 flex-shrink-0 pt-1" style={{ color: '#9B9A97' }}>{label}</span>
+        {isEditing ? (
           opts?.options ? (
             <select value={val} onChange={e => onChange(e.target.value)}
               className="flex-1 text-xs px-2 py-1 rounded-lg outline-none"
@@ -638,120 +744,105 @@ function ProfileTab({ leadId, lead, onRefresh }: {
     );
   }
 
-  function Section({ id, title, children }: { id: string; title: string; children: React.ReactNode }) {
-    return (
-      <div className="rounded-2xl overflow-hidden"
-        style={{ background: 'var(--notion-card, white)', boxShadow: '0 1px 4px rgba(0,0,0,0.06), 0 0 0 1px rgba(0,0,0,0.04)' }}>
-        <div className="flex items-center justify-between px-5 py-3"
-          style={{ borderBottom: '1px solid var(--notion-border)', background: 'var(--notion-hover)' }}>
-          <span className="text-xs font-semibold" style={{ color: 'var(--notion-text)' }}>{title}</span>
-          {editing === id ? (
-            <div className="flex gap-2">
-              <button onClick={() => setEditing(null)}
-                className="text-xs px-3 py-1 rounded-lg" style={{ color: '#9B9A97', border: '1px solid var(--notion-border)' }}>
-                {t('cancelBtn')}
-              </button>
-              <button onClick={saveEdit} disabled={saving}
-                className="text-xs px-3 py-1 rounded-lg text-white"
-                style={{ background: '#7c3aed', opacity: saving ? 0.5 : 1 }}>
-                {saving ? t('savingBtn') : t('saveBtn')}
-              </button>
-            </div>
-          ) : (
-            <button onClick={() => startEdit(id)}
-              className="text-xs px-2.5 py-1 rounded-lg"
-              style={{ color: '#7c3aed', background: '#ede9fe' }}
-              onMouseEnter={e => (e.currentTarget.style.background = '#ddd6fe')}
-              onMouseLeave={e => (e.currentTarget.style.background = '#ede9fe')}>
-              {t('editBtn')}
-            </button>
-          )}
-        </div>
-        <div className="px-5 pb-3 pt-1">{children}</div>
-      </div>
-    );
-  }
-
   return (
     <div className="space-y-4">
-      <Section id="basic" title={t('sectionBasicInfo')}>
-        {field(t('fieldName'), 'full_name')}
-        {field(t('fieldEmail'), 'email', { type: 'email' })}
-        {field(t('fieldPhone'), 'phone', { type: 'tel' })}
-        {field(t('fieldWhatsApp'), 'whatsapp')}
-        {field(t('fieldTitle'), 'title')}
-        {field(t('fieldSource'), 'source', { options: SOURCES })}
-        {field(t('fieldStatus'), 'status', { options: LEAD_STATUSES.map(s => s.key) })}
-      </Section>
-
-      <Section id="company" title={t('sectionCompanyInfo')}>
-        <div className="flex items-center gap-2 py-2 mb-1">
-          {field(t('fieldCompanyName'), 'company')}
-          {lead.company && !editing && (
-            <button onClick={runResearch} disabled={researching}
-              className="flex-shrink-0 flex items-center gap-1.5 text-[11px] px-3 py-1.5 rounded-lg font-medium"
-              style={{ background: researching ? 'var(--notion-hover)' : '#ede9fe', color: '#7c3aed' }}>
-              {researching ? (
-                <><span className="animate-spin">⟳</span> {t('aiResearching')}</>
-              ) : (
-                <><span>✦</span> {t('aiResearch')}</>
-              )}
-            </button>
-          )}
-        </div>
-        {field(t('fieldWebsite'), 'cf_website')}
-        {field(t('fieldCountry'), 'cf_country')}
-        {field(t('fieldCity'), 'cf_city')}
-        {field(t('fieldIndustry'), 'cf_industry')}
-        {field(t('fieldCompanySize'), 'cf_company_size')}
-
-        {(research || lead.ai_summary) && (
-          <div className="mt-3 rounded-xl p-4"
-            style={{ background: 'linear-gradient(135deg, #f5f3ff, #ede9fe)', border: '1px solid #c4b5fd' }}>
-            <div className="flex items-center gap-2 mb-2">
-              <span className="text-sm">✦</span>
-              <span className="text-xs font-semibold" style={{ color: '#7c3aed' }}>{t('aiResearchReport')}</span>
-            </div>
-            {research ? (
-              <>
-                <p className="text-xs leading-relaxed mb-2" style={{ color: '#374151' }}>{research.summary}</p>
-                <div className="flex gap-3 flex-wrap mb-2">
-                  {research.industry && (
-                    <span className="text-[10px] px-2 py-0.5 rounded-full" style={{ background: '#ddd6fe', color: '#7c3aed' }}>
-                      <HandIcon name="factory" size={10} /> {research.industry}
-                    </span>
-                  )}
-                  {research.size && (
-                    <span className="text-[10px] px-2 py-0.5 rounded-full" style={{ background: '#ddd6fe', color: '#7c3aed' }}>
-                      <HandIcon name="people-group" size={10} /> {research.size}
-                    </span>
-                  )}
+      {categories.map(cat => {
+        const pct = computeCompleteness(lead, cat.fields);
+        return (
+          <div key={cat.id} className="rounded-2xl overflow-hidden"
+            style={{ background: 'var(--notion-card, white)', boxShadow: '0 1px 4px rgba(0,0,0,0.06), 0 0 0 1px rgba(0,0,0,0.04)' }}>
+            <div className="flex items-center justify-between px-5 py-3"
+              style={{ borderBottom: '1px solid var(--notion-border)', background: 'var(--notion-hover)' }}>
+              <div className="flex items-center gap-3">
+                <span className="text-xs font-semibold" style={{ color: 'var(--notion-text)' }}>{cat.title}</span>
+                <CompletenessBar pct={pct} />
+              </div>
+              {editing === cat.id ? (
+                <div className="flex gap-2">
+                  <button onClick={() => setEditing(null)}
+                    className="text-xs px-3 py-1 rounded-lg" style={{ color: '#9B9A97', border: '1px solid var(--notion-border)' }}>
+                    {t('cancelBtn')}
+                  </button>
+                  <button onClick={saveEdit} disabled={saving}
+                    className="text-xs px-3 py-1 rounded-lg text-white"
+                    style={{ background: '#7c3aed', opacity: saving ? 0.5 : 1 }}>
+                    {saving ? t('savingBtn') : t('saveBtn')}
+                  </button>
                 </div>
-                {research.products?.length > 0 && (
-                  <div className="mb-2">
-                    <p className="text-[10px] font-semibold mb-1" style={{ color: '#9B9A97' }}>{t('aiMainProducts')}</p>
-                    <div className="flex flex-wrap gap-1">
-                      {research.products.slice(0, 5).map(p => (
-                        <span key={p} className="text-[10px] px-2 py-0.5 rounded-full"
-                          style={{ background: 'var(--notion-card, white)', color: '#5F5E5B', border: '1px solid var(--notion-border)' }}>{p}</span>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </>
-            ) : (
-              <p className="text-xs leading-relaxed" style={{ color: '#374151' }}>{lead.ai_summary}</p>
-            )}
-          </div>
-        )}
-      </Section>
+              ) : (
+                <button onClick={() => startEdit(cat.id)}
+                  className="text-xs px-2.5 py-1 rounded-lg"
+                  style={{ color: '#7c3aed', background: '#ede9fe' }}
+                  onMouseEnter={e => (e.currentTarget.style.background = '#ddd6fe')}
+                  onMouseLeave={e => (e.currentTarget.style.background = '#ede9fe')}>
+                  {t('editBtn')}
+                </button>
+              )}
+            </div>
+            <div className="px-5 pb-3 pt-1">
+              {cat.fields.map(f => field(f.label, f.key, f.opts))}
 
-      <Section id="followup" title={t('sectionFollowup')}>
-        {field(t('fieldNotes'), 'notes')}
-        {field(t('fieldBudget'), 'cf_budget')}
-        {field(t('fieldPurchaseCycle'), 'cf_purchase_cycle')}
-        {field(t('fieldDecisionMaker'), 'cf_decision_maker')}
-      </Section>
+              {/* AI Research in company section */}
+              {cat.id === 'company' && (
+                <>
+                  {lead.company && !editing && (
+                    <div className="py-2">
+                      <button onClick={runResearch} disabled={researching}
+                        className="flex items-center gap-1.5 text-[11px] px-3 py-1.5 rounded-lg font-medium"
+                        style={{ background: researching ? 'var(--notion-hover)' : '#ede9fe', color: '#7c3aed' }}>
+                        {researching ? (
+                          <><span className="animate-spin">&#x27F3;</span> {t('aiResearching')}</>
+                        ) : (
+                          <><span>&#x2726;</span> {t('aiResearch')}</>
+                        )}
+                      </button>
+                    </div>
+                  )}
+                  {(research || lead.ai_summary) && (
+                    <div className="mt-3 rounded-xl p-4"
+                      style={{ background: 'linear-gradient(135deg, #f5f3ff, #ede9fe)', border: '1px solid #c4b5fd' }}>
+                      <div className="flex items-center gap-2 mb-2">
+                        <span className="text-sm">&#x2726;</span>
+                        <span className="text-xs font-semibold" style={{ color: '#7c3aed' }}>{t('aiResearchReport')}</span>
+                      </div>
+                      {research ? (
+                        <>
+                          <p className="text-xs leading-relaxed mb-2" style={{ color: '#374151' }}>{research.summary}</p>
+                          <div className="flex gap-3 flex-wrap mb-2">
+                            {research.industry && (
+                              <span className="text-[10px] px-2 py-0.5 rounded-full" style={{ background: '#ddd6fe', color: '#7c3aed' }}>
+                                <HandIcon name="factory" size={10} /> {research.industry}
+                              </span>
+                            )}
+                            {research.size && (
+                              <span className="text-[10px] px-2 py-0.5 rounded-full" style={{ background: '#ddd6fe', color: '#7c3aed' }}>
+                                <HandIcon name="people-group" size={10} /> {research.size}
+                              </span>
+                            )}
+                          </div>
+                          {research.products?.length > 0 && (
+                            <div className="mb-2">
+                              <p className="text-[10px] font-semibold mb-1" style={{ color: '#9B9A97' }}>{t('aiMainProducts')}</p>
+                              <div className="flex flex-wrap gap-1">
+                                {research.products.slice(0, 5).map(p => (
+                                  <span key={p} className="text-[10px] px-2 py-0.5 rounded-full"
+                                    style={{ background: 'var(--notion-card, white)', color: '#5F5E5B', border: '1px solid var(--notion-border)' }}>{p}</span>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                        </>
+                      ) : (
+                        <p className="text-xs leading-relaxed" style={{ color: '#374151' }}>{lead.ai_summary}</p>
+                      )}
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -1206,7 +1297,6 @@ export default function Customer360Page() {
   const [loading, setLoading] = useState(true);
   const tabParam = searchParams.get('tab') as 'comms' | 'profile' | 'business' | 'timeline' | 'workflow' | null;
   const [tab, setTab] = useState<'comms' | 'profile' | 'business' | 'timeline' | 'workflow'>(tabParam || 'workflow');
-  const [tabInitialized, setTabInitialized] = useState(false);
   const [advancing, setAdvancing] = useState(false);
   const [showColdModal, setShowColdModal] = useState(false);
   const [changingStage, setChangingStage] = useState(false);
@@ -1235,16 +1325,6 @@ export default function Customer360Page() {
 
   useEffect(() => { load(); }, [load]);
 
-  // Default to 'business' tab for customers (converted leads)
-  useEffect(() => {
-    if (data && !tabInitialized && !tabParam) {
-      const isCustomerCheck = data.lead.status === 'converted' || data.contracts.length > 0;
-      if (isCustomerCheck) {
-        setTab('business');
-      }
-      setTabInitialized(true);
-    }
-  }, [data, tabInitialized, tabParam]);
 
   async function advanceStage() {
     setAdvancing(true);
@@ -1331,7 +1411,7 @@ export default function Customer360Page() {
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
               <polyline points="15 18 9 12 15 6" />
             </svg>
-            {isCustomer ? '返回客户列表' : t('backToCustomers')}
+            {t('backToCustomers')}
           </button>
         </div>
 
@@ -1438,18 +1518,16 @@ export default function Customer360Page() {
               </>
             )}
 
-            {/* View customer details — only show for leads, not customers */}
-            {!isCustomer && (
-              <button
-                onClick={() => router.push(`/${tenant}/crm/customers?tab=customers&search=${encodeURIComponent(lead.full_name)}`)}
-                className="mt-2 text-[10px] font-medium px-3 py-1 rounded-md transition-colors"
-                style={{ color: '#7c3aed', background: 'transparent' }}
-                onMouseEnter={e => (e.currentTarget.style.background = '#ede9fe')}
-                onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
-              >
-                查看客户详情 →
-              </button>
-            )}
+            {/* View customer details — switch to profile tab */}
+            <button
+              onClick={() => setTab('profile')}
+              className="mt-2 text-[10px] font-medium px-3 py-1 rounded-md transition-colors"
+              style={{ color: '#7c3aed', background: 'transparent' }}
+              onMouseEnter={e => (e.currentTarget.style.background = '#ede9fe')}
+              onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
+            >
+              查看客户详情 →
+            </button>
           </div>
 
           {/* Quick action buttons */}

@@ -809,6 +809,10 @@ const EMPTY_LEAD = {
   grade: '', product_category: '', required_products: '', end_usage: '',
   // commercial
   downstream_payment: '', competitor: '', annual_purchase: '', about_company: '',
+  // CEO info
+  ceo_name: '', ceo_hobbies: '', ceo_beliefs: '', ceo_personality: '', ceo_political_views: '',
+  // usage & quality
+  monthly_usage: '', quarterly_usage: '', industry_product_quality: '',
   // notes
   attack_notes: '', requirements_notes: '', contact_address: '', contact_notes: '',
   // mgmt
@@ -1095,6 +1099,58 @@ function LeadModal({ users, onClose, onSave }: {
             </LabeledField>
           </div>
 
+          {/* CEO Info */}
+          <SectionHeader title="决策层画像 (CEO)" />
+          <div className="grid grid-cols-2 gap-3 mb-3">
+            <LabeledField label="CEO 姓名">
+              <input className={inputCls} style={inputStyle} value={form.ceo_name}
+                onChange={e => p({ ceo_name: e.target.value })} />
+            </LabeledField>
+            <LabeledField label="爱好">
+              <input className={inputCls} style={inputStyle} value={form.ceo_hobbies}
+                placeholder="如：高尔夫、旅行、钓鱼"
+                onChange={e => p({ ceo_hobbies: e.target.value })} />
+            </LabeledField>
+            <LabeledField label="信仰">
+              <input className={inputCls} style={inputStyle} value={form.ceo_beliefs}
+                onChange={e => p({ ceo_beliefs: e.target.value })} />
+            </LabeledField>
+            <LabeledField label="性格">
+              <input className={inputCls} style={inputStyle} value={form.ceo_personality}
+                placeholder="如：果断型、温和型、分析型"
+                onChange={e => p({ ceo_personality: e.target.value })} />
+            </LabeledField>
+            <LabeledField label="政治理念">
+              <input className={inputCls} style={inputStyle} value={form.ceo_political_views}
+                onChange={e => p({ ceo_political_views: e.target.value })} />
+            </LabeledField>
+          </div>
+
+          {/* Usage & Quality */}
+          <SectionHeader title="用量与品质" />
+          <div className="grid grid-cols-2 gap-3 mb-3">
+            <LabeledField label="月度用量">
+              <input className={inputCls} style={inputStyle} value={form.monthly_usage}
+                placeholder="如：300吨/月"
+                onChange={e => p({ monthly_usage: e.target.value })} />
+            </LabeledField>
+            <LabeledField label="季度用量">
+              <input className={inputCls} style={inputStyle} value={form.quarterly_usage}
+                placeholder="如：900吨/季度"
+                onChange={e => p({ quarterly_usage: e.target.value })} />
+            </LabeledField>
+            <LabeledField label="行业产品品质">
+              <select className={inputCls} style={selectStyle} value={form.industry_product_quality} onChange={e => p({ industry_product_quality: e.target.value })}>
+                <option value="">请选择</option>
+                <option value="优质">优质</option>
+                <option value="中上">中上</option>
+                <option value="中等">中等</option>
+                <option value="一般">一般</option>
+                <option value="低端">低端</option>
+              </select>
+            </LabeledField>
+          </div>
+
           {/* Business Info */}
           <SectionHeader title={tCrm('sectionBusiness')} />
           <div className="grid grid-cols-2 gap-3 mb-3">
@@ -1222,7 +1278,7 @@ const GRADE_COLORS: Record<string, { bg: string; text: string }> = {
   S: { bg: '#f0fdf4', text: '#166534' },
 };
 
-type ViewMode = 'table' | 'kanban' | 'card' | 'list';
+type ViewMode = 'table' | 'kanban' | 'card' | 'list' | 'company';
 type SortOption = {
   key: string;
   label: string;
@@ -1433,8 +1489,17 @@ function LeadsTab({ leads, users, onCreateLead, defaultStatusFilter }: {
                   style={{ borderBottom: '1px solid var(--notion-border)', background: i % 2 === 0 ? 'white' : 'var(--notion-hover)' }}
                   onMouseEnter={e => (e.currentTarget.style.background = '#F3F2EF')}
                   onMouseLeave={e => (e.currentTarget.style.background = i % 2 === 0 ? 'white' : 'var(--notion-hover)')}>
-                  <td className="px-4 py-2.5 text-xs font-medium" style={{ color: 'var(--notion-text)' }}>
-                    {lead.company || <span style={{ color: '#C2C0BC' }}>—</span>}
+                  <td className="px-4 py-2.5" style={{ minWidth: 140 }}>
+                    {lead.company ? (
+                      <div className="flex items-center gap-1.5">
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#7c3aed" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="flex-shrink-0">
+                          <rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V4a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v3"/>
+                        </svg>
+                        <span className="text-xs font-bold" style={{ color: 'var(--notion-text)' }}>{lead.company}</span>
+                      </div>
+                    ) : (
+                      <span className="text-[10px] font-medium" style={{ color: '#ef4444' }}>未填写</span>
+                    )}
                   </td>
                   <td className="px-4 py-2.5">
                     <div className="flex items-center gap-1.5">
@@ -1464,15 +1529,23 @@ function LeadsTab({ leads, users, onCreateLead, defaultStatusFilter }: {
                   <td className="px-4 py-2.5 text-xs" style={{ color: '#5F5E5B' }}>{channel || <span style={{ color: '#C2C0BC' }}>—</span>}</td>
                   <td className="px-4 py-2.5 text-xs" style={{ color: '#5F5E5B' }}>{custType || <span style={{ color: '#C2C0BC' }}>—</span>}</td>
                   <td className="px-4 py-2.5 text-xs" style={{ color: '#5F5E5B' }}>{creatorName}</td>
-                  {/* Enter Workflow */}
+                  {/* Actions */}
                   <td className="px-3 py-2.5">
-                    <button
-                      onClick={e => { e.stopPropagation(); router.push(`/${params.tenant}/crm/customer-360/${lead.id}?tab=workflow`); }}
-                      className="opacity-0 group-hover:opacity-100 transition-all flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold text-white whitespace-nowrap"
-                      style={{ background: funnelStageItem?.color ?? '#7c3aed' }}
-                      title={tCrm('enterWorkflowFull')}>
-                      {tCrm('enterWorkflowArrow')}
-                    </button>
+                    <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-all">
+                      <button
+                        onClick={e => { e.stopPropagation(); router.push(`/${params.tenant}/crm/customer-360/${lead.id}?tab=workflow`); }}
+                        className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold text-white whitespace-nowrap"
+                        style={{ background: funnelStageItem?.color ?? '#7c3aed' }}
+                        title={tCrm('enterWorkflowFull')}>
+                        {tCrm('enterWorkflowArrow')}
+                      </button>
+                      <button
+                        onClick={e => { e.stopPropagation(); router.push(`/${params.tenant}/crm/customer-360/${lead.id}`); }}
+                        className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold whitespace-nowrap"
+                        style={{ color: '#7c3aed', background: '#ede9fe' }}>
+                        详情
+                      </button>
+                    </div>
                   </td>
                 </tr>
               );
@@ -1670,6 +1743,87 @@ function LeadsTab({ leads, users, onCreateLead, defaultStatusFilter }: {
     );
   }
 
+  function renderCompanyView() {
+    // Group leads by company
+    const groups: Record<string, Lead[]> = {};
+    for (const lead of filtered) {
+      const key = lead.company?.trim() || '未分类';
+      if (!groups[key]) groups[key] = [];
+      groups[key].push(lead);
+    }
+    const sortedGroups = Object.entries(groups).sort((a, b) => {
+      if (a[0] === '未分类') return 1;
+      if (b[0] === '未分类') return -1;
+      return b[1].length - a[1].length;
+    });
+
+    if (sortedGroups.length === 0) return (
+      <div className="py-12 text-center text-sm" style={{ color: '#9B9A97' }}>
+        {hasFilters ? tCrm('noMatchingLeads') : tCrm('noLeads')}
+      </div>
+    );
+
+    return (
+      <div className="space-y-3">
+        {sortedGroups.map(([companyName, companyLeads]) => {
+          const bestGrade = (['S','A','B','C','D'] as const).find(g =>
+            companyLeads.some(l => l.custom_fields?.lead_grade === g || l.custom_fields?.customer_grade === g)
+          );
+          return (
+            <details key={companyName} open className="rounded-xl overflow-hidden group/company"
+              style={{ border: '1px solid var(--notion-border)', background: 'var(--notion-card, white)' }}>
+              <summary className="flex items-center gap-3 px-4 py-3 cursor-pointer select-none"
+                style={{ background: 'var(--notion-hover)' }}>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#7c3aed" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="flex-shrink-0">
+                  <rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V4a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v3"/>
+                </svg>
+                <span className="text-sm font-bold flex-1" style={{ color: companyName === '未分类' ? '#9B9A97' : 'var(--notion-text)' }}>
+                  {companyName}
+                </span>
+                <span className="text-[10px] px-2 py-0.5 rounded-full font-bold" style={{ background: '#ede9fe', color: '#7c3aed' }}>
+                  {companyLeads.length} 条线索
+                </span>
+                {bestGrade && (
+                  <span className="text-[10px] px-1.5 py-0.5 rounded-full font-bold"
+                    style={{ background: GRADE_COLORS[bestGrade]?.bg ?? '#f3f4f6', color: GRADE_COLORS[bestGrade]?.text ?? '#374151' }}>
+                    最高 {bestGrade}
+                  </span>
+                )}
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#9B9A97" strokeWidth="2" className="flex-shrink-0 transition-transform group-open/company:rotate-180">
+                  <polyline points="6 9 12 15 18 9"/>
+                </svg>
+              </summary>
+              <div className="divide-y" style={{ borderColor: 'var(--notion-border)' }}>
+                {companyLeads.map(lead => {
+                  const grade = lead.custom_fields?.lead_grade as string | undefined;
+                  const gs = grade ? GRADE_COLORS[grade] : null;
+                  const statusLabel = LEAD_STATUS_OPTIONS.find(o => o.value === lead.status)?.label ?? lead.status;
+                  const statusCls = LEAD_STATUS_COLORS[lead.status] ?? 'bg-gray-100 text-gray-500';
+                  return (
+                    <div key={lead.id} className="flex items-center gap-3 px-4 py-2.5 transition-colors"
+                      onMouseEnter={e => (e.currentTarget.style.background = 'var(--notion-hover)')}
+                      onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}>
+                      <span className="text-sm font-medium flex-shrink-0" style={{ color: '#7c3aed', minWidth: 80 }}>{lead.full_name}</span>
+                      <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${statusCls}`}>{statusLabel}</span>
+                      {gs && <span className="w-5 h-5 flex items-center justify-center rounded-full text-[10px] font-bold flex-shrink-0" style={{ background: gs.bg, color: gs.text }}>{grade}</span>}
+                      <span className="flex-1" />
+                      <button
+                        onClick={() => router.push(`/${params.tenant}/crm/customer-360/${lead.id}`)}
+                        className="text-[11px] font-semibold px-2.5 py-1 rounded-lg"
+                        style={{ color: '#7c3aed', background: '#ede9fe' }}>
+                        详情
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            </details>
+          );
+        })}
+      </div>
+    );
+  }
+
   // ── Filter panel sections helper ──
   function FSection({ title, children }: { title: string; children: React.ReactNode }) {
     return (
@@ -1839,10 +1993,11 @@ function LeadsTab({ leads, users, onCreateLead, defaultStatusFilter }: {
         {/* View mode toggle */}
         <div className="flex gap-0.5 rounded-lg p-0.5" style={{ background: '#F0EFec', marginLeft: 4 }}>
           {([
-            ['table',  '☰', tCrm('tableMode')],
-            ['kanban', '⊞', tCrm('kanbanMode')],
-            ['card',   '▦', tCrm('cardMode')],
-            ['list',   '≡', tCrm('listMode')],
+            ['table',   '☰', tCrm('tableMode')],
+            ['kanban',  '⊞', tCrm('kanbanMode')],
+            ['card',    '▦', tCrm('cardMode')],
+            ['list',    '≡', tCrm('listMode')],
+            ['company', '🏢', '公司视图'],
           ] as [ViewMode, string, string][]).map(([mode, icon, tip]) => (
             <button key={mode} onClick={() => setViewMode(mode)} title={tip}
               className="px-2.5 py-1 rounded-md text-sm font-medium transition-all"
@@ -1889,10 +2044,11 @@ function LeadsTab({ leads, users, onCreateLead, defaultStatusFilter }: {
       )}
 
       {/* ── Content by view mode ── */}
-      {viewMode === 'table'  && renderTable()}
-      {viewMode === 'kanban' && renderKanban()}
-      {viewMode === 'card'   && renderCards()}
-      {viewMode === 'list'   && renderList()}
+      {viewMode === 'table'   && renderTable()}
+      {viewMode === 'kanban'  && renderKanban()}
+      {viewMode === 'card'    && renderCards()}
+      {viewMode === 'list'    && renderList()}
+      {viewMode === 'company' && renderCompanyView()}
     </div>
   );
 }
@@ -2002,133 +2158,8 @@ function PublicPoolTab({ leads, users, onRestore }: { leads: Lead[]; users: Tena
   );
 }
 
-// ── Customers Tab ────────────────────────────────────────────────────────────
-function CustomersTab({ customers, contracts, users }: {
-  customers: Lead[]; contracts: Contract[]; users: TenantUser[];
-}) {
-  const router = useRouter();
-  const params = useParams<{ tenant: string }>();
-  const [search, setSearch] = useState('');
-  const userMap = useMemo(() => {
-    const m: Record<string, string> = {};
-    users.forEach(u => { m[u.id] = u.full_name || u.email; });
-    return m;
-  }, [users]);
-
-  const filtered = useMemo(() => {
-    let arr = customers;
-    if (search) {
-      const q = search.toLowerCase();
-      arr = arr.filter(c =>
-        c.full_name.toLowerCase().includes(q) ||
-        c.company?.toLowerCase().includes(q) ||
-        c.email?.toLowerCase().includes(q)
-      );
-    }
-    return arr;
-  }, [customers, search]);
-
-  // Build contract stats per lead
-  const contractStats = useMemo(() => {
-    const map: Record<string, { count: number; totalAmount: number; activeCount: number }> = {};
-    // We don't have lead_id on contracts in the list view, so we skip this for now
-    return map;
-  }, [contracts]);
-
-  return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <h2 className="text-sm font-semibold" style={{ color: 'var(--notion-text)' }}>
-            客户列表
-          </h2>
-          <span className="text-xs px-2 py-0.5 rounded-full" style={{ background: '#d1fae5', color: '#065f46' }}>
-            {filtered.length} 位客户
-          </span>
-        </div>
-        <input
-          type="text"
-          placeholder="搜索客户名称、公司、邮箱..."
-          className="text-xs px-3 py-1.5 rounded-lg outline-none w-64"
-          style={{ border: '1px solid var(--notion-border)', background: 'var(--notion-card, white)' }}
-          value={search}
-          onChange={e => setSearch(e.target.value)}
-        />
-      </div>
-
-      {filtered.length === 0 ? (
-        <div className="py-16 text-center rounded-2xl" style={{ background: 'var(--notion-card, white)', boxShadow: '0 1px 4px rgba(0,0,0,0.06)' }}>
-          <p className="text-3xl mb-2">👥</p>
-          <p className="text-sm" style={{ color: '#9B9A97' }}>暂无客户</p>
-          <p className="text-xs mt-1" style={{ color: '#C2C0BC' }}>线索转化后将出现在这里</p>
-        </div>
-      ) : (
-        <div className="rounded-xl overflow-hidden" style={{ border: '1px solid var(--notion-border)', background: 'var(--notion-card, white)' }}>
-          <table className="w-full text-sm">
-            <thead>
-              <tr style={{ borderBottom: '1px solid var(--notion-border)', background: 'var(--notion-hover)' }}>
-                <th className="text-left px-4 py-2.5 text-xs font-semibold" style={{ color: '#9B9A97' }}>客户名称</th>
-                <th className="text-left px-4 py-2.5 text-xs font-semibold" style={{ color: '#9B9A97' }}>公司</th>
-                <th className="text-left px-4 py-2.5 text-xs font-semibold" style={{ color: '#9B9A97' }}>邮箱</th>
-                <th className="text-left px-4 py-2.5 text-xs font-semibold" style={{ color: '#9B9A97' }}>负责人</th>
-                <th className="text-left px-4 py-2.5 text-xs font-semibold" style={{ color: '#9B9A97' }}>客户类型</th>
-                <th className="text-left px-4 py-2.5 text-xs font-semibold" style={{ color: '#9B9A97' }}>转化时间</th>
-                <th className="text-center px-4 py-2.5 text-xs font-semibold" style={{ color: '#9B9A97' }}>360</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filtered.map((c, idx) => {
-                const custType = (c.custom_fields as Record<string, any>)?.customer_type as string | undefined;
-                return (
-                  <tr key={c.id}
-                    className="cursor-pointer transition-colors"
-                    style={{ borderBottom: idx < filtered.length - 1 ? '1px solid var(--notion-border)' : 'none' }}
-                    onMouseEnter={e => (e.currentTarget.style.background = 'var(--notion-hover)')}
-                    onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
-                    onClick={() => router.push(`/${params.tenant}/crm/customer-360/${c.id}`)}>
-                    <td className="px-4 py-3">
-                      <div className="flex items-center gap-2">
-                        <div className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold text-white flex-shrink-0"
-                          style={{ background: 'linear-gradient(135deg, #0f9d58, #34d399)' }}>
-                          {c.full_name?.charAt(0)?.toUpperCase() ?? '?'}
-                        </div>
-                        <span className="text-xs font-semibold" style={{ color: 'var(--notion-text)' }}>{c.full_name}</span>
-                      </div>
-                    </td>
-                    <td className="px-4 py-3 text-xs" style={{ color: '#5F5E5B' }}>{c.company || '—'}</td>
-                    <td className="px-4 py-3 text-xs" style={{ color: '#5F5E5B' }}>{c.email || '—'}</td>
-                    <td className="px-4 py-3 text-xs" style={{ color: '#5F5E5B' }}>{userMap[c.assigned_to ?? ''] || '—'}</td>
-                    <td className="px-4 py-3">
-                      {custType ? (
-                        <span className="text-[10px] px-2 py-0.5 rounded-full font-medium" style={{ background: '#ede9fe', color: '#6d28d9' }}>{custType}</span>
-                      ) : <span className="text-xs" style={{ color: '#C2C0BC' }}>—</span>}
-                    </td>
-                    <td className="px-4 py-3 text-xs" style={{ color: '#9B9A97' }}>
-                      {c.updated_at ? new Date(c.updated_at).toLocaleDateString() : '—'}
-                    </td>
-                    <td className="px-4 py-3 text-center">
-                      <button
-                        onClick={e => { e.stopPropagation(); router.push(`/${params.tenant}/crm/customer-360/${c.id}`); }}
-                        className="text-[11px] font-semibold px-2.5 py-1 rounded-lg transition-colors"
-                        style={{ color: '#7c3aed', background: '#ede9fe' }}
-                        onMouseEnter={e => (e.currentTarget.style.background = '#ddd6fe')}
-                        onMouseLeave={e => (e.currentTarget.style.background = '#ede9fe')}>
-                        360
-                      </button>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      )}
-    </div>
-  );
-}
-
 // ── Main CRM Page ─────────────────────────────────────────────────────────────
-type TabKey = 'dashboard' | 'customers' | 'leads' | 'pool' | 'receivables' | 'files' | 'risks';
+type TabKey = 'dashboard' | 'leads' | 'pool' | 'receivables' | 'files' | 'risks';
 
 export default function CRMPage() {
   const tCrm = useTranslations('crm');
@@ -2261,7 +2292,6 @@ export default function CRMPage() {
 
   useEffect(() => { loadAll(); }, []);
 
-  const customers = useMemo(() => leads.filter(l => l.status === 'converted'), [leads]);
   const contractOptions = useMemo(() => contracts.map(c => ({ id: c.id, label: c.contract_no })), [contracts]);
 
   async function analyzeLead(leadId: string) {
@@ -2356,7 +2386,6 @@ export default function CRMPage() {
 
   const TABS: [TabKey, string][] = [
     ['dashboard', tCrm('tabDashboard')],
-    ['customers', `客户 (${customers.length})`],
     ['leads', tCrm('tabLeadPool')],
     ['pool', tCrm('tabPublicPool', { n: poolLeads.length })],
     ['receivables', tCrm('tabReceivables')],
@@ -2422,9 +2451,6 @@ export default function CRMPage() {
       <div className="flex-1 overflow-auto px-8 py-4">
         {tab === 'dashboard' && (
           <CRMDashboardTab onStageClick={(key) => { setTab('leads'); setLeadsFunnelFilter(key); }} />
-        )}
-        {tab === 'customers' && (
-          <CustomersTab customers={customers} contracts={contracts} users={tenantUsers} />
         )}
         {tab === 'leads' && (
           <LeadsTab
