@@ -49,6 +49,7 @@ type TenantUser = {
   full_name: string | null;
   role: string;
   is_active: boolean;
+  position_name?: string | null;
 };
 
 type UserTask = Task & { page_id: string; page_title: string };
@@ -92,13 +93,13 @@ function getUserTasks(user: TenantUser, allTasks: UserTask[]): UserTask[] {
   );
 }
 
-function UserTasksTab({ users, allTasks, onSelectUser, tHr }: {
-  users: TenantUser[];
+function UserTasksTab({ employees, allTasks, onSelectEmployee, tHr }: {
+  employees: any[];
   allTasks: UserTask[];
-  onSelectUser: (u: TenantUser) => void;
+  onSelectEmployee: (emp: any) => void;
   tHr: any;
 }) {
-  if (users.length === 0) {
+  if (employees.length === 0) {
     return <div className="py-16 text-center text-sm" style={{ color: '#9B9A97' }}>{tHr('noUserData')}</div>;
   }
 
@@ -107,45 +108,46 @@ function UserTasksTab({ users, allTasks, onSelectUser, tHr }: {
       {/* Header */}
       <div className="grid text-[10px] font-semibold uppercase tracking-wider px-5 py-2"
         style={{
-          gridTemplateColumns: '1fr 80px 80px 80px 80px',
+          gridTemplateColumns: '1fr 80px 80px 80px 100px',
           background: 'var(--notion-hover)', color: '#9B9A97',
           borderBottom: '1px solid var(--notion-border)',
         }}>
-        <span>{tHr('colUser')}</span><span>{tHr('colAllTasks')}</span><span>{tHr('colInProgress')}</span><span>{tHr('colCompleted')}</span><span>{tHr('colRole')}</span>
+        <span>{tHr('colUser')}</span><span>{tHr('colAllTasks')}</span><span>{tHr('colInProgress')}</span><span>{tHr('colCompleted')}</span><span>{tHr('colPositionName')}</span>
       </div>
-      {users.map(user => {
-        const tasks = getUserTasks(user, allTasks);
+      {employees.map(emp => {
+        const asUser: TenantUser = { id: emp.user_id || emp.id, email: emp.email, full_name: emp.full_name, role: '', is_active: true };
+        const tasks = getUserTasks(asUser, allTasks);
         const inProgress = tasks.filter(t => t.status === 'in_progress').length;
         const done = tasks.filter(t => t.status === 'done').length;
-        const name = user.full_name || user.email;
+        const name = emp.full_name || emp.email;
         return (
-          <div key={user.id}
+          <div key={emp.id}
             className="grid items-center px-5 py-3 cursor-pointer transition-colors"
             style={{
-              gridTemplateColumns: '1fr 80px 80px 80px 80px',
+              gridTemplateColumns: '1fr 80px 80px 80px 100px',
               borderBottom: '1px solid var(--notion-border)',
             }}
             onMouseEnter={e => { e.currentTarget.style.background = 'var(--notion-hover)'; }}
-            onMouseLeave={e => { e.currentTarget.style.background = 'white'; }}
-            onClick={() => onSelectUser(user)}
+            onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; }}
+            onClick={() => onSelectEmployee(emp)}
           >
             <div className="flex items-center gap-3 min-w-0">
               <div className="w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold flex-shrink-0"
                 style={{ background: '#ede9fe', color: '#7c3aed' }}>
-                {name[0].toUpperCase()}
+                {name[0]?.toUpperCase() || '?'}
               </div>
               <div className="min-w-0">
                 <div className="text-sm font-medium truncate" style={{ color: 'var(--notion-text)' }}>{name}</div>
-                {user.full_name && <div className="text-[11px] truncate" style={{ color: '#9B9A97' }}>{user.email}</div>}
+                {emp.email && <div className="text-[11px] truncate" style={{ color: '#9B9A97' }}>{emp.email}</div>}
               </div>
             </div>
             <span className="text-sm font-semibold" style={{ color: tasks.length > 0 ? 'var(--notion-text)' : '#9B9A97' }}>{tasks.length || '—'}</span>
             <span className="text-sm" style={{ color: inProgress > 0 ? '#2F80ED' : '#9B9A97' }}>{inProgress || '—'}</span>
             <span className="text-sm" style={{ color: done > 0 ? '#0F9D58' : '#9B9A97' }}>{done || '—'}</span>
-            <span className="text-xs px-2 py-0.5 rounded-full capitalize"
-              style={{ background: user.role === 'admin' ? '#ede9fe' : '#f0fdf4', color: user.role === 'admin' ? '#7c3aed' : '#16a34a' }}>
-              {user.role}
-            </span>
+            {emp.position_name ? (
+              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium"
+                style={{ background: '#ede9fe', color: '#7c3aed' }}>{emp.position_name}</span>
+            ) : <span style={{ color: '#9B9A97' }}>—</span>}
           </div>
         );
       })}
@@ -153,11 +155,12 @@ function UserTasksTab({ users, allTasks, onSelectUser, tHr }: {
   );
 }
 
-function UserTaskSlideOverContent({ user, allTasks, tHr }: { user: TenantUser; allTasks: UserTask[]; tHr: any }) {
+function UserTaskSlideOverContent({ employee, allTasks, tHr }: { employee: any; allTasks: UserTask[]; tHr: any }) {
+  const user: TenantUser = { id: employee.user_id || employee.id, email: employee.email, full_name: employee.full_name, role: '', is_active: true };
   const tasks = getUserTasks(user, allTasks);
   const current = tasks.filter(t => t.status !== 'done');
   const completed = tasks.filter(t => t.status === 'done');
-  const name = user.full_name || user.email;
+  const name = employee.full_name || employee.email;
 
   function TaskRow({ task }: { task: UserTask }) {
     const cfg = STATUS_CONFIG[task.status];
@@ -204,11 +207,13 @@ function UserTaskSlideOverContent({ user, allTasks, tHr }: { user: TenantUser; a
         </div>
         <div>
           <p className="font-semibold" style={{ color: 'var(--notion-text)' }}>{name}</p>
-          <p className="text-sm" style={{ color: '#9B9A97' }}>{user.email}</p>
-          <span className="text-[11px] px-2 py-0.5 rounded-full capitalize"
-            style={{ background: user.role === 'admin' ? '#ede9fe' : '#f0fdf4', color: user.role === 'admin' ? '#7c3aed' : '#16a34a' }}>
-            {user.role}
-          </span>
+          <p className="text-sm" style={{ color: '#9B9A97' }}>{employee.email}</p>
+          {employee.position_name && (
+            <span className="inline-flex items-center text-[11px] px-2 py-0.5 rounded-full mt-1"
+              style={{ background: '#ede9fe', color: '#7c3aed' }}>
+              {employee.position_name}
+            </span>
+          )}
         </div>
       </div>
 
@@ -272,7 +277,7 @@ export default function HRPage() {
   const [allTasks, setAllTasks] = useState<UserTask[]>([]);
   const [loading, setLoading] = useState(true);
   const [positions, setPositions] = useState<any[]>([]);
-  const [tab, setTab] = useState<'employees' | 'departments' | 'leave' | 'tasks' | 'conversations'>('employees');
+  const [tab, setTab] = useState<'employees' | 'leave' | 'tasks' | 'conversations'>('employees');
   const [showCreate, setShowCreate] = useState(false);
   const [form, setForm] = useState({ full_name: '', email: '', title: '', position_id: '', department_id: '', employment_type: 'full_time', start_date: '' });
   const [leaveForm, setLeaveForm] = useState({ employee_id: '', leave_type: 'annual', start_date: '', end_date: '', days: '', reason: '' });
@@ -293,7 +298,7 @@ export default function HRPage() {
   const [editingDept, setEditingDept] = useState(false);
   const [deptForm, setDeptForm] = useState({ name: '', parent_id: '' });
   const [showCreateDept, setShowCreateDept] = useState(false);
-  const [selectedUserForTasks, setSelectedUserForTasks] = useState<TenantUser | null>(null);
+  const [selectedUserForTasks, setSelectedUserForTasks] = useState<any | null>(null);
   const [isAdmin, setIsAdmin] = useState(false);
 
   // Conversations tab state
@@ -587,7 +592,6 @@ export default function HRPage() {
 
   const TAB_LABELS: Record<string, string> = {
     employees: tHr('tabEmployees'),
-    departments: tHr('tabDepartments'),
     leave: tHr('tabLeave'),
     tasks: tHr('tabTasks'),
     conversations: tHr('tabConversations'),
@@ -679,7 +683,7 @@ export default function HRPage() {
       {/* Toolbar */}
       <div className="px-8 pb-4 flex items-center gap-3 border-b" style={{ borderColor: 'var(--notion-border)' }}>
         <div className="flex gap-0.5 rounded-md p-0.5" style={{ background: 'var(--notion-active)' }}>
-          {(['employees', 'departments', 'leave', 'tasks', ...(isAdmin ? ['conversations' as const] : [])] as const).map(tabKey => (
+          {(['employees', 'leave', 'tasks', ...(isAdmin ? ['conversations' as const] : [])] as const).map(tabKey => (
             <button key={tabKey} onClick={() => { setTab(tabKey); if (tabKey === 'conversations') loadConversations(); if (tabKey === 'leave' && leaveView === 'my' && myLeaves.length === 0 && !myLeavesLoading) loadMyLeaves(); }}
               className="px-3 py-1 rounded text-sm font-medium transition-colors"
               style={{
@@ -693,24 +697,24 @@ export default function HRPage() {
         </div>
         <div className="ml-auto">
           {tab === 'employees' && (
-            <button onClick={() => setShowCreate(true)}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium text-white transition-opacity"
-              style={{ background: 'var(--notion-accent)' }}
-              onMouseEnter={e => (e.currentTarget.style.opacity = '0.9')}
-              onMouseLeave={e => (e.currentTarget.style.opacity = '1')}>
-              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></svg>
-              {tHr('newEmployee')}
-            </button>
-          )}
-          {tab === 'departments' && (
-            <button onClick={() => setShowCreateDept(true)}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium text-white transition-opacity"
-              style={{ background: 'var(--notion-accent)' }}
-              onMouseEnter={e => (e.currentTarget.style.opacity = '0.9')}
-              onMouseLeave={e => (e.currentTarget.style.opacity = '1')}>
-              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></svg>
-              {tHr('newDept')}
-            </button>
+            <div className="flex items-center gap-2">
+              <button onClick={() => setShowCreateDept(true)}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-opacity"
+                style={{ background: 'var(--notion-hover)', color: 'var(--notion-text)' }}
+                onMouseEnter={e => (e.currentTarget.style.opacity = '0.9')}
+                onMouseLeave={e => (e.currentTarget.style.opacity = '1')}>
+                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></svg>
+                {tHr('newDept')}
+              </button>
+              <button onClick={() => setShowCreate(true)}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium text-white transition-opacity"
+                style={{ background: 'var(--notion-accent)' }}
+                onMouseEnter={e => (e.currentTarget.style.opacity = '0.9')}
+                onMouseLeave={e => (e.currentTarget.style.opacity = '1')}>
+                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></svg>
+                {tHr('newEmployee')}
+              </button>
+            </div>
           )}
           {tab === 'leave' && (
             <button onClick={() => setShowLeaveCreate(true)}
@@ -728,13 +732,18 @@ export default function HRPage() {
       {/* Content */}
       <div className="flex-1 overflow-auto px-8 py-4">
         {tab === 'employees' && (
-          <NotionTable columns={empCols} data={employees} onRowClick={setSelectedEmployee}
-            onCreate={() => setShowCreate(true)} createLabel={tHr('createEmpLabel')} emptyMessage={tHr('emptyEmployees')} />
-        )}
-        {tab === 'departments' && (
-          <NotionTable columns={deptCols} data={departments} emptyMessage={tHr('emptyDepts')}
-            onRowClick={d => { setSelectedDept(d); setEditingDept(false); }}
-            onCreate={() => setShowCreateDept(true)} createLabel={tHr('createDeptLabel')} />
+          <div className="space-y-8">
+            <NotionTable columns={empCols} data={employees} onRowClick={setSelectedEmployee}
+              emptyMessage={tHr('emptyEmployees')} />
+            <div>
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="text-sm font-semibold" style={{ color: 'var(--notion-text-muted)' }}>{tHr('tabDepartments')}</h3>
+              </div>
+              <NotionTable columns={deptCols} data={departments} emptyMessage={tHr('emptyDepts')}
+                onRowClick={d => { setSelectedDept(d); setEditingDept(false); }}
+                onCreate={() => setShowCreateDept(true)} createLabel={tHr('createDeptLabel')} />
+            </div>
+          </div>
         )}
         {tab === 'leave' && (() => {
           const viewData = leaveView === 'my' ? myLeaves : leaves;
@@ -831,9 +840,9 @@ export default function HRPage() {
         })()}
         {tab === 'tasks' && (
           <UserTasksTab
-            users={tenantUsers}
+            employees={employees}
             allTasks={allTasks}
-            onSelectUser={setSelectedUserForTasks}
+            onSelectEmployee={setSelectedUserForTasks}
             tHr={tHr}
           />
         )}
@@ -1357,7 +1366,7 @@ export default function HRPage() {
       <SlideOver open={!!selectedUserForTasks} onClose={() => setSelectedUserForTasks(null)}
         title={selectedUserForTasks ? tHr('userTasks', { name: selectedUserForTasks.full_name || selectedUserForTasks.email }) : ''}>
         {selectedUserForTasks && (
-          <UserTaskSlideOverContent user={selectedUserForTasks} allTasks={allTasks} tHr={tHr} />
+          <UserTaskSlideOverContent employee={selectedUserForTasks} allTasks={allTasks} tHr={tHr} />
         )}
       </SlideOver>
 

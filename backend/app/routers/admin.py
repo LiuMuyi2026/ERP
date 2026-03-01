@@ -108,13 +108,38 @@ async def invite_user(body: InviteUser, ctx: dict = Depends(get_current_user_wit
     # Use default password if none provided
     plain_pw = body.password.strip() if body.password.strip() else DEFAULT_PASSWORD
 
+    db = ctx["db"]
     user_id = str(uuid.uuid4())
     hashed = get_password_hash(plain_pw)
-    await ctx["db"].execute(
+    await db.execute(
         text("INSERT INTO users (id, email, hashed_password, plain_password, full_name, role) VALUES (:id, :email, :pw, :plain, :name, :role)"),
         {"id": user_id, "email": body.email, "pw": hashed, "plain": plain_pw, "name": body.full_name, "role": body.role}
     )
-    await ctx["db"].commit()
+    # Auto-link or create employee record
+    emp_result = await db.execute(
+        text("SELECT id FROM employees WHERE email = :email AND user_id IS NULL"),
+        {"email": body.email}
+    )
+    emp_row = emp_result.fetchone()
+    if emp_row:
+        # Link existing unlinked employee to this new user
+        await db.execute(
+            text("UPDATE employees SET user_id = :uid WHERE id = :eid"),
+            {"uid": user_id, "eid": str(emp_row.id)}
+        )
+    else:
+        # Create a new employee record linked to this user
+        r = await db.execute(text("SELECT COUNT(*) FROM employees"))
+        count = r.scalar()
+        emp_id = str(uuid.uuid4())
+        emp_number = f"EMP{(count + 1):04d}"
+        await db.execute(
+            text("""INSERT INTO employees (id, user_id, employee_number, full_name, email)
+                    VALUES (:id, :uid, :num, :name, :email)"""),
+            {"id": emp_id, "uid": user_id, "num": emp_number,
+             "name": body.full_name, "email": body.email}
+        )
+    await db.commit()
     return {"id": user_id, "email": body.email}
 
 

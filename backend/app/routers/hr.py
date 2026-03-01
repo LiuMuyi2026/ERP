@@ -63,6 +63,29 @@ class RejectBody(BaseModel):
 
 @router.get("/employees")
 async def list_employees(department_id: Optional[str] = None, search: Optional[str] = None, ctx: dict = Depends(get_current_user_with_tenant)):
+    db = ctx["db"]
+    # Silently auto-link employees → users by matching email
+    await db.execute(text("""
+        UPDATE employees e
+        SET user_id = u.id
+        FROM users u
+        WHERE e.email = u.email AND e.user_id IS NULL
+    """))
+    # Auto-create employee records for users that have none
+    await db.execute(text("""
+        INSERT INTO employees (id, user_id, employee_number, full_name, email)
+        SELECT
+            gen_random_uuid(),
+            u.id,
+            'EMP' || LPAD((ROW_NUMBER() OVER (ORDER BY u.created_at) + cnt.c)::text, 4, '0'),
+            COALESCE(u.full_name, SPLIT_PART(u.email, '@', 1)),
+            u.email
+        FROM users u
+        CROSS JOIN (SELECT COUNT(*) AS c FROM employees) cnt
+        WHERE NOT EXISTS (SELECT 1 FROM employees e WHERE e.user_id = u.id)
+    """))
+    await db.commit()
+
     conditions = ["e.status != 'terminated'"]
     params: dict = {}
     if department_id:
@@ -72,7 +95,7 @@ async def list_employees(department_id: Optional[str] = None, search: Optional[s
         conditions.append("(e.full_name ILIKE :search OR e.email ILIKE :search)")
         params["search"] = f"%{search}%"
     where = " AND ".join(conditions)
-    result = await ctx["db"].execute(text(f"""
+    result = await db.execute(text(f"""
         SELECT e.*, d.name AS department_name, p.name AS position_name
         FROM employees e
         LEFT JOIN departments d ON d.id = e.department_id
@@ -90,13 +113,20 @@ async def create_employee(body: EmployeeCreate, ctx: dict = Depends(get_current_
     result = await db.execute(text("SELECT COUNT(*) FROM employees"))
     count = result.scalar()
     emp_number = f"EMP{(count + 1):04d}"
+    # Auto-link user_id if email matches an existing user
+    user_id = None
+    if body.email:
+        ur = await db.execute(text("SELECT id FROM users WHERE email = :email"), {"email": body.email})
+        urow = ur.fetchone()
+        if urow:
+            user_id = str(urow.id)
     await db.execute(
         text("""INSERT INTO employees
-               (id, employee_number, full_name, email, phone, department_id, position_id,
+               (id, user_id, employee_number, full_name, email, phone, department_id, position_id,
                 manager_id, title, employment_type, start_date, salary, currency)
-               VALUES (:id, :emp_num, :name, :email, :phone, :dept, :position,
+               VALUES (:id, :uid, :emp_num, :name, :email, :phone, :dept, :position,
                        :manager, :title, :type, :start, :salary, :currency)"""),
-        {"id": emp_id, "emp_num": emp_number, "name": body.full_name, "email": body.email,
+        {"id": emp_id, "uid": user_id, "emp_num": emp_number, "name": body.full_name, "email": body.email,
          "phone": body.phone, "dept": body.department_id, "position": body.position_id,
          "manager": body.manager_id, "title": body.title, "type": body.employment_type,
          "start": parse_date(body.start_date), "salary": body.salary, "currency": body.currency}
