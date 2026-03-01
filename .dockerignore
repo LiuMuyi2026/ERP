@@ -1,0 +1,18 @@
+.git
+.DS_Store
+.env
+.env.*
+
+# Monorepo folders not needed for backend Railway image
+frontend
+n8n-custom-nodes
+docker
+docs
+scripts
+
+# Backend local/dev artifacts
+backend/.venv
+backend/__pycache__
+backend/.pytest_cache
+backend/.mypy_cache
+backend/.env

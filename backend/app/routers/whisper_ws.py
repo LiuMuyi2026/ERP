@@ -34,9 +34,13 @@ async def ws_transcribe(ws: WebSocket, token: str = Query(...)):
     await ws.accept()
     logger.info("Whisper WS connected (user=%s)", user_id)
 
-    engine = get_engine()
-
-    from whisperlivekit import AudioProcessor
+    try:
+        engine = get_engine()
+        from whisperlivekit import AudioProcessor
+    except Exception as exc:
+        logger.warning("Whisper WS unavailable: %s", exc)
+        await ws.close(code=1013, reason="Transcription service unavailable")
+        return
 
     audio_processor = AudioProcessor(transcription_engine=engine)
 

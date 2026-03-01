@@ -15,7 +15,13 @@ def get_engine():
     """Return (and lazily initialise) the global TranscriptionEngine."""
     global _engine
     if _engine is None:
-        from whisperlivekit import TranscriptionEngine  # heavy import — defer
+        try:
+            from whisperlivekit import TranscriptionEngine  # heavy import — defer
+        except ImportError as exc:
+            raise RuntimeError(
+                "Whisper transcription dependencies are not installed. "
+                "Install backend/requirements.whisper.txt to enable /ws/transcribe."
+            ) from exc
 
         logger.info(
             "Initialising WhisperLiveKit engine (model=%s, language=%s)",
