@@ -850,7 +850,8 @@ async def _gemini_direct_search(query: str, limit: int, ctx: dict) -> list[Perso
 async def _run_people_pipeline(query: str, limit: int, ctx: dict, exclude_names: list[str] | None = None) -> AsyncIterator[str]:
     _excluded = {n.lower().strip() for n in (exclude_names or [])}
     is_more = len(_excluded) > 0
-    yield f"data: {json.dumps({'type': 'status', 'phase': 'searching', 'message': f'正在{"继续" if is_more else ""}搜索「{query}」...'})}\n\n"
+    action_prefix = "继续" if is_more else ""
+    yield f"data: {json.dumps({'type': 'status', 'phase': 'searching', 'message': f'正在{action_prefix}搜索「{query}」...'})}\n\n"
 
     # Detect if query contains Chinese characters
     has_chinese = any('\u4e00' <= c <= '\u9fff' for c in query)
@@ -1107,7 +1108,8 @@ async def company_search(body: CompanySearchRequest, ctx: dict = Depends(get_cur
         exclude_set = {n.lower().strip() for n in body.exclude_names}
         is_more = len(exclude_set) > 0
 
-        yield f"data: {json.dumps({'type': 'status', 'message': f'正在{"继续" if is_more else ""}搜索「{query}」相关公司...'})}\n\n"
+        action_prefix = "继续" if is_more else ""
+        yield f"data: {json.dumps({'type': 'status', 'message': f'正在{action_prefix}搜索「{query}」相关公司...'})}\n\n"
 
         # Vary search queries for "search more"
         has_chinese = any('\u4e00' <= c <= '\u9fff' for c in query)
