@@ -2002,8 +2002,133 @@ function PublicPoolTab({ leads, users, onRestore }: { leads: Lead[]; users: Tena
   );
 }
 
+// ── Customers Tab ────────────────────────────────────────────────────────────
+function CustomersTab({ customers, contracts, users }: {
+  customers: Lead[]; contracts: Contract[]; users: TenantUser[];
+}) {
+  const router = useRouter();
+  const params = useParams<{ tenant: string }>();
+  const [search, setSearch] = useState('');
+  const userMap = useMemo(() => {
+    const m: Record<string, string> = {};
+    users.forEach(u => { m[u.id] = u.full_name || u.email; });
+    return m;
+  }, [users]);
+
+  const filtered = useMemo(() => {
+    let arr = customers;
+    if (search) {
+      const q = search.toLowerCase();
+      arr = arr.filter(c =>
+        c.full_name.toLowerCase().includes(q) ||
+        c.company?.toLowerCase().includes(q) ||
+        c.email?.toLowerCase().includes(q)
+      );
+    }
+    return arr;
+  }, [customers, search]);
+
+  // Build contract stats per lead
+  const contractStats = useMemo(() => {
+    const map: Record<string, { count: number; totalAmount: number; activeCount: number }> = {};
+    // We don't have lead_id on contracts in the list view, so we skip this for now
+    return map;
+  }, [contracts]);
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <h2 className="text-sm font-semibold" style={{ color: 'var(--notion-text)' }}>
+            客户列表
+          </h2>
+          <span className="text-xs px-2 py-0.5 rounded-full" style={{ background: '#d1fae5', color: '#065f46' }}>
+            {filtered.length} 位客户
+          </span>
+        </div>
+        <input
+          type="text"
+          placeholder="搜索客户名称、公司、邮箱..."
+          className="text-xs px-3 py-1.5 rounded-lg outline-none w-64"
+          style={{ border: '1px solid var(--notion-border)', background: 'var(--notion-card, white)' }}
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+        />
+      </div>
+
+      {filtered.length === 0 ? (
+        <div className="py-16 text-center rounded-2xl" style={{ background: 'var(--notion-card, white)', boxShadow: '0 1px 4px rgba(0,0,0,0.06)' }}>
+          <p className="text-3xl mb-2">👥</p>
+          <p className="text-sm" style={{ color: '#9B9A97' }}>暂无客户</p>
+          <p className="text-xs mt-1" style={{ color: '#C2C0BC' }}>线索转化后将出现在这里</p>
+        </div>
+      ) : (
+        <div className="rounded-xl overflow-hidden" style={{ border: '1px solid var(--notion-border)', background: 'var(--notion-card, white)' }}>
+          <table className="w-full text-sm">
+            <thead>
+              <tr style={{ borderBottom: '1px solid var(--notion-border)', background: 'var(--notion-hover)' }}>
+                <th className="text-left px-4 py-2.5 text-xs font-semibold" style={{ color: '#9B9A97' }}>客户名称</th>
+                <th className="text-left px-4 py-2.5 text-xs font-semibold" style={{ color: '#9B9A97' }}>公司</th>
+                <th className="text-left px-4 py-2.5 text-xs font-semibold" style={{ color: '#9B9A97' }}>邮箱</th>
+                <th className="text-left px-4 py-2.5 text-xs font-semibold" style={{ color: '#9B9A97' }}>负责人</th>
+                <th className="text-left px-4 py-2.5 text-xs font-semibold" style={{ color: '#9B9A97' }}>客户类型</th>
+                <th className="text-left px-4 py-2.5 text-xs font-semibold" style={{ color: '#9B9A97' }}>转化时间</th>
+                <th className="text-center px-4 py-2.5 text-xs font-semibold" style={{ color: '#9B9A97' }}>360</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.map((c, idx) => {
+                const custType = (c.custom_fields as Record<string, any>)?.customer_type as string | undefined;
+                return (
+                  <tr key={c.id}
+                    className="cursor-pointer transition-colors"
+                    style={{ borderBottom: idx < filtered.length - 1 ? '1px solid var(--notion-border)' : 'none' }}
+                    onMouseEnter={e => (e.currentTarget.style.background = 'var(--notion-hover)')}
+                    onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
+                    onClick={() => router.push(`/${params.tenant}/crm/customer-360/${c.id}`)}>
+                    <td className="px-4 py-3">
+                      <div className="flex items-center gap-2">
+                        <div className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold text-white flex-shrink-0"
+                          style={{ background: 'linear-gradient(135deg, #0f9d58, #34d399)' }}>
+                          {c.full_name?.charAt(0)?.toUpperCase() ?? '?'}
+                        </div>
+                        <span className="text-xs font-semibold" style={{ color: 'var(--notion-text)' }}>{c.full_name}</span>
+                      </div>
+                    </td>
+                    <td className="px-4 py-3 text-xs" style={{ color: '#5F5E5B' }}>{c.company || '—'}</td>
+                    <td className="px-4 py-3 text-xs" style={{ color: '#5F5E5B' }}>{c.email || '—'}</td>
+                    <td className="px-4 py-3 text-xs" style={{ color: '#5F5E5B' }}>{userMap[c.assigned_to ?? ''] || '—'}</td>
+                    <td className="px-4 py-3">
+                      {custType ? (
+                        <span className="text-[10px] px-2 py-0.5 rounded-full font-medium" style={{ background: '#ede9fe', color: '#6d28d9' }}>{custType}</span>
+                      ) : <span className="text-xs" style={{ color: '#C2C0BC' }}>—</span>}
+                    </td>
+                    <td className="px-4 py-3 text-xs" style={{ color: '#9B9A97' }}>
+                      {c.updated_at ? new Date(c.updated_at).toLocaleDateString() : '—'}
+                    </td>
+                    <td className="px-4 py-3 text-center">
+                      <button
+                        onClick={e => { e.stopPropagation(); router.push(`/${params.tenant}/crm/customer-360/${c.id}`); }}
+                        className="text-[11px] font-semibold px-2.5 py-1 rounded-lg transition-colors"
+                        style={{ color: '#7c3aed', background: '#ede9fe' }}
+                        onMouseEnter={e => (e.currentTarget.style.background = '#ddd6fe')}
+                        onMouseLeave={e => (e.currentTarget.style.background = '#ede9fe')}>
+                        360
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Main CRM Page ─────────────────────────────────────────────────────────────
-type TabKey = 'dashboard' | 'leads' | 'pool' | 'receivables' | 'files' | 'risks';
+type TabKey = 'dashboard' | 'customers' | 'leads' | 'pool' | 'receivables' | 'files' | 'risks';
 
 export default function CRMPage() {
   const tCrm = useTranslations('crm');
@@ -2136,6 +2261,7 @@ export default function CRMPage() {
 
   useEffect(() => { loadAll(); }, []);
 
+  const customers = useMemo(() => leads.filter(l => l.status === 'converted'), [leads]);
   const contractOptions = useMemo(() => contracts.map(c => ({ id: c.id, label: c.contract_no })), [contracts]);
 
   async function analyzeLead(leadId: string) {
@@ -2230,6 +2356,7 @@ export default function CRMPage() {
 
   const TABS: [TabKey, string][] = [
     ['dashboard', tCrm('tabDashboard')],
+    ['customers', `客户 (${customers.length})`],
     ['leads', tCrm('tabLeadPool')],
     ['pool', tCrm('tabPublicPool', { n: poolLeads.length })],
     ['receivables', tCrm('tabReceivables')],
@@ -2295,6 +2422,9 @@ export default function CRMPage() {
       <div className="flex-1 overflow-auto px-8 py-4">
         {tab === 'dashboard' && (
           <CRMDashboardTab onStageClick={(key) => { setTab('leads'); setLeadsFunnelFilter(key); }} />
+        )}
+        {tab === 'customers' && (
+          <CustomersTab customers={customers} contracts={contracts} users={tenantUsers} />
         )}
         {tab === 'leads' && (
           <LeadsTab

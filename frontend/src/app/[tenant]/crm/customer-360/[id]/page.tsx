@@ -1204,9 +1204,9 @@ export default function Customer360Page() {
 
   const [data, setData] = useState<Lead360Data | null>(null);
   const [loading, setLoading] = useState(true);
-  const [tab, setTab] = useState<'comms' | 'profile' | 'business' | 'timeline' | 'workflow'>(
-    (searchParams.get('tab') as 'comms' | 'profile' | 'business' | 'timeline' | 'workflow') || 'workflow'
-  );
+  const tabParam = searchParams.get('tab') as 'comms' | 'profile' | 'business' | 'timeline' | 'workflow' | null;
+  const [tab, setTab] = useState<'comms' | 'profile' | 'business' | 'timeline' | 'workflow'>(tabParam || 'workflow');
+  const [tabInitialized, setTabInitialized] = useState(false);
   const [advancing, setAdvancing] = useState(false);
   const [showColdModal, setShowColdModal] = useState(false);
   const [changingStage, setChangingStage] = useState(false);
@@ -1234,6 +1234,17 @@ export default function Customer360Page() {
   }, [id]);
 
   useEffect(() => { load(); }, [load]);
+
+  // Default to 'business' tab for customers (converted leads)
+  useEffect(() => {
+    if (data && !tabInitialized && !tabParam) {
+      const isCustomerCheck = data.lead.status === 'converted' || data.contracts.length > 0;
+      if (isCustomerCheck) {
+        setTab('business');
+      }
+      setTabInitialized(true);
+    }
+  }, [data, tabInitialized, tabParam]);
 
   async function advanceStage() {
     setAdvancing(true);
@@ -1283,6 +1294,7 @@ export default function Customer360Page() {
   const currentStepIdx = getStepIndex(lead.status, FLOW_STEPS);
   const currentStep = FLOW_STEPS[currentStepIdx];
   const isCold = lead.is_cold;
+  const isCustomer = lead.status === 'converted' || contracts.length > 0;
   const isConverted = contracts.length > 0;
   const clientIsActive = isActive(lead.updated_at, lead.last_contacted_at);
 
@@ -1319,7 +1331,7 @@ export default function Customer360Page() {
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
               <polyline points="15 18 9 12 15 6" />
             </svg>
-            {t('backToCustomers')}
+            {isCustomer ? '返回客户列表' : t('backToCustomers')}
           </button>
         </div>
 
@@ -1329,10 +1341,14 @@ export default function Customer360Page() {
             <div className="relative mb-3">
               <div className="w-14 h-14 rounded-full flex items-center justify-center text-xl font-bold text-white"
                 style={{
-                  background: isCold
-                    ? 'linear-gradient(135deg, #9B9A97, #6B7280)'
-                    : `linear-gradient(135deg, ${statusCfg.color}, ${statusCfg.color}cc)`,
-                  boxShadow: `0 0 0 3px white, 0 0 0 5px ${isCold ? '#9B9A9744' : statusCfg.color + '44'}`,
+                  background: isCustomer
+                    ? 'linear-gradient(135deg, #0f9d58, #34d399)'
+                    : isCold
+                      ? 'linear-gradient(135deg, #9B9A97, #6B7280)'
+                      : `linear-gradient(135deg, ${statusCfg.color}, ${statusCfg.color}cc)`,
+                  boxShadow: isCustomer
+                    ? '0 0 0 3px white, 0 0 0 5px #0f9d5844'
+                    : `0 0 0 3px white, 0 0 0 5px ${isCold ? '#9B9A9744' : statusCfg.color + '44'}`,
                 }}>
                 {lead.full_name?.charAt(0)?.toUpperCase() ?? '?'}
               </div>
@@ -1346,59 +1362,94 @@ export default function Customer360Page() {
             {lead.title && <p className="text-[11px] mt-0.5" style={{ color: '#9B9A97' }}>{lead.title}</p>}
             {lead.company && <p className="text-xs mt-0.5 font-medium" style={{ color: '#5F5E5B' }}>{lead.company}</p>}
 
-            {/* Stage + Score */}
-            {!isCold && (() => {
-              const stageIdx = FAMILIARITY_STAGES.findIndex(s => s.key === (lead.familiarity_stage || 'new'));
-              const currentStage = FAMILIARITY_STAGES[stageIdx >= 0 ? stageIdx : 0];
-              const progress = Math.round(((stageIdx >= 0 ? stageIdx : 0) + 1) / FAMILIARITY_STAGES.length * 100);
-              return (
-                <div className="w-full mt-2 px-1">
-                  <div className="flex items-center gap-2">
-                    <div className="flex-1 h-1.5 rounded-full overflow-hidden" style={{ background: '#e5e7eb' }}>
-                      <div className="h-full rounded-full" style={{ width: `${progress}%`, background: currentStage.color, transition: 'width 0.5s ease' }} />
+            {isCustomer ? (
+              <>
+                {/* Customer badge */}
+                <div className="flex flex-wrap gap-1 mt-2 justify-center">
+                  <span className="text-[10px] px-2.5 py-0.5 rounded-full font-bold"
+                    style={{ background: '#d1fae5', color: '#065f46' }}>
+                    <HandIcon name="star" size={10} /> 已转化客户
+                  </span>
+                  {(lead.custom_fields as Record<string, any>)?.customer_type && (
+                    <span className="text-[10px] px-2 py-0.5 rounded-full font-medium"
+                      style={{ background: '#ede9fe', color: '#6d28d9' }}>{(lead.custom_fields as Record<string, any>).customer_type}</span>
+                  )}
+                  {clientIsActive && (
+                    <span className="text-[10px] px-2 py-0.5 rounded-full font-medium"
+                      style={{ background: '#d1fae5', color: '#059669' }}>{t('activeLabel2')}</span>
+                  )}
+                </div>
+                {/* Customer stats summary */}
+                <div className="w-full mt-3 grid grid-cols-2 gap-1.5">
+                  <div className="rounded-lg px-2 py-1.5" style={{ background: '#f0fdf4', border: '1px solid #bbf7d0' }}>
+                    <p className="text-[9px]" style={{ color: '#9B9A97' }}>合同总额</p>
+                    <p className="text-xs font-bold" style={{ color: '#065f46' }}>${totalValue.toLocaleString()}</p>
+                  </div>
+                  <div className="rounded-lg px-2 py-1.5" style={{ background: '#eff6ff', border: '1px solid #bfdbfe' }}>
+                    <p className="text-[9px]" style={{ color: '#9B9A97' }}>进行中</p>
+                    <p className="text-xs font-bold" style={{ color: '#1d4ed8' }}>{activeCount} 单</p>
+                  </div>
+                </div>
+              </>
+            ) : (
+              <>
+                {/* Stage + Score for leads */}
+                {!isCold && (() => {
+                  const stageIdx = FAMILIARITY_STAGES.findIndex(s => s.key === (lead.familiarity_stage || 'new'));
+                  const currentStage = FAMILIARITY_STAGES[stageIdx >= 0 ? stageIdx : 0];
+                  const progress = Math.round(((stageIdx >= 0 ? stageIdx : 0) + 1) / FAMILIARITY_STAGES.length * 100);
+                  return (
+                    <div className="w-full mt-2 px-1">
+                      <div className="flex items-center gap-2">
+                        <div className="flex-1 h-1.5 rounded-full overflow-hidden" style={{ background: '#e5e7eb' }}>
+                          <div className="h-full rounded-full" style={{ width: `${progress}%`, background: currentStage.color, transition: 'width 0.5s ease' }} />
+                        </div>
+                        <span className="text-[10px] font-bold whitespace-nowrap" style={{ color: currentStage.color }}>{currentStage.label}</span>
+                      </div>
                     </div>
-                    <span className="text-[10px] font-bold whitespace-nowrap" style={{ color: currentStage.color }}>{currentStage.label}</span>
+                  );
+                })()}
+                {isCold && (
+                  <div className="w-full mt-2 px-1">
+                    <div className="flex items-center gap-2">
+                      <div className="flex-1 h-1.5 rounded-full overflow-hidden" style={{ background: '#e5e7eb' }}>
+                        <div className="h-full rounded-full" style={{ width: '0%' }} />
+                      </div>
+                      <span className="text-[10px] font-bold whitespace-nowrap" style={{ color: '#9B9A97' }}>{t('coldLeadLabel')}</span>
+                    </div>
                   </div>
+                )}
+
+                {/* Status + type badges */}
+                <div className="flex flex-wrap gap-1 mt-1.5 justify-center">
+                  <span className="text-[10px] px-2 py-0.5 rounded-full font-semibold"
+                    style={{ background: isCold ? 'var(--notion-hover)' : statusCfg.bg, color: isCold ? '#9B9A97' : statusCfg.color }}>
+                    {isCold ? <><HandIcon name="ice-cube" size={10} /> {t('coldLeadLabel')}</> : statusCfg.label}
+                  </span>
+                  {(lead.custom_fields as Record<string, any>)?.customer_type && (
+                    <span className="text-[10px] px-2 py-0.5 rounded-full font-medium"
+                      style={{ background: '#ede9fe', color: '#6d28d9' }}>{(lead.custom_fields as Record<string, any>).customer_type}</span>
+                  )}
+                  {clientIsActive && !isCold && (
+                    <span className="text-[10px] px-2 py-0.5 rounded-full font-medium"
+                      style={{ background: '#d1fae5', color: '#059669' }}>{t('activeLabel2')}</span>
+                  )}
                 </div>
-              );
-            })()}
-            {isCold && (
-              <div className="w-full mt-2 px-1">
-                <div className="flex items-center gap-2">
-                  <div className="flex-1 h-1.5 rounded-full overflow-hidden" style={{ background: '#e5e7eb' }}>
-                    <div className="h-full rounded-full" style={{ width: '0%' }} />
-                  </div>
-                  <span className="text-[10px] font-bold whitespace-nowrap" style={{ color: '#9B9A97' }}>{t('coldLeadLabel')}</span>
-                </div>
-              </div>
+              </>
             )}
 
-            {/* Status + type badges */}
-            <div className="flex flex-wrap gap-1 mt-1.5 justify-center">
-              <span className="text-[10px] px-2 py-0.5 rounded-full font-semibold"
-                style={{ background: isCold ? 'var(--notion-hover)' : statusCfg.bg, color: isCold ? '#9B9A97' : statusCfg.color }}>
-                {isCold ? <><HandIcon name="ice-cube" size={10} /> {t('coldLeadLabel')}</> : statusCfg.label}
-              </span>
-              {(lead.custom_fields as Record<string, any>)?.customer_type && (
-                <span className="text-[10px] px-2 py-0.5 rounded-full font-medium"
-                  style={{ background: '#ede9fe', color: '#6d28d9' }}>{(lead.custom_fields as Record<string, any>).customer_type}</span>
-              )}
-              {clientIsActive && !isCold && (
-                <span className="text-[10px] px-2 py-0.5 rounded-full font-medium"
-                  style={{ background: '#d1fae5', color: '#059669' }}>{t('activeLabel2')}</span>
-              )}
-            </div>
-
-            {/* View customer details */}
-            <button
-              onClick={() => router.push(`/${tenant}/crm/customers?tab=customers&search=${encodeURIComponent(lead.full_name)}`)}
-              className="mt-2 text-[10px] font-medium px-3 py-1 rounded-md transition-colors"
-              style={{ color: '#7c3aed', background: 'transparent' }}
-              onMouseEnter={e => (e.currentTarget.style.background = '#ede9fe')}
-              onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
-            >
-              查看客户详情 →
-            </button>
+            {/* View customer details — only show for leads, not customers */}
+            {!isCustomer && (
+              <button
+                onClick={() => router.push(`/${tenant}/crm/customers?tab=customers&search=${encodeURIComponent(lead.full_name)}`)}
+                className="mt-2 text-[10px] font-medium px-3 py-1 rounded-md transition-colors"
+                style={{ color: '#7c3aed', background: 'transparent' }}
+                onMouseEnter={e => (e.currentTarget.style.background = '#ede9fe')}
+                onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
+              >
+                查看客户详情 →
+              </button>
+            )}
           </div>
 
           {/* Quick action buttons */}
@@ -1523,16 +1574,17 @@ export default function Customer360Page() {
             style={{ background: 'var(--notion-card, white)', boxShadow: '0 1px 4px rgba(0,0,0,0.08), 0 0 0 1px rgba(0,0,0,0.04)' }}>
             <div className="px-5 py-3" style={{ borderBottom: '1px solid var(--notion-border)', background: 'var(--notion-hover)' }}>
               <p className="text-xs font-semibold" style={{ color: 'var(--notion-text)' }}>
-                {t('businessFlow')}
+                {isCustomer ? '客户历程' : t('businessFlow')}
                 {isCold && <span className="ml-2 text-[10px] px-2 py-0.5 rounded-full" style={{ background: 'var(--notion-hover)', color: '#9B9A97' }}>{t('coldLeadBadge')}</span>}
+                {isCustomer && <span className="ml-2 text-[10px] px-2 py-0.5 rounded-full" style={{ background: '#d1fae5', color: '#065f46' }}>已完成转化</span>}
               </p>
             </div>
             <div className="px-5 py-4">
               <div className="flex items-center gap-0">
                 {FLOW_STEPS.map((step, idx) => {
-                  const isDone = idx < currentStepIdx;
-                  const isCurrent = idx === currentStepIdx && !isCold;
-                  const isFuture = idx > currentStepIdx;
+                  const isDone = isCustomer ? true : idx < currentStepIdx;
+                  const isCurrent = isCustomer ? false : (idx === currentStepIdx && !isCold);
+                  const isFuture = isCustomer ? false : idx > currentStepIdx;
                   return (
                     <div key={step.key} className="flex items-center flex-1 min-w-0">
                       {/* Step node */}
@@ -1578,7 +1630,7 @@ export default function Customer360Page() {
               </div>
 
               {/* Current stage description */}
-              {!isCold && (
+              {!isCold && !isCustomer && (
                 <div className="mt-3 pt-3" style={{ borderTop: '1px solid var(--notion-border)' }}>
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
@@ -1591,6 +1643,16 @@ export default function Customer360Page() {
                         {statusCfg.label}
                       </span>
                     </div>
+                  </div>
+                </div>
+              )}
+              {isCustomer && (
+                <div className="mt-3 pt-3" style={{ borderTop: '1px solid var(--notion-border)' }}>
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm"><HandIcon name="checkmark" size={14} /></span>
+                    <span className="text-xs font-semibold" style={{ color: '#0f9d58' }}>
+                      客户已完成全部业务流程转化
+                    </span>
                   </div>
                 </div>
               )}
