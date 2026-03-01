@@ -580,9 +580,12 @@ function getProfileCategories(t: any): ProfileCategory[] {
       title: '个人信息',
       fields: [
         { label: t('fieldName'), key: 'full_name' },
+        { label: 'First Name', key: 'cf_first_name' },
+        { label: 'Last Name', key: 'cf_last_name' },
         { label: '性别', key: 'cf_gender', opts: { options: ['male', 'female', 'other'] } },
         { label: t('fieldTitle'), key: 'title' },
         { label: t('fieldSource'), key: 'source' },
+        { label: '来源渠道', key: 'cf_source_channel' },
         { label: '信仰', key: 'cf_religion' },
         { label: '国家/地区', key: 'cf_country' },
         { label: '城市', key: 'cf_city' },
@@ -615,13 +618,14 @@ function getProfileCategories(t: any): ProfileCategory[] {
       title: '业务信息',
       fields: [
         { label: '状态', key: 'status' },
+        { label: '跟进状态', key: 'follow_up_status', opts: { options: ['pending', 'done'] } },
         { label: '客户类型', key: 'cf_customer_type' },
-        { label: '客户质量', key: 'cf_customer_quality' },
         { label: '客户等级', key: 'cf_customer_grade', opts: { options: ['S', 'A', 'B', 'C', 'D'] } },
         { label: 'GRADE', key: 'cf_grade' },
         { label: '产品品类', key: 'cf_product_category' },
         { label: '需求产品', key: 'cf_required_products' },
         { label: '终端用途', key: 'cf_end_usage' },
+        { label: '标签', key: 'cf_tags' },
       ],
     },
     {

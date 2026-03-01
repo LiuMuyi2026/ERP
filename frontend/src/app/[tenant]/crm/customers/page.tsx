@@ -1095,7 +1095,7 @@ function CustomersTab() {
                   <td style={{ padding: '12px 12px' }}>
                     <button onClick={e => { e.stopPropagation(); router.push(`/${tenant}/crm/customer-360/${c.id}`); }}
                       style={{ fontSize: 12, padding: '4px 10px', borderRadius: 6, border: '1px solid var(--notion-border)', background: 'none', cursor: 'pointer', color: 'var(--notion-text-muted)' }}>
-                      360°
+                      客户详情
                     </button>
                   </td>
                 </tr>
@@ -1190,7 +1190,7 @@ function CustomersTab() {
                     <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
                       <button onClick={e => { e.stopPropagation(); router.push(`/${tenant}/crm/customer-360/${c.id}`); }}
                         style={{ fontSize: 10, padding: '3px 8px', borderRadius: 6, border: '1px solid var(--notion-border)', background: 'none', cursor: 'pointer', color: 'var(--notion-text-muted)' }}>
-                        360°
+                        客户详情
                       </button>
                     </div>
                   </div>

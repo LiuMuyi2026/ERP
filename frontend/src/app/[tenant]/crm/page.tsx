@@ -805,7 +805,7 @@ const EMPTY_LEAD = {
   // company info
   company_website: '', main_products: '', position: '', industry: '',
   // biz info
-  customer_type: '', customer_quality: '', customer_grade: '',
+  customer_type: '', customer_grade: '',
   grade: '', product_category: '', required_products: '', end_usage: '',
   // commercial
   downstream_payment: '', competitor: '', annual_purchase: '', about_company: '',
@@ -1159,10 +1159,6 @@ function LeadModal({ users, onClose, onSave }: {
                 <option value="">{tCrm('pleaseSelect')}</option>
                 {CUSTOMER_TYPES.map(ct => <option key={ct} value={ct}>{ct}</option>)}
               </select>
-            </LabeledField>
-            <LabeledField label={tCrm('customerQuality')}>
-              <input className={inputCls} style={inputStyle} value={form.customer_quality}
-                onChange={e => p({ customer_quality: e.target.value })} />
             </LabeledField>
             <LabeledField label={tCrm('customerGrade')}>
               <select className={inputCls} style={selectStyle} value={form.customer_grade} onChange={e => p({ customer_grade: e.target.value })}>
