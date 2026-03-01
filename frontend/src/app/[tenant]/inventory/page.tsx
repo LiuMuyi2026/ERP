@@ -82,11 +82,13 @@ type Quotation = {
 type PurchaseOrder = {
   id: string; po_number: string; vendor_company_id?: string;
   supplier_name?: string; supplier_rating?: string; supplier_contact?: string;
-  product_name?: string; specs?: string; quantity?: string;
+  product_id?: string; product_name?: string; specs?: string; quantity?: string;
+  quantity_numeric?: number;
   unit_price?: number; total?: number; currency: string; status: string;
   payment_method?: string; expected_date?: string;
   contract_file_url?: string; contract_file_name?: string;
   notes?: string; lead_id?: string; created_at: string;
+  linked_product_name?: string; linked_product_sku?: string;
 };
 
 function getPOStatusConfig(tInventory: any): Record<string, { label: string; bg: string; color: string }> {
@@ -467,8 +469,8 @@ export default function InventoryPage() {
   const [poCreating, setPoCreating] = useState(false);
   const [poSaving, setPoSaving] = useState(false);
   const [newPO, setNewPO] = useState({
-    po_number: '', vendor_company_id: '', product_name: '', specs: '',
-    quantity: '', unit_price: '', total: '', currency: 'USD',
+    po_number: '', vendor_company_id: '', product_id: '', product_name: '', specs: '',
+    quantity: '', quantity_numeric: '', unit_price: '', total: '', currency: 'USD',
     expected_date: '', payment_method: '', notes: '', status: 'draft',
   });
 
@@ -708,9 +710,11 @@ export default function InventoryPage() {
       await api.post('/api/orders/purchase', {
         po_number: newPO.po_number,
         vendor_company_id: newPO.vendor_company_id || undefined,
+        product_id: newPO.product_id || undefined,
         product_name: newPO.product_name || undefined,
         specs: newPO.specs || undefined,
         quantity: newPO.quantity || undefined,
+        quantity_numeric: newPO.quantity_numeric ? parseFloat(newPO.quantity_numeric) : undefined,
         unit_price: newPO.unit_price ? parseFloat(newPO.unit_price) : undefined,
         total: newPO.total ? parseFloat(newPO.total) : undefined,
         currency: newPO.currency,
@@ -719,7 +723,7 @@ export default function InventoryPage() {
         notes: newPO.notes || undefined,
         status: newPO.status,
       });
-      setNewPO({ po_number: '', vendor_company_id: '', product_name: '', specs: '', quantity: '', unit_price: '', total: '', currency: 'USD', expected_date: '', payment_method: '', notes: '', status: 'draft' });
+      setNewPO({ po_number: '', vendor_company_id: '', product_id: '', product_name: '', specs: '', quantity: '', quantity_numeric: '', unit_price: '', total: '', currency: 'USD', expected_date: '', payment_method: '', notes: '', status: 'draft' });
       setPoPanelMode('none');
       await loadPurchaseOrders();
     } catch (e: any) {
@@ -1279,6 +1283,21 @@ export default function InventoryPage() {
                               ))}
                             </select>
                           </div>
+                          <div>
+                            <label className="text-[11px] font-semibold uppercase tracking-wide block mb-1" style={{ color: '#9B9A97' }}>关联产品（库存）</label>
+                            <select value={newPO.product_id}
+                              onChange={e => {
+                                const pid = e.target.value;
+                                const prod = products.find(p => p.id === pid);
+                                setNewPO(p => ({ ...p, product_id: pid, product_name: prod ? prod.name : p.product_name }));
+                              }}
+                              style={{ ...poInputStyle, background: 'var(--notion-card, white)' }}>
+                              <option value="">不关联产品</option>
+                              {products.map(p => (
+                                <option key={p.id} value={p.id}>{p.sku} - {p.name} (库存: {p.current_stock})</option>
+                              ))}
+                            </select>
+                          </div>
                           <div className="grid grid-cols-2 gap-3">
                             <div>
                               <label className="text-[11px] font-semibold uppercase tracking-wide block mb-1" style={{ color: '#9B9A97' }}>{tInventory('poProductName')}</label>
@@ -1288,8 +1307,8 @@ export default function InventoryPage() {
                             </div>
                             <div>
                               <label className="text-[11px] font-semibold uppercase tracking-wide block mb-1" style={{ color: '#9B9A97' }}>{tInventory('poQuantity')}</label>
-                              <input placeholder={tInventory('poQuantityPlaceholder')} value={newPO.quantity}
-                                onChange={e => setNewPO(p => ({ ...p, quantity: e.target.value }))}
+                              <input placeholder={tInventory('poQuantityPlaceholder')} type="number" value={newPO.quantity_numeric || newPO.quantity}
+                                onChange={e => setNewPO(p => ({ ...p, quantity: e.target.value, quantity_numeric: e.target.value }))}
                                 style={poInputStyle} />
                             </div>
                           </div>

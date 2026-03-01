@@ -21,7 +21,8 @@ type Lead = {
 type Contract = {
   id: string; contract_no: string; account_name?: string; status: string;
   payment_method?: string; contract_amount: number; currency: string;
-  task_total: number; task_done: number; approvals_pending: number; receivable_outstanding: number;
+  task_total: number; task_done: number; approvals_pending: number;
+  receivable_outstanding: number; payable_outstanding: number;
 };
 type Receivable = {
   id: string; contract_id: string; contract_no: string; due_date?: string;
@@ -41,8 +42,9 @@ type PendingApproval = {
 type Overview = {
   leads_open: number; accounts_active: number; contracts_total: number;
   orders_running: number; approvals_pending: number; receivable_outstanding: number;
+  payable_outstanding: number;
 };
-type TenantUser = { id: string; email: string; full_name: string | null; role: string };
+type TenantUser = { id: string; email: string; full_name: string | null; role: string; position_name?: string | null };
 type TrendPoint = { period: string; count: number };
 
 // ── Funnel stages (6-stage workflow) ──────────────────────────────────────
@@ -923,7 +925,7 @@ function LeadModal({ users, onClose, onSave }: {
             <LabeledField label={tCrm('assignedTo')}>
               <select className={inputCls} style={selectStyle} value={form.assigned_to} onChange={e => p({ assigned_to: e.target.value })}>
                 <option value="">{tCrm('selectSalesperson')}</option>
-                {users.map(u => <option key={u.id} value={u.id}>{u.full_name || u.email}</option>)}
+                {users.map(u => <option key={u.id} value={u.id}>{(u.full_name || u.email) + (u.position_name ? ` (${u.position_name})` : '')}</option>)}
               </select>
             </LabeledField>
             <LabeledField label={tCrm('sourceChannel')}>
@@ -1320,7 +1322,7 @@ function LeadsTab({ leads, users, onCreateLead, defaultStatusFilter }: {
   }, []);
 
   const userMap = useMemo(
-    () => Object.fromEntries(users.map(u => [u.id, u.full_name || u.email])),
+    () => Object.fromEntries(users.map(u => [u.id, (u.full_name || u.email) + (u.position_name ? ` (${u.position_name})` : '')])),
     [users],
   );
 
@@ -1786,7 +1788,7 @@ function LeadsTab({ leads, users, onCreateLead, defaultStatusFilter }: {
 
               <FSection title={tCrm('assignedToFilter')}>
                 <CheckGroup
-                  options={users.map(u => ({ value: u.id, label: u.full_name || u.email }))}
+                  options={users.map(u => ({ value: u.id, label: (u.full_name || u.email) + (u.position_name ? ` (${u.position_name})` : '') }))}
                   selected={fAssignedTo}
                   onToggle={v => toggleArr(fAssignedTo, v, setFAssignedTo)}
                 />
@@ -1794,7 +1796,7 @@ function LeadsTab({ leads, users, onCreateLead, defaultStatusFilter }: {
 
               <FSection title={tCrm('createdByFilter')}>
                 <CheckGroup
-                  options={users.map(u => ({ value: u.id, label: u.full_name || u.email }))}
+                  options={users.map(u => ({ value: u.id, label: (u.full_name || u.email) + (u.position_name ? ` (${u.position_name})` : '') }))}
                   selected={fCreatedBy}
                   onToggle={v => toggleArr(fCreatedBy, v, setFCreatedBy)}
                 />
@@ -1921,7 +1923,7 @@ function PublicPoolTab({ leads, users, onRestore }: { leads: Lead[]; users: Tena
     return l.full_name?.toLowerCase().includes(q) || l.company?.toLowerCase().includes(q) || l.email?.toLowerCase().includes(q);
   });
 
-  const userMap = Object.fromEntries(users.map(u => [u.id, u.full_name || u.email]));
+  const userMap = Object.fromEntries(users.map(u => [u.id, (u.full_name || u.email) + (u.position_name ? ` (${u.position_name})` : '')]));
 
   return (
     <div className="space-y-3">
@@ -2026,6 +2028,12 @@ export default function CRMPage() {
   const [selectedContract, setSelectedContract] = useState<Contract | null>(null);
   const [timeline, setTimeline] = useState<any>(null);
 
+  type InventoryProduct = { id: string; sku: string; name: string; current_stock: number; cost_price: number; sell_price: number };
+  const [inventoryProducts, setInventoryProducts] = useState<InventoryProduct[]>([]);
+
+  type LineItem = { product_id: string; product_name: string; quantity: string; unit_price: string };
+  const [contractLineItems, setContractLineItems] = useState<LineItem[]>([]);
+
   const [contractForm, setContractForm] = useState({
     contract_no: '', account_name: '', contract_amount: '', currency: 'USD',
     payment_method: 'TT', incoterm: 'FOB', sign_date: '', eta: '',
@@ -2105,7 +2113,7 @@ export default function CRMPage() {
 
   async function loadAll() {
     setLoading(true);
-    const [ov, ld, pl, ct, rc, ap, users] = await Promise.all([
+    const [ov, ld, pl, ct, rc, ap, users, prods] = await Promise.all([
       api.get('/api/crm/overview').catch(() => null),
       api.get('/api/crm/leads').catch(() => []),
       api.get('/api/crm/leads?pool=public').catch(() => []),
@@ -2113,6 +2121,7 @@ export default function CRMPage() {
       api.get('/api/crm/receivables').catch(() => []),
       api.get('/api/crm/risks/pending-approvals').catch(() => []),
       api.get('/api/admin/users').catch(() => []),
+      api.get('/api/inventory/products').catch(() => []),
     ]);
     setOverview(ov);
     setLeads(Array.isArray(ld) ? ld : []);
@@ -2121,6 +2130,7 @@ export default function CRMPage() {
     setReceivables(Array.isArray(rc) ? rc : []);
     setPendingApprovals(Array.isArray(ap) ? ap : []);
     setTenantUsers(Array.isArray(users) ? users : []);
+    setInventoryProducts(Array.isArray(prods) ? prods : []);
     setLoading(false);
   }
 
@@ -2138,13 +2148,27 @@ export default function CRMPage() {
   async function createContract(e: React.FormEvent) {
     e.preventDefault();
     try {
-      await api.post('/api/crm/contracts', {
+      const res = await api.post('/api/crm/contracts', {
         ...contractForm,
         contract_amount: Number(contractForm.contract_amount || 0),
         sign_date: contractForm.sign_date || null,
         eta: contractForm.eta || null,
       });
+      // Create line items if any
+      const contractId = (res as any)?.id;
+      if (contractId && contractLineItems.length > 0) {
+        for (const li of contractLineItems) {
+          if (!li.product_name && !li.product_id) continue;
+          await api.post(`/api/crm/contracts/${contractId}/line-items`, {
+            product_id: li.product_id || undefined,
+            product_name: li.product_name,
+            quantity: parseFloat(li.quantity) || 0,
+            unit_price: parseFloat(li.unit_price) || 0,
+          });
+        }
+      }
       setShowContractModal(false);
+      setContractLineItems([]);
       await loadAll();
     } catch (err: any) { alert(err.message); }
   }
@@ -2176,7 +2200,12 @@ export default function CRMPage() {
     { key: 'contract_amount', label: tCrm('colAmount'), render: (v, r) => `${r.currency} ${Number(v || 0).toLocaleString()}` },
     { key: 'task_done', label: tCrm('colFulfillProgress'), render: (_v, r) => `${r.task_done}/${r.task_total}` },
     { key: 'approvals_pending', label: tCrm('colPendingApproval') },
-    { key: 'receivable_outstanding', label: tCrm('colOutstanding'), render: (v, r) => `${r.currency} ${Number(v || 0).toLocaleString()}` },
+    { key: 'receivable_outstanding', label: tCrm('colOutstanding'), render: (_v, r) => (
+      <div className="text-xs leading-snug">
+        <div style={{ color: '#15803d' }}>应收: {r.currency} {Number(r.receivable_outstanding || 0).toLocaleString()}</div>
+        <div style={{ color: '#dc2626' }}>应付: {r.currency} {Number(r.payable_outstanding || 0).toLocaleString()}</div>
+      </div>
+    ) },
     { key: 'status', label: tCrm('colStatus'), type: 'status' },
   ];
 
@@ -2220,7 +2249,7 @@ export default function CRMPage() {
       </div>
 
       {/* KPI row */}
-      <div className="px-8 pb-4 grid grid-cols-6 gap-3">
+      <div className="px-8 pb-4 grid grid-cols-7 gap-3">
         {[
           { label: tCrm('kpiLeadPool'), value: overview?.leads_open ?? 0 },
           { label: tCrm('kpiActiveCustomers'), value: overview?.accounts_active ?? 0 },
@@ -2228,6 +2257,7 @@ export default function CRMPage() {
           { label: tCrm('kpiFulfilling'), value: overview?.orders_running ?? 0 },
           { label: tCrm('kpiPendingApproval'), value: overview?.approvals_pending ?? 0 },
           { label: tCrm('kpiOutstandingReceivable'), value: Number(overview?.receivable_outstanding || 0).toLocaleString() },
+          { label: '应付未付', value: Number(overview?.payable_outstanding || 0).toLocaleString() },
         ].map(k => (
           <div key={k.label} className="rounded-xl px-4 py-3" style={{ background: '#f7f6f3', border: '1px solid var(--notion-border)' }}>
             <p className="text-xs font-medium" style={{ color: 'var(--notion-text-muted)' }}>{k.label}</p>
@@ -2483,8 +2513,54 @@ export default function CRMPage() {
               <input type="checkbox" checked={contractForm.create_operation_order} onChange={e => setContractForm({ ...contractForm, create_operation_order: e.target.checked })} />
               {tCrm('autoCreateOrder')}
             </label>
+
+            {/* Line items section */}
+            <div className="border rounded-lg p-3 mt-2" style={{ borderColor: 'var(--notion-border)' }}>
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-xs font-semibold" style={{ color: '#9B9A97' }}>产品明细</span>
+                <button type="button" onClick={() => setContractLineItems(prev => [...prev, { product_id: '', product_name: '', quantity: '', unit_price: '' }])}
+                  className="text-xs px-2 py-0.5 rounded" style={{ background: 'var(--notion-hover)', color: 'var(--notion-text)' }}>+ 添加产品</button>
+              </div>
+              {contractLineItems.map((li, idx) => {
+                const liTotal = (parseFloat(li.quantity) || 0) * (parseFloat(li.unit_price) || 0);
+                return (
+                  <div key={idx} className="grid grid-cols-12 gap-1 mb-1 items-center">
+                    <div className="col-span-4">
+                      <select value={li.product_id} className="w-full text-xs px-1 py-1 rounded border" style={{ borderColor: 'var(--notion-border)' }}
+                        onChange={e => {
+                          const pid = e.target.value;
+                          const prod = inventoryProducts.find(p => p.id === pid);
+                          setContractLineItems(prev => prev.map((x, i) => i === idx ? { ...x, product_id: pid, product_name: prod?.name || x.product_name, unit_price: prod?.sell_price?.toString() || x.unit_price } : x));
+                        }}>
+                        <option value="">选择产品</option>
+                        {inventoryProducts.map(p => <option key={p.id} value={p.id}>{p.sku} - {p.name}</option>)}
+                      </select>
+                    </div>
+                    <div className="col-span-3">
+                      <input placeholder="数量" type="number" value={li.quantity} className="w-full text-xs px-1 py-1 rounded border" style={{ borderColor: 'var(--notion-border)' }}
+                        onChange={e => setContractLineItems(prev => prev.map((x, i) => i === idx ? { ...x, quantity: e.target.value } : x))} />
+                    </div>
+                    <div className="col-span-3">
+                      <input placeholder="单价" type="number" value={li.unit_price} className="w-full text-xs px-1 py-1 rounded border" style={{ borderColor: 'var(--notion-border)' }}
+                        onChange={e => setContractLineItems(prev => prev.map((x, i) => i === idx ? { ...x, unit_price: e.target.value } : x))} />
+                    </div>
+                    <div className="col-span-1 text-right text-[10px]" style={{ color: '#9B9A97' }}>{liTotal > 0 ? liTotal.toLocaleString() : ''}</div>
+                    <div className="col-span-1 text-center">
+                      <button type="button" onClick={() => setContractLineItems(prev => prev.filter((_, i) => i !== idx))}
+                        className="text-xs" style={{ color: '#dc2626' }}>✕</button>
+                    </div>
+                  </div>
+                );
+              })}
+              {contractLineItems.length > 0 && (
+                <div className="text-right text-xs font-semibold mt-1" style={{ color: '#374151' }}>
+                  合计: {contractLineItems.reduce((s, li) => s + (parseFloat(li.quantity) || 0) * (parseFloat(li.unit_price) || 0), 0).toLocaleString()}
+                </div>
+              )}
+            </div>
+
             <div className="flex justify-end gap-2 pt-2">
-              <button type="button" onClick={() => setShowContractModal(false)} className="px-3 py-1.5 rounded border" style={{ borderColor: 'var(--notion-border)' }}>{tCrm('cancelBtn')}</button>
+              <button type="button" onClick={() => { setShowContractModal(false); setContractLineItems([]); }} className="px-3 py-1.5 rounded border" style={{ borderColor: 'var(--notion-border)' }}>{tCrm('cancelBtn')}</button>
               <button type="submit" className="px-3 py-1.5 rounded text-white" style={{ background: 'var(--notion-accent)' }}>{tCommon('save')}</button>
             </div>
           </form>

@@ -17,6 +17,7 @@ type Contract360 = {
   id: string; contract_no: string; account_label: string;
   contract_amount: number; currency: string; status: string;
   sign_date: string; receivable_total: number; receivable_received: number;
+  payable_total: number; payable_paid: number;
   created_at: string;
 };
 type AuditLog = {
@@ -877,6 +878,9 @@ function BusinessTab({
     const pct = c.receivable_total > 0
       ? Math.min(100, Math.round((c.receivable_received / c.receivable_total) * 100))
       : 0;
+    const payPct = c.payable_total > 0
+      ? Math.min(100, Math.round((c.payable_paid / c.payable_total) * 100))
+      : 0;
     return (
       <div className="rounded-2xl overflow-hidden"
         style={{ background: 'var(--notion-card, white)', boxShadow: '0 1px 4px rgba(0,0,0,0.06), 0 0 0 1px rgba(0,0,0,0.04)' }}>
@@ -896,6 +900,7 @@ function BusinessTab({
               {c.currency} {Number(c.contract_amount || 0).toLocaleString()}
             </span>
           </div>
+          {/* Receivable progress */}
           <div>
             <div className="flex items-center justify-between mb-1">
               <span className="text-[10px]" style={{ color: '#9B9A97' }}>{t('paymentProgressLabel')}</span>
@@ -914,11 +919,33 @@ function BusinessTab({
               </span>
             </div>
           </div>
+          {/* Payable progress */}
+          {c.payable_total > 0 && (
+            <div className="mt-2">
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-[10px]" style={{ color: '#9B9A97' }}>应付进度</span>
+                <span className="text-[10px] font-semibold" style={{ color: '#dc2626' }}>{payPct}%</span>
+              </div>
+              <div className="h-1.5 rounded-full overflow-hidden" style={{ background: 'var(--notion-hover)' }}>
+                <div className="h-full rounded-full transition-all"
+                  style={{ width: `${payPct}%`, background: payPct === 100 ? '#15803d' : '#f59e0b' }} />
+              </div>
+              <div className="flex justify-between mt-1">
+                <span className="text-[9px]" style={{ color: '#9B9A97' }}>
+                  已付: {c.currency} {Number(c.payable_paid || 0).toLocaleString()}
+                </span>
+                <span className="text-[9px]" style={{ color: '#9B9A97' }}>
+                  应付: {c.currency} {Number(c.payable_total || 0).toLocaleString()}
+                </span>
+              </div>
+            </div>
+          )}
           {c.sign_date && (
             <p className="text-[10px] mt-2" style={{ color: '#9B9A97' }}>
               {t('signedOn')}: {new Date(c.sign_date).toLocaleDateString(undefined)}
             </p>
           )}
+          <p className="text-[9px] mt-1" style={{ color: '#b0aead' }}>详见财务管理</p>
         </div>
       </div>
     );

@@ -1057,6 +1057,27 @@ TENANT_MIGRATION_DDL = [
     )""",
     "CREATE INDEX IF NOT EXISTS idx_lead_file_perms_file ON lead_file_permissions(file_id)",
     "CREATE INDEX IF NOT EXISTS idx_lead_file_perms_user ON lead_file_permissions(user_id)",
+    # ── Cross-module integration: PO→inventory, contract→inventory, GL posting ──
+    "ALTER TABLE purchase_orders ADD COLUMN IF NOT EXISTS product_id UUID",
+    "ALTER TABLE purchase_orders ADD COLUMN IF NOT EXISTS quantity_numeric NUMERIC(19,4) DEFAULT 0",
+    """CREATE TABLE IF NOT EXISTS contract_line_items (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        contract_id UUID NOT NULL REFERENCES crm_contracts(id) ON DELETE CASCADE,
+        product_id UUID,
+        product_name VARCHAR(255),
+        quantity NUMERIC(19,4) DEFAULT 0,
+        unit_price NUMERIC(19,4) DEFAULT 0,
+        amount NUMERIC(19,4) DEFAULT 0,
+        notes TEXT,
+        created_at TIMESTAMPTZ DEFAULT NOW()
+    )""",
+    "CREATE INDEX IF NOT EXISTS idx_contract_line_items_contract ON contract_line_items(contract_id)",
+    "ALTER TABLE journal_entries ADD COLUMN IF NOT EXISTS total_debit NUMERIC(19,4) DEFAULT 0.0",
+    "ALTER TABLE journal_entries ADD COLUMN IF NOT EXISTS total_credit NUMERIC(19,4) DEFAULT 0.0",
+    "ALTER TABLE journal_entries ADD COLUMN IF NOT EXISTS reference_type VARCHAR(50)",
+    "ALTER TABLE journal_entries ADD COLUMN IF NOT EXISTS reference_id UUID",
+    "ALTER TABLE chart_of_accounts ADD COLUMN IF NOT EXISTS category VARCHAR(50)",
+    "ALTER TABLE chart_of_accounts ADD COLUMN IF NOT EXISTS type VARCHAR(50)",
 ]
 
 

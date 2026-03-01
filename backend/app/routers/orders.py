@@ -14,9 +14,11 @@ router = APIRouter(prefix="/orders", tags=["orders"])
 class PurchaseOrderCreate(BaseModel):
     po_number: str
     vendor_company_id: Optional[str] = None   # supplier id
+    product_id: Optional[str] = None
     product_name: Optional[str] = None
     specs: Optional[str] = None
     quantity: Optional[str] = None
+    quantity_numeric: Optional[float] = None
     unit_price: Optional[Decimal] = None
     total: Optional[Decimal] = None
     currency: str = "USD"
@@ -31,9 +33,11 @@ class PurchaseOrderCreate(BaseModel):
 
 class PurchaseOrderUpdate(BaseModel):
     status: Optional[str] = None
+    product_id: Optional[str] = None
     product_name: Optional[str] = None
     specs: Optional[str] = None
     quantity: Optional[str] = None
+    quantity_numeric: Optional[float] = None
     unit_price: Optional[Decimal] = None
     total: Optional[Decimal] = None
     currency: Optional[str] = None
@@ -74,9 +78,12 @@ async def list_purchase_orders(
             SELECT po.*,
                    s.name  AS supplier_name,
                    s.rating AS supplier_rating,
-                   s.contact_person AS supplier_contact
+                   s.contact_person AS supplier_contact,
+                   p.name AS linked_product_name,
+                   p.sku  AS linked_product_sku
             FROM purchase_orders po
             LEFT JOIN suppliers s ON s.id = po.vendor_company_id
+            LEFT JOIN products p ON p.id = po.product_id
             WHERE {where}
             ORDER BY po.created_at DESC
         """),
@@ -99,7 +106,7 @@ async def create_purchase_order(
             text("""
                 INSERT INTO purchase_orders (
                     id, po_number, vendor_company_id, status, total, currency,
-                    expected_date, product_name, specs, quantity, unit_price,
+                    expected_date, product_id, product_name, specs, quantity, quantity_numeric, unit_price,
                     payment_method, notes, contract_file_url, contract_file_name,
                     lead_id, created_by, created_at, updated_at
                 ) VALUES (
@@ -107,7 +114,8 @@ async def create_purchase_order(
                     CASE WHEN :vendor_id = '' OR :vendor_id IS NULL THEN NULL ELSE CAST(:vendor_id AS uuid) END,
                     :status, :total, :currency,
                     :exp_date,
-                    :product_name, :specs, :quantity, :unit_price,
+                    CASE WHEN :product_id = '' OR :product_id IS NULL THEN NULL ELSE CAST(:product_id AS uuid) END,
+                    :product_name, :specs, :quantity, :quantity_numeric, :unit_price,
                     :payment_method, :notes, :contract_file_url, :contract_file_name,
                     CASE WHEN :lead_id = '' OR :lead_id IS NULL THEN NULL ELSE CAST(:lead_id AS uuid) END,
                     CASE WHEN :uid = '' THEN NULL ELSE CAST(:uid AS uuid) END,
@@ -122,9 +130,11 @@ async def create_purchase_order(
                 "total": body.total or Decimal("0"),
                 "currency": body.currency,
                 "exp_date": parse_date_strict(body.expected_date, "expected_date"),
+                "product_id": body.product_id or "",
                 "product_name": body.product_name or "",
                 "specs": body.specs or "",
                 "quantity": body.quantity or "",
+                "quantity_numeric": body.quantity_numeric or 0,
                 "unit_price": body.unit_price or Decimal("0"),
                 "payment_method": body.payment_method or "",
                 "notes": body.notes or "",
@@ -165,7 +175,7 @@ async def get_purchase_order(po_id: str, ctx: dict = Depends(get_current_user_wi
     return dict(row._mapping)
 
 
-_PO_UPDATE_FIELDS = {"status", "product_name", "specs", "quantity", "unit_price", "total", "currency", "expected_date", "payment_method", "notes", "contract_file_url", "contract_file_name", "vendor_company_id"}
+_PO_UPDATE_FIELDS = {"status", "product_id", "product_name", "specs", "quantity", "quantity_numeric", "unit_price", "total", "currency", "expected_date", "payment_method", "notes", "contract_file_url", "contract_file_name", "vendor_company_id"}
 
 
 @router.patch("/purchase/{po_id}")
@@ -187,6 +197,9 @@ async def update_purchase_order(
         if k == "vendor_company_id":
             set_parts.append("vendor_company_id = CASE WHEN :vendor_id = '' THEN NULL ELSE CAST(:vendor_id AS uuid) END")
             params["vendor_id"] = v or ""
+        elif k == "product_id":
+            set_parts.append("product_id = CASE WHEN :prod_id = '' THEN NULL ELSE CAST(:prod_id AS uuid) END")
+            params["prod_id"] = v or ""
         elif k == "expected_date":
             set_parts.append("expected_date = :exp_date")
             params["exp_date"] = parse_date_strict(v, "expected_date")
@@ -199,8 +212,128 @@ async def update_purchase_order(
         text(f"UPDATE purchase_orders SET {', '.join(set_parts)} WHERE id = :id"),
         params,
     )
+
+    # Auto stock inbound + GL posting when PO is fulfilled
+    if updates.get("status") == "fulfilled":
+        await _fulfill_po_stock(db, po_id, ctx.get("sub", ""))
+        await _fulfill_po_gl_posting(db, po_id, ctx.get("sub", ""))
+
     await db.commit()
     return {"status": "ok"}
+
+
+async def _ensure_gl_accounts(db):
+    """Ensure required GL accounts exist, return {code: id}."""
+    required = {
+        "1300": ("存货", "asset", "current_asset"),
+        "2001": ("应付账款", "liability", "current_liability"),
+        "5001": ("销售成本", "expense", "cost"),
+    }
+    accounts = {}
+    for code, (name, category, acc_type) in required.items():
+        row = await db.execute(text("SELECT id FROM chart_of_accounts WHERE code = :code"), {"code": code})
+        existing = row.fetchone()
+        if existing:
+            accounts[code] = str(existing.id)
+        else:
+            acc_id = str(uuid.uuid4())
+            await db.execute(text(
+                "INSERT INTO chart_of_accounts (id, code, name, category, type) VALUES (:id, :code, :name, :cat, :type)"
+            ), {"id": acc_id, "code": code, "name": name, "cat": category, "type": acc_type})
+            accounts[code] = acc_id
+    return accounts
+
+
+async def _fulfill_po_stock(db, po_id: str, user_id: str):
+    """Auto-create stock inbound when PO is fulfilled."""
+    row = await db.execute(
+        text("SELECT product_id, quantity_numeric FROM purchase_orders WHERE id = :id"),
+        {"id": po_id},
+    )
+    po = row.fetchone()
+    if not po or not po.product_id or not po.quantity_numeric or po.quantity_numeric <= 0:
+        return
+
+    # Idempotency check
+    dup = await db.execute(
+        text("SELECT id FROM stock_movements WHERE reference_type = 'purchase_order' AND reference_id = CAST(:rid AS uuid)"),
+        {"rid": po_id},
+    )
+    if dup.fetchone():
+        return
+
+    qty = float(po.quantity_numeric)
+    mv_id = str(uuid.uuid4())
+    await db.execute(
+        text("""
+            INSERT INTO stock_movements (id, product_id, movement_type, quantity, reference_type, reference_id, notes, created_by)
+            VALUES (:id, :pid, 'purchase_inbound', :qty, 'purchase_order', CAST(:rid AS uuid), 'Auto from PO fulfill',
+                    CASE WHEN :uid = '' THEN NULL ELSE CAST(:uid AS uuid) END)
+        """),
+        {"id": mv_id, "pid": str(po.product_id), "qty": qty, "rid": po_id, "uid": user_id},
+    )
+    await db.execute(
+        text("UPDATE products SET current_stock = current_stock + :qty, updated_at = NOW() WHERE id = :pid"),
+        {"qty": qty, "pid": str(po.product_id)},
+    )
+
+
+async def _fulfill_po_gl_posting(db, po_id: str, user_id: str):
+    """Auto GL posting: Dr. Inventory, Cr. Accounts Payable when PO is fulfilled."""
+    row = await db.execute(
+        text("SELECT total, quantity_numeric, unit_price FROM purchase_orders WHERE id = :id"),
+        {"id": po_id},
+    )
+    po = row.fetchone()
+    if not po:
+        return
+    amount = float(po.total or 0)
+    if amount <= 0 and po.quantity_numeric and po.unit_price:
+        amount = float(po.quantity_numeric) * float(po.unit_price)
+    if amount <= 0:
+        return
+
+    # Idempotency check
+    dup = await db.execute(
+        text("SELECT id FROM journal_entries WHERE reference_type = 'purchase_order' AND reference_id = CAST(:rid AS uuid)"),
+        {"rid": po_id},
+    )
+    if dup.fetchone():
+        return
+
+    accounts = await _ensure_gl_accounts(db)
+    r = await db.execute(text("SELECT COUNT(*) FROM journal_entries"))
+    count = r.scalar()
+    entry_number = f"JE-{(count + 1):05d}"
+    entry_id = str(uuid.uuid4())
+
+    await db.execute(text("""
+        CREATE TABLE IF NOT EXISTS journal_entry_lines (
+            id UUID PRIMARY KEY DEFAULT gen_random_uuid(), entry_id UUID NOT NULL, account_id UUID,
+            account_code VARCHAR(30), account_name VARCHAR(255), description VARCHAR(500),
+            debit NUMERIC(19,4) DEFAULT 0.0, credit NUMERIC(19,4) DEFAULT 0.0
+        )
+    """))
+
+    await db.execute(
+        text("""INSERT INTO journal_entries (id, entry_number, date, description, status, total_debit, total_credit,
+                    reference_type, reference_id, created_by)
+                VALUES (:id, :num, CURRENT_DATE, :desc, 'posted', :amount, :amount,
+                    'purchase_order', CAST(:rid AS uuid),
+                    CASE WHEN :uid = '' THEN NULL ELSE CAST(:uid AS uuid) END)"""),
+        {"id": entry_id, "num": entry_number, "desc": f"PO fulfilled: {po_id}",
+         "amount": amount, "rid": po_id, "uid": user_id},
+    )
+    # Dr. 1300 Inventory
+    await db.execute(
+        text("INSERT INTO journal_entry_lines (id, entry_id, account_id, account_code, account_name, description, debit, credit) VALUES (:id, :eid, :aid, '1300', '存货', 'PO inbound', :amt, 0)"),
+        {"id": str(uuid.uuid4()), "eid": entry_id, "aid": accounts["1300"], "amt": amount},
+    )
+    # Cr. 2001 Accounts Payable
+    await db.execute(
+        text("INSERT INTO journal_entry_lines (id, entry_id, account_id, account_code, account_name, description, debit, credit) VALUES (:id, :eid, :aid, '2001', '应付账款', 'PO inbound', 0, :amt)"),
+        {"id": str(uuid.uuid4()), "eid": entry_id, "aid": accounts["2001"], "amt": amount},
+    )
 
 
 @router.delete("/purchase/{po_id}")

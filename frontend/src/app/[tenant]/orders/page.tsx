@@ -7,6 +7,11 @@ import { HandIcon } from '@/components/ui/HandIcon';
 import { useTranslations } from 'next-intl';
 // ── Types ──────────────────────────────────────────────────────────────────────
 
+type Product = {
+  id: string; sku: string; name: string; current_stock: number;
+  cost_price: number; sell_price: number;
+};
+
 type PurchaseOrder = {
   id: string;
   po_number: string;
@@ -14,9 +19,11 @@ type PurchaseOrder = {
   supplier_name?: string;
   supplier_rating?: string;
   supplier_contact?: string;
+  product_id?: string;
   product_name?: string;
   specs?: string;
   quantity?: string;
+  quantity_numeric?: number;
   unit_price?: number;
   total?: number;
   currency: string;
@@ -28,6 +35,8 @@ type PurchaseOrder = {
   notes?: string;
   lead_id?: string;
   created_at: string;
+  linked_product_name?: string;
+  linked_product_sku?: string;
 };
 
 type SalesOrder = {
@@ -131,24 +140,28 @@ export default function OrdersPage() {
   const [creating, setCreating] = useState(false);
   const [saving, setSaving] = useState(false);
 
+  const [products, setProducts] = useState<Product[]>([]);
+
   // New PO form
   const [newPO, setNewPO] = useState({
-    po_number: '', vendor_company_id: '', product_name: '', specs: '',
-    quantity: '', unit_price: '', total: '', currency: 'USD',
+    po_number: '', vendor_company_id: '', product_id: '', product_name: '', specs: '',
+    quantity: '', quantity_numeric: '', unit_price: '', total: '', currency: 'USD',
     expected_date: '', payment_method: '', notes: '', status: 'draft',
   });
 
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
-      const [pos, sos, sups] = await Promise.all([
+      const [pos, sos, sups, prods] = await Promise.all([
         api.get('/api/orders/purchase').catch(() => []),
         api.get('/api/orders/sales').catch(() => []),
         api.get('/api/inventory/suppliers').catch(() => []),
+        api.get('/api/inventory/products').catch(() => []),
       ]);
       setPurchaseOrders(Array.isArray(pos) ? pos : []);
       setSalesOrders(Array.isArray(sos) ? sos : []);
       setSuppliers(Array.isArray(sups) ? sups : []);
+      setProducts(Array.isArray(prods) ? prods : []);
     } finally {
       setLoading(false);
     }
@@ -179,9 +192,11 @@ export default function OrdersPage() {
       await api.post('/api/orders/purchase', {
         po_number: newPO.po_number,
         vendor_company_id: newPO.vendor_company_id || undefined,
+        product_id: newPO.product_id || undefined,
         product_name: newPO.product_name || undefined,
         specs: newPO.specs || undefined,
         quantity: newPO.quantity || undefined,
+        quantity_numeric: newPO.quantity_numeric ? parseFloat(newPO.quantity_numeric) : undefined,
         unit_price: newPO.unit_price ? parseFloat(newPO.unit_price) : undefined,
         total: newPO.total ? parseFloat(newPO.total) : undefined,
         currency: newPO.currency,
@@ -190,7 +205,7 @@ export default function OrdersPage() {
         notes: newPO.notes || undefined,
         status: newPO.status,
       });
-      setNewPO({ po_number: '', vendor_company_id: '', product_name: '', specs: '', quantity: '', unit_price: '', total: '', currency: 'USD', expected_date: '', payment_method: '', notes: '', status: 'draft' });
+      setNewPO({ po_number: '', vendor_company_id: '', product_id: '', product_name: '', specs: '', quantity: '', quantity_numeric: '', unit_price: '', total: '', currency: 'USD', expected_date: '', payment_method: '', notes: '', status: 'draft' });
       setPanelMode('none');
       await loadData();
     } catch (e: any) {
@@ -475,6 +490,21 @@ export default function OrdersPage() {
                       ))}
                     </select>
                   </div>
+                  <div>
+                    <label className="text-[11px] font-semibold uppercase tracking-wide block mb-1" style={{ color: '#9B9A97' }}>关联产品（库存）</label>
+                    <select value={newPO.product_id}
+                      onChange={e => {
+                        const pid = e.target.value;
+                        const prod = products.find(p => p.id === pid);
+                        setNewPO(p => ({ ...p, product_id: pid, product_name: prod ? prod.name : p.product_name }));
+                      }}
+                      style={inputStyle}>
+                      <option value="">不关联产品</option>
+                      {products.map(p => (
+                        <option key={p.id} value={p.id}>{p.sku} - {p.name} (库存: {p.current_stock})</option>
+                      ))}
+                    </select>
+                  </div>
                   <div className="grid grid-cols-2 gap-3">
                     <div>
                       <label className="text-[11px] font-semibold uppercase tracking-wide block mb-1" style={{ color: '#9B9A97' }}>{t('productName')}</label>
@@ -484,8 +514,8 @@ export default function OrdersPage() {
                     </div>
                     <div>
                       <label className="text-[11px] font-semibold uppercase tracking-wide block mb-1" style={{ color: '#9B9A97' }}>{t('quantity')}</label>
-                      <input placeholder={t('quantityPlaceholder')} value={newPO.quantity}
-                        onChange={e => setNewPO(p => ({ ...p, quantity: e.target.value }))}
+                      <input placeholder={t('quantityPlaceholder')} type="number" value={newPO.quantity_numeric || newPO.quantity}
+                        onChange={e => setNewPO(p => ({ ...p, quantity: e.target.value, quantity_numeric: e.target.value }))}
                         style={inputStyle} />
                     </div>
                   </div>

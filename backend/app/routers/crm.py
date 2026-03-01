@@ -241,7 +241,8 @@ async def overview(ctx: dict = Depends(get_current_user_with_tenant)):
             (SELECT COUNT(*) FROM crm_contracts),
             (SELECT COUNT(*) FROM export_flow_orders WHERE stage NOT IN ('closed','cancelled')),
             (SELECT COUNT(*) FROM export_flow_approvals WHERE status = 'pending'),
-            (SELECT COALESCE(SUM(amount - received_amount), 0) FROM crm_receivables WHERE status != 'closed')
+            (SELECT COALESCE(SUM(amount - received_amount), 0) FROM crm_receivables WHERE status != 'closed'),
+            (SELECT COALESCE(SUM(amount - paid_amount), 0) FROM crm_payables WHERE status != 'paid')
     """))
     row = r.fetchone()
     return {
@@ -251,6 +252,7 @@ async def overview(ctx: dict = Depends(get_current_user_with_tenant)):
         "orders_running": row[3] or 0,
         "approvals_pending": row[4] or 0,
         "receivable_outstanding": float(row[5] or 0),
+        "payable_outstanding": float(row[6] or 0),
     }
 
 
@@ -969,9 +971,16 @@ async def create_contract(body: ContractCreate, ctx: dict = Depends(get_current_
 
 @router.patch("/contracts/{contract_id}")
 async def update_contract(contract_id: str, body: ContractUpdate, ctx: dict = Depends(get_current_user_with_tenant)):
+    db = ctx["db"]
     payload = body.model_dump(exclude_unset=True)
     if not payload:
         return {"status": "no changes"}
+
+    # Check old status before update
+    old_row = await db.execute(text("SELECT status FROM crm_contracts WHERE id = :id"), {"id": contract_id})
+    old = old_row.fetchone()
+    old_status = old.status if old else None
+
     if "sign_date" in payload:
         payload["sign_date"] = parse_date_strict(payload["sign_date"], "sign_date")
     if "eta" in payload:
@@ -981,8 +990,16 @@ async def update_contract(contract_id: str, body: ContractUpdate, ctx: dict = De
     if not set_clause:
         return {"status": "no changes"}
     params["id"] = contract_id
-    await ctx["db"].execute(text(f"UPDATE crm_contracts SET {set_clause} WHERE id = :id"), params)
-    await ctx["db"].commit()
+    await db.execute(text(f"UPDATE crm_contracts SET {set_clause} WHERE id = :id"), params)
+
+    # Auto inventory deduction + GL posting when contract status changes to active
+    new_status = payload.get("status")
+    if new_status == "active" and old_status != "active":
+        user_id = ctx.get("sub", "")
+        await _deduct_inventory_for_contract(db, contract_id, user_id)
+        await _contract_activation_gl_posting(db, contract_id, user_id)
+
+    await db.commit()
     return {"status": "updated"}
 
 
@@ -1026,6 +1043,188 @@ async def contract_timeline(contract_id: str, ctx: dict = Depends(get_current_us
         "receivables": receivables,
         "payables": payables,
     }
+
+
+# ── Contract Line Items ────────────────────────────────────────────────────────
+
+class ContractLineItemCreate(BaseModel):
+    product_id: Optional[str] = None
+    product_name: Optional[str] = None
+    quantity: float = 0
+    unit_price: float = 0
+    notes: Optional[str] = None
+
+
+@router.get("/contracts/{contract_id}/line-items")
+async def list_contract_line_items(contract_id: str, ctx: dict = Depends(get_current_user_with_tenant)):
+    db = ctx["db"]
+    rows = await db.execute(
+        text("""
+            SELECT li.*, p.sku AS product_sku, p.current_stock AS product_stock
+            FROM contract_line_items li
+            LEFT JOIN products p ON p.id = li.product_id
+            WHERE li.contract_id = :cid
+            ORDER BY li.created_at
+        """),
+        {"cid": contract_id},
+    )
+    return [dict(r._mapping) for r in rows.fetchall()]
+
+
+@router.post("/contracts/{contract_id}/line-items")
+async def create_contract_line_item(contract_id: str, body: ContractLineItemCreate, ctx: dict = Depends(get_current_user_with_tenant)):
+    db = ctx["db"]
+    item_id = str(uuid.uuid4())
+    amount = round(body.quantity * body.unit_price, 4)
+    await db.execute(
+        text("""
+            INSERT INTO contract_line_items (id, contract_id, product_id, product_name, quantity, unit_price, amount, notes)
+            VALUES (:id, CAST(:cid AS uuid),
+                    CASE WHEN :pid = '' OR :pid IS NULL THEN NULL ELSE CAST(:pid AS uuid) END,
+                    :pname, :qty, :uprice, :amount, :notes)
+        """),
+        {
+            "id": item_id, "cid": contract_id,
+            "pid": body.product_id or "",
+            "pname": body.product_name or "",
+            "qty": body.quantity, "uprice": body.unit_price,
+            "amount": amount, "notes": body.notes or "",
+        },
+    )
+    await db.commit()
+    return {"id": item_id, "amount": amount}
+
+
+@router.delete("/contracts/{contract_id}/line-items/{item_id}")
+async def delete_contract_line_item(contract_id: str, item_id: str, ctx: dict = Depends(get_current_user_with_tenant)):
+    await ctx["db"].execute(
+        text("DELETE FROM contract_line_items WHERE id = :id AND contract_id = CAST(:cid AS uuid)"),
+        {"id": item_id, "cid": contract_id},
+    )
+    await ctx["db"].commit()
+    return {"status": "deleted"}
+
+
+# ── Cross-module helpers ──────────────────────────────────────────────────────
+
+async def _ensure_gl_accounts(db):
+    """Ensure required GL accounts exist, return {code: id}."""
+    required = {
+        "1300": ("存货", "asset", "current_asset"),
+        "2001": ("应付账款", "liability", "current_liability"),
+        "5001": ("销售成本", "expense", "cost"),
+    }
+    accounts = {}
+    for code, (name, category, acc_type) in required.items():
+        row = await db.execute(text("SELECT id FROM chart_of_accounts WHERE code = :code"), {"code": code})
+        existing = row.fetchone()
+        if existing:
+            accounts[code] = str(existing.id)
+        else:
+            acc_id = str(uuid.uuid4())
+            await db.execute(text(
+                "INSERT INTO chart_of_accounts (id, code, name, category, type) VALUES (:id, :code, :name, :cat, :type)"
+            ), {"id": acc_id, "code": code, "name": name, "cat": category, "type": acc_type})
+            accounts[code] = acc_id
+    return accounts
+
+
+async def _deduct_inventory_for_contract(db, contract_id: str, user_id: str):
+    """Auto-deduct inventory when contract is activated."""
+    rows = await db.execute(
+        text("SELECT product_id, quantity FROM contract_line_items WHERE contract_id = CAST(:cid AS uuid) AND product_id IS NOT NULL"),
+        {"cid": contract_id},
+    )
+    items = rows.fetchall()
+    if not items:
+        return
+
+    for item in items:
+        # Idempotency: check per product
+        dup = await db.execute(
+            text("""SELECT id FROM stock_movements
+                    WHERE reference_type = 'contract' AND reference_id = CAST(:rid AS uuid) AND product_id = :pid"""),
+            {"rid": contract_id, "pid": str(item.product_id)},
+        )
+        if dup.fetchone():
+            continue
+
+        qty = float(item.quantity)
+        if qty <= 0:
+            continue
+
+        mv_id = str(uuid.uuid4())
+        await db.execute(
+            text("""
+                INSERT INTO stock_movements (id, product_id, movement_type, quantity, reference_type, reference_id, notes, created_by)
+                VALUES (:id, :pid, 'sales_deduction', :qty, 'contract', CAST(:rid AS uuid), 'Auto from contract activation',
+                        CASE WHEN :uid = '' THEN NULL ELSE CAST(:uid AS uuid) END)
+            """),
+            {"id": mv_id, "pid": str(item.product_id), "qty": -qty, "rid": contract_id, "uid": user_id},
+        )
+        await db.execute(
+            text("UPDATE products SET current_stock = current_stock - :qty, updated_at = NOW() WHERE id = :pid"),
+            {"qty": qty, "pid": str(item.product_id)},
+        )
+
+
+async def _contract_activation_gl_posting(db, contract_id: str, user_id: str):
+    """Auto GL posting: Dr. COGS, Cr. Inventory when contract is activated."""
+    rows = await db.execute(
+        text("""
+            SELECT li.quantity, COALESCE(p.cost_price, 0) AS cost_price
+            FROM contract_line_items li
+            JOIN products p ON p.id = li.product_id
+            WHERE li.contract_id = CAST(:cid AS uuid) AND li.product_id IS NOT NULL
+        """),
+        {"cid": contract_id},
+    )
+    items = rows.fetchall()
+    total_cost = sum(float(i.quantity) * float(i.cost_price) for i in items)
+    if total_cost <= 0:
+        return
+
+    # Idempotency check
+    dup = await db.execute(
+        text("SELECT id FROM journal_entries WHERE reference_type = 'contract' AND reference_id = CAST(:rid AS uuid)"),
+        {"rid": contract_id},
+    )
+    if dup.fetchone():
+        return
+
+    accounts = await _ensure_gl_accounts(db)
+    r = await db.execute(text("SELECT COUNT(*) FROM journal_entries"))
+    count = r.scalar()
+    entry_number = f"JE-{(count + 1):05d}"
+    entry_id = str(uuid.uuid4())
+
+    await db.execute(text("""
+        CREATE TABLE IF NOT EXISTS journal_entry_lines (
+            id UUID PRIMARY KEY DEFAULT gen_random_uuid(), entry_id UUID NOT NULL, account_id UUID,
+            account_code VARCHAR(30), account_name VARCHAR(255), description VARCHAR(500),
+            debit NUMERIC(19,4) DEFAULT 0.0, credit NUMERIC(19,4) DEFAULT 0.0
+        )
+    """))
+
+    await db.execute(
+        text("""INSERT INTO journal_entries (id, entry_number, date, description, status, total_debit, total_credit,
+                    reference_type, reference_id, created_by)
+                VALUES (:id, :num, CURRENT_DATE, :desc, 'posted', :amount, :amount,
+                    'contract', CAST(:rid AS uuid),
+                    CASE WHEN :uid = '' THEN NULL ELSE CAST(:uid AS uuid) END)"""),
+        {"id": entry_id, "num": entry_number, "desc": f"Contract activation COGS: {contract_id}",
+         "amount": total_cost, "rid": contract_id, "uid": user_id},
+    )
+    # Dr. 5001 COGS
+    await db.execute(
+        text("INSERT INTO journal_entry_lines (id, entry_id, account_id, account_code, account_name, description, debit, credit) VALUES (:id, :eid, :aid, '5001', '销售成本', 'Contract COGS', :amt, 0)"),
+        {"id": str(uuid.uuid4()), "eid": entry_id, "aid": accounts["5001"], "amt": total_cost},
+    )
+    # Cr. 1300 Inventory
+    await db.execute(
+        text("INSERT INTO journal_entry_lines (id, entry_id, account_id, account_code, account_name, description, debit, credit) VALUES (:id, :eid, :aid, '1300', '存货', 'Contract COGS', 0, :amt)"),
+        {"id": str(uuid.uuid4()), "eid": entry_id, "aid": accounts["1300"], "amt": total_cost},
+    )
 
 
 @router.get("/receivables")
@@ -1365,13 +1564,19 @@ async def customer_360(lead_id: str, ctx: dict = Depends(get_current_user_with_t
             SELECT c.*,
                    COALESCE(a.name, '') AS account_label,
                    COALESCE(rr.total, 0) AS receivable_total,
-                   COALESCE(rr.received, 0) AS receivable_received
+                   COALESCE(rr.received, 0) AS receivable_received,
+                   COALESCE(pp.total, 0) AS payable_total,
+                   COALESCE(pp.paid, 0) AS payable_paid
             FROM crm_contracts c
             LEFT JOIN crm_accounts a ON a.id = c.account_id
             LEFT JOIN (
                 SELECT contract_id, SUM(amount) AS total, SUM(received_amount) AS received
                 FROM crm_receivables GROUP BY contract_id
             ) rr ON rr.contract_id = c.id
+            LEFT JOIN (
+                SELECT contract_id, SUM(amount) AS total, SUM(paid_amount) AS paid
+                FROM crm_payables GROUP BY contract_id
+            ) pp ON pp.contract_id = c.id
             WHERE c.lead_id = :lead_id
             ORDER BY c.created_at DESC
         """),
