@@ -1,0 +1,35 @@
+{
+  "name": "nexus-n8n-nodes",
+  "version": "0.1.0",
+  "description": "Custom n8n nodes for WeCom, Feishu, DingTalk",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc -w",
+    "lint": "eslint src"
+  },
+  "n8n": {
+    "n8nNodesApiVersion": 1,
+    "credentials": [
+      "dist/credentials/WeComApi.credentials.js",
+      "dist/credentials/FeishuApi.credentials.js",
+      "dist/credentials/DingTalkApi.credentials.js"
+    ],
+    "nodes": [
+      "dist/nodes/WeCom/WeCom.node.js",
+      "dist/nodes/WeCom/WeComTrigger.node.js",
+      "dist/nodes/Feishu/Feishu.node.js",
+      "dist/nodes/Feishu/FeishuTrigger.node.js",
+      "dist/nodes/DingTalk/DingTalk.node.js",
+      "dist/nodes/DingTalk/DingTalkTrigger.node.js"
+    ]
+  },
+  "devDependencies": {
+    "@types/node": "^20",
+    "typescript": "^5",
+    "n8n-workflow": "^1.67.0"
+  },
+  "peerDependencies": {
+    "n8n-workflow": ">=1.0.0"
+  }
+}

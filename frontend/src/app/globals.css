@@ -1,0 +1,304 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   NEXUS ERP — Design Tokens
+   Light: Google/Meta style (gray bg + white cards)
+   Dark:  deep navy (slate-900) + elevated card surfaces, white text
+   ══════════════════════════════════════════════════════════════════════════════ */
+
+:root {
+  /* Brand palette */
+  --nexus-primary: 99 102 241;       /* indigo-500 */
+  --nexus-primary-dark: 79 70 229;   /* indigo-600 */
+  --nexus-accent: 168 85 247;        /* purple-500 */
+  --nexus-surface: 15 23 42;         /* slate-900 */
+  --nexus-surface-light: 30 41 59;   /* slate-800 */
+  --nexus-border: 51 65 85;          /* slate-700 */
+  --nexus-text: 226 232 240;         /* slate-200 */
+  --nexus-text-muted: 148 163 184;   /* slate-400 */
+  --nexus-success: 34 197 94;
+  --nexus-warning: 234 179 8;
+  --nexus-danger: 239 68 68;
+
+  /* ── Light Mode (Google/Meta style) ───────────────────────────────────────
+     Main bg: #F0F2F5 (Facebook gray)
+     Cards:   #FFFFFF (white — stand out on gray bg, like Google/Meta)
+     Text:    #111827 (near black)
+     ──────────────────────────────────────────────────────────────────────── */
+  --notion-bg:          #F0F2F5;   /* gray page background */
+  --notion-sidebar:     #FFFFFF;   /* white sidebar */
+  --notion-card:        #FFFFFF;   /* white card surface */
+  --notion-card-elevated: #FFFFFF; /* dialog/modal */
+  --notion-hover:       #E4E6EB;   /* hover state */
+  --notion-active:      #D8DADF;   /* active/pressed */
+  --notion-border:      #CED0D4;   /* border */
+  --notion-text:        #111827;   /* primary text — gray-900 */
+  --notion-text-muted:  #6B7280;   /* secondary text — gray-500 */
+  --notion-text-faint:  #9CA3AF;   /* placeholder/hint — gray-400 */
+  --notion-accent:      #7c3aed;   /* brand purple */
+
+  /* Sidebar tokens — light */
+  --sb-bg:              #FFFFFF;
+  --sb-surface:         #F7F7F5;
+  --sb-text:            #111827;
+  --sb-text-secondary:  #374151;
+  --sb-text-muted:      #6B7280;
+  --sb-text-faint:      #9CA3AF;
+  --sb-hover:           rgba(0,0,0,0.05);
+  --sb-hover-strong:    rgba(0,0,0,0.09);
+  --sb-active:          rgba(0,0,0,0.07);
+  --sb-selected:        rgba(124,58,237,0.10);
+  --sb-border:          rgba(0,0,0,0.08);
+  --sb-divider:         rgba(0,0,0,0.06);
+  --sb-accent:          #7c3aed;
+  --sb-accent-subtle:   rgba(124,58,237,0.10);
+  --sb-danger:          #DC2626;
+  --sb-danger-subtle:   rgba(220,38,38,0.08);
+  --sb-guide:           rgba(0,0,0,0.07);
+  --sb-drag:            #7c3aed;
+  --sb-drag-bg:         rgba(124,58,237,0.06);
+  --sb-shadow:          0 4px 24px rgba(0,0,0,0.10), 0 0 0 1px rgba(0,0,0,0.05);
+  --sb-card-shadow:     0 1px 4px rgba(0,0,0,0.08), 0 0 0 1px rgba(0,0,0,0.04);
+  --sb-overlay:         rgba(0,0,0,0.35);
+}
+
+/* ── Dark Mode — deep navy (Linear/GitHub-inspired) ─────────────────────────
+   Main bg:          #0f172a  slate-900 — deep navy page background
+   Sidebar:          #1e293b  slate-800 — slightly lighter navy
+   Card:             #1e293b  slate-800 — card surface (contrasts with bg)
+   Card elevated:    #334155  slate-700 — dialogs, popovers, dropdowns
+   Text:             #f8fafc  near white
+   Text muted:       #94a3b8  slate-400 — readable on dark
+   Text faint:       #64748b  slate-500
+   ─────────────────────────────────────────────────────────────────────────── */
+.dark {
+  --notion-bg:          #0f172a;                    /* page background */
+  --notion-sidebar:     #1e293b;                    /* sidebar panel */
+  --notion-card:        #1e293b;                    /* card surface */
+  --notion-card-elevated: #334155;                  /* modals, dialogs, popovers */
+  --notion-hover:       rgba(255,255,255,0.07);
+  --notion-active:      rgba(255,255,255,0.12);
+  --notion-border:      rgba(148,163,184,0.16);
+  --notion-text:        #f8fafc;                    /* near white */
+  --notion-text-muted:  #94a3b8;                    /* slate-400 */
+  --notion-text-faint:  #64748b;                    /* slate-500 */
+  --notion-accent:      #818cf8;                    /* indigo-400 */
+
+  --sb-bg:              #0f172a;
+  --sb-surface:         #1e293b;
+  --sb-text:            #f8fafc;
+  --sb-text-secondary:  #e2e8f0;                    /* slate-200 */
+  --sb-text-muted:      #94a3b8;                    /* slate-400 */
+  --sb-text-faint:      #64748b;                    /* slate-500 */
+  --sb-hover:           rgba(255,255,255,0.07);
+  --sb-hover-strong:    rgba(255,255,255,0.12);
+  --sb-active:          rgba(255,255,255,0.10);
+  --sb-selected:        rgba(129,140,248,0.18);
+  --sb-border:          rgba(148,163,184,0.14);
+  --sb-divider:         rgba(148,163,184,0.10);
+  --sb-accent:          #a78bfa;                    /* violet-400 */
+  --sb-accent-subtle:   rgba(167,139,250,0.18);
+  --sb-danger:          #f87171;
+  --sb-danger-subtle:   rgba(248,113,113,0.15);
+  --sb-guide:           rgba(255,255,255,0.06);
+  --sb-drag:            #a78bfa;
+  --sb-drag-bg:         rgba(167,139,250,0.10);
+  --sb-shadow:          0 4px 32px rgba(0,0,0,0.65), 0 0 0 1px rgba(148,163,184,0.12);
+  --sb-card-shadow:     0 2px 10px rgba(0,0,0,0.45), 0 0 0 1px rgba(148,163,184,0.10);
+  --sb-overlay:         rgba(0,0,0,0.70);
+}
+
+/* Animated gradient background */
+@keyframes gradient-shift {
+  0%, 100% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+}
+
+@keyframes float {
+  0%, 100% { transform: translateY(0px); }
+  50% { transform: translateY(-10px); }
+}
+
+@keyframes fade-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes slide-in-right {
+  from { opacity: 0; transform: translateX(20px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes pulse-glow {
+  0%, 100% { box-shadow: 0 0 20px rgba(99, 102, 241, 0.1); }
+  50% { box-shadow: 0 0 40px rgba(99, 102, 241, 0.2); }
+}
+
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+/* Utility animations */
+.animate-fade-in { animation: fade-in 0.4s ease-out forwards; }
+.animate-slide-in { animation: slide-in-right 0.3s ease-out forwards; }
+.animate-float { animation: float 3s ease-in-out infinite; }
+.animate-gradient { animation: gradient-shift 8s ease infinite; background-size: 200% 200%; }
+.animate-pulse-glow { animation: pulse-glow 2s ease-in-out infinite; }
+
+/* Skeleton loading */
+.skeleton {
+  background: linear-gradient(90deg, #f1f5f9 25%, #e2e8f0 50%, #f1f5f9 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+  border-radius: 0.5rem;
+}
+.dark .skeleton {
+  background: linear-gradient(90deg, #1e293b 25%, #334155 50%, #1e293b 75%);
+  background-size: 200% 100%;
+}
+
+/* Glassmorphism */
+.glass {
+  background: rgba(255, 255, 255, 0.08);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+}
+.glass-light {
+  background: rgba(255, 255, 255, 0.85);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.4);
+}
+
+/* Smooth scrollbar */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #CBD5E1; border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: #94A3B8; }
+.dark ::-webkit-scrollbar-thumb { background: #334155; }
+.dark ::-webkit-scrollbar-thumb:hover { background: #475569; }
+
+body {
+  font-feature-settings: "rlig" 1, "calt" 1;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* ── Sidebar hover utilities (replace inline onMouseEnter/Leave) ──────────── */
+.sb-hoverable { transition: background 0.15s ease; }
+.sb-hoverable:hover { background: var(--sb-hover); }
+.sb-hoverable-strong:hover { background: var(--sb-hover-strong); }
+.notion-hoverable { transition: background 0.15s ease; }
+.notion-hoverable:hover { background: var(--notion-hover); }
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   DARK MODE — Global overrides
+   Goal: white cards → slate-800, dialogs → slate-700, text → near white
+   ══════════════════════════════════════════════════════════════════════════════ */
+
+/* Default body text */
+.dark body { color: #f8fafc; }
+
+/* ── White/near-white backgrounds → card surface (#1e293b) ────────────────── */
+/* React renders color names as-is; hex values get normalized to rgb() by browser */
+.dark [style*="background: white"],
+.dark [style*="background:white"],
+.dark [style*="background-color: white"],
+.dark [style*="background-color:white"] {
+  background: #1e293b !important;
+  color: #f8fafc;
+}
+/* #fff / #FFFFFF → rgb(255, 255, 255) */
+.dark [style*="background: rgb(255, 255, 255)"],
+.dark [style*="background-color: rgb(255, 255, 255)"] {
+  background: #1e293b !important;
+}
+/* Tailwind .bg-white */
+.dark .bg-white { background-color: #1e293b !important; }
+
+/* ── Light stripe (#FAFAF9 table headers) → slightly darker than card ─────── */
+/* #FAFAF9 → rgb(250, 250, 249) | #F7F6F3 → rgb(247, 246, 243) */
+.dark [style*="background: rgb(250, 250, 249)"],
+.dark [style*="background-color: rgb(250, 250, 249)"],
+.dark [style*="background: rgb(247, 246, 243)"],
+.dark [style*="background-color: rgb(247, 246, 243)"],
+.dark [style*="background: rgb(250,250,249)"],
+.dark [style*="background: rgb(247,246,243)"] {
+  background: #162032 !important;
+}
+.dark .bg-gray-50 { background-color: #162032 !important; }
+.dark .bg-gray-100 { background-color: #1e293b !important; }
+.dark .bg-gray-200 { background-color: #243348 !important; }
+
+/* ── Dialogs / modals / popovers → elevated surface (#334155) ─────────────── */
+/* These have higher z-index and need to "float" above the card layer */
+.dark [role="dialog"],
+.dark [role="alertdialog"],
+.dark .modal,
+.dark .popover,
+.dark .dropdown-content {
+  background: #334155 !important;
+  border: 1px solid rgba(148,163,184,0.20) !important;
+  box-shadow: 0 8px 40px rgba(0,0,0,0.6), 0 0 0 1px rgba(148,163,184,0.12) !important;
+}
+/* Fixed-position overlays (modals) — typically bg-white + rounded */
+.dark [style*="position: fixed"][style*="z-index"],
+.dark [style*="position:fixed"][style*="z-index"] {
+  /* Only apply to containers, not overlays */
+}
+
+/* ── Text color overrides ─────────────────────────────────────────────────── */
+.dark .text-gray-900, .dark .text-gray-800, .dark .text-gray-700 { color: #f1f5f9 !important; }
+.dark .text-gray-600, .dark .text-gray-500 { color: #94a3b8 !important; }
+.dark .text-gray-400, .dark .text-gray-300 { color: #64748b !important; }
+.dark .text-black { color: #f8fafc !important; }
+
+/* ── Border overrides ─────────────────────────────────────────────────────── */
+.dark .border-gray-100,
+.dark .border-gray-200,
+.dark .border-gray-300 { border-color: rgba(148,163,184,0.16) !important; }
+
+/* ── Inputs, selects, textareas ───────────────────────────────────────────── */
+.dark input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
+.dark select,
+.dark textarea {
+  background: #0f172a !important;     /* slightly darker than card for depth */
+  color: #f8fafc !important;
+  border-color: rgba(148,163,184,0.25) !important;
+}
+.dark input::placeholder,
+.dark textarea::placeholder { color: #64748b !important; }
+.dark input:focus,
+.dark select:focus,
+.dark textarea:focus {
+  border-color: #818cf8 !important;
+  box-shadow: 0 0 0 2px rgba(129,140,248,0.20) !important;
+  outline: none !important;
+}
+.dark option { background: #1e293b; color: #f8fafc; }
+
+/* ── Badge/pill overrides — light-colored badges become deeper ────────────── */
+/* Role badges with hardcoded pastel colors */
+.dark .bg-purple-100 { background-color: rgba(167,139,250,0.20) !important; }
+.dark .bg-blue-100   { background-color: rgba(96,165,250,0.20)  !important; }
+.dark .bg-green-100  { background-color: rgba(52,211,153,0.20)  !important; }
+.dark .bg-red-100    { background-color: rgba(248,113,113,0.20) !important; }
+.dark .bg-yellow-100 { background-color: rgba(251,191,36,0.20)  !important; }
+.dark .bg-gray-100   { background-color: rgba(148,163,184,0.15) !important; }
+
+/* ── Table overrides ──────────────────────────────────────────────────────── */
+.dark table { background: transparent !important; }
+.dark thead { background: #162032 !important; }
+.dark tbody tr:hover { background: rgba(255,255,255,0.05) !important; }
+.dark th, .dark td { border-color: rgba(148,163,184,0.12) !important; }
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   LIGHT MODE — subtle polish
+   Goal: page bg = #F0F2F5, white cards stand out (Google/Meta card style)
+   ══════════════════════════════════════════════════════════════════════════════ */
+/* Tailwind colors in light mode already work, but ensure body bg matches */
+body { background-color: var(--notion-bg); }

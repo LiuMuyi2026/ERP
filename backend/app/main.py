@@ -1,0 +1,87 @@
+from fastapi import FastAPI, Request
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
+from sqlalchemy import text
+from contextlib import asynccontextmanager
+import logging
+import os
+
+from app.config import settings
+from app.database import init_db, engine
+from app.routers import auth, platform, workspace, crm, hr, accounting, inventory, ai, integrations, admin, notifications, messages, orders, ai_providers, automation, ai_finder, whisper_ws, workflow_templates
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    logger.info("Starting Nexus ERP API...")
+    await init_db()
+    yield
+    logger.info("Shutting down...")
+
+
+app = FastAPI(
+    title="Nexus ERP API",
+    version="1.0.0",
+    description="Multi-tenant ERP with AI capabilities",
+    lifespan=lifespan,
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=settings.cors_origin_list,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    """Catch unhandled exceptions so the CORS middleware can still add headers."""
+    logger.error("Unhandled error on %s %s: %s", request.method, request.url.path, exc, exc_info=True)
+    return JSONResponse(status_code=500, content={"detail": "Internal server error"})
+
+
+app.include_router(auth.router, prefix="/api")
+app.include_router(platform.router, prefix="/api")
+app.include_router(workspace.router, prefix="/api")
+app.include_router(crm.router, prefix="/api")
+app.include_router(hr.router, prefix="/api")
+app.include_router(accounting.router, prefix="/api")
+app.include_router(inventory.router, prefix="/api")
+app.include_router(ai.router, prefix="/api")
+app.include_router(integrations.router, prefix="/api")
+app.include_router(admin.router, prefix="/api")
+app.include_router(notifications.router, prefix="/api")
+app.include_router(messages.router, prefix="/api")
+app.include_router(orders.router, prefix="/api")
+app.include_router(ai_providers.router, prefix="/api")
+app.include_router(automation.router, prefix="/api")
+app.include_router(ai_finder.router, prefix="/api")
+app.include_router(whisper_ws.router, prefix="/api")
+app.include_router(workflow_templates.router, prefix="/api")
+
+
+UPLOAD_DIR = os.path.join(os.path.dirname(__file__), "..", "uploads")
+os.makedirs(UPLOAD_DIR, exist_ok=True)
+app.mount("/uploads", StaticFiles(directory=UPLOAD_DIR), name="uploads")
+
+
+@app.get("/health")
+async def health():
+    try:
+        async with engine.connect() as conn:
+            await conn.execute(text("SELECT 1"))
+        db_status = "ok"
+    except Exception:
+        db_status = "unavailable"
+    status = "ok" if db_status == "ok" else "degraded"
+    return {"status": status, "service": "nexus-erp-api", "database": db_status}
+
+
+@app.get("/")
+async def root():
+    return {"message": "Nexus ERP API", "docs": "/docs"}
