@@ -10,6 +10,7 @@ COPY package.json package-lock.json* ./
 RUN npm install --legacy-peer-deps
 
 COPY . .
+RUN mkdir -p public
 RUN npm run build
 
 # Production image — standalone output (~50MB vs ~500MB)
