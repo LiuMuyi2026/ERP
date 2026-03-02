@@ -1814,6 +1814,9 @@ function WhatsAppSettingsSection() {
   const statusColors: Record<string, string> = {
     connected: '#16a34a', pending_qr: '#d97706', disconnected: '#9ca3af',
   };
+  const statusLabels: Record<string, string> = {
+    connected: '已连接', pending_qr: '等待扫码', disconnected: '未连接',
+  };
 
   if (loading) return <div className="text-sm" style={{ color: 'var(--notion-text-muted)' }}>Loading WhatsApp...</div>;
 
@@ -1835,22 +1838,22 @@ function WhatsAppSettingsSection() {
                   </span>
                   <span className="text-xs px-2 py-0.5 rounded-full font-medium"
                     style={{ background: `${statusColors[acc.status] || '#9ca3af'}20`, color: statusColors[acc.status] || '#9ca3af' }}>
-                    {acc.status}
+                    {statusLabels[acc.status] || acc.status}
                   </span>
                 </div>
                 {acc.phone_number && <p className="text-xs" style={{ color: 'var(--notion-text-muted)' }}>{acc.phone_number}</p>}
-                {acc.last_seen_at && <p className="text-xs" style={{ color: 'var(--notion-text-muted)' }}>Last seen: {new Date(acc.last_seen_at).toLocaleString()}</p>}
+                {acc.last_seen_at && <p className="text-xs" style={{ color: 'var(--notion-text-muted)' }}>最后在线: {new Date(acc.last_seen_at).toLocaleString()}</p>}
               </div>
               <div className="flex gap-2">
                 {acc.status !== 'connected' && (
                   <button onClick={() => reconnect(acc.id)} className="px-3 py-1.5 rounded-md text-xs font-medium border"
                     style={{ borderColor: '#25D366', color: '#25D366' }}>
-                    Reconnect
+                    重新连接
                   </button>
                 )}
                 <button onClick={() => disconnect(acc.id)} className="px-3 py-1.5 rounded-md text-xs font-medium border"
                   style={{ borderColor: 'var(--notion-border)', color: '#dc2626' }}>
-                  Disconnect
+                  断开连接
                 </button>
               </div>
             </div>
@@ -1862,7 +1865,7 @@ function WhatsAppSettingsSection() {
           style={{ borderColor: 'var(--notion-border)', color: 'var(--notion-text-muted)' }}
           onMouseEnter={e => { e.currentTarget.style.borderColor = '#25D366'; e.currentTarget.style.color = '#25D366'; }}
           onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--notion-border)'; e.currentTarget.style.color = 'var(--notion-text-muted)'; }}>
-          {creating ? 'Connecting...' : '+ Connect New WhatsApp Account'}
+          {creating ? '连接中...' : '+ 连接新的 WhatsApp 账号'}
         </button>
       </div>
 
@@ -1870,32 +1873,33 @@ function WhatsAppSettingsSection() {
       {showQrModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.5)' }}>
           <div className="rounded-xl shadow-2xl p-8 w-full max-w-sm text-center" style={{ background: 'var(--notion-bg)' }}>
-            <h3 className="text-lg font-bold mb-2" style={{ color: 'var(--notion-text)' }}>Scan QR Code</h3>
+            <h3 className="text-lg font-bold mb-2" style={{ color: 'var(--notion-text)' }}>扫描二维码连接 WhatsApp</h3>
             <p className="text-sm mb-6" style={{ color: 'var(--notion-text-muted)' }}>
-              Open WhatsApp on your phone → Settings → Linked Devices → Link a Device
+              打开手机 WhatsApp → 设置 → 已关联设备 → 关联新设备
             </p>
             <div className="w-56 h-56 mx-auto rounded-xl border-2 flex items-center justify-center mb-4"
               style={{ borderColor: 'var(--notion-border)', background: 'var(--notion-hover)' }}>
               {qrData && qrData !== 'STUB_QR_PLACEHOLDER' ? (
                 <img src={qrData} alt="QR" className="w-full h-full object-contain rounded-lg" />
               ) : (
-                <div className="text-center">
-                  <div className="text-4xl mb-2" style={{ color: '#25D366' }}>
+                <div className="text-center px-4">
+                  <div className="text-4xl mb-3" style={{ color: '#25D366' }}>
                     <HandIcon name="chat-bubble" size={48} />
                   </div>
-                  <p className="text-xs" style={{ color: 'var(--notion-text-muted)' }}>
-                    Bridge not connected<br />Stub QR placeholder
+                  <p className="text-xs leading-relaxed" style={{ color: 'var(--notion-text-muted)' }}>
+                    WhatsApp Bridge 服务尚未接入<br />二维码将在服务就绪后显示
                   </p>
                 </div>
               )}
             </div>
-            <p className="text-xs mb-4" style={{ color: 'var(--notion-text-muted)' }}>
-              Status: <span className="font-medium">{qrStatus || 'pending_qr'}</span>
-            </p>
+            <div className="flex items-center justify-center gap-2 mb-4">
+              <span className="inline-block w-2 h-2 rounded-full animate-pulse" style={{ background: '#d97706' }} />
+              <span className="text-xs font-medium" style={{ color: '#d97706' }}>等待连接中...</span>
+            </div>
             <button onClick={() => setShowQrModal(null)}
               className="px-6 py-2 rounded-md text-sm font-medium border"
               style={{ borderColor: 'var(--notion-border)', color: 'var(--notion-text)' }}>
-              Close
+              关闭
             </button>
           </div>
         </div>
