@@ -12,6 +12,7 @@ type Conversation = {
   display_name?: string;
   push_name?: string;
   phone_number?: string;
+  profile_pic_url?: string;
   lead_id?: string;
   lead_name?: string;
   lead_status?: string;
@@ -21,9 +22,14 @@ type Conversation = {
   last_message_at?: string;
   last_message_preview?: string;
   unread_count: number;
+  is_group?: boolean;
+  wa_labels?: string[];
+  disappearing_duration?: number;
+  group_metadata?: any;
 };
 
 type WaAccount = { id: string; display_name?: string; phone_number?: string };
+type WaLabel = { id: string; wa_label_id: string; name?: string; color?: string };
 
 function relativeTime(iso?: string): string {
   if (!iso) return '';
@@ -41,6 +47,7 @@ function relativeTime(iso?: string): string {
 export default function WhatsAppDashboard() {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [accounts, setAccounts] = useState<WaAccount[]>([]);
+  const [labels, setLabels] = useState<WaLabel[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedContact, setSelectedContact] = useState<Conversation | null>(null);
 
@@ -48,6 +55,8 @@ export default function WhatsAppDashboard() {
   const [search, setSearch] = useState('');
   const [filterAccount, setFilterAccount] = useState('');
   const [filterLeadStatus, setFilterLeadStatus] = useState('');
+  const [filterGroup, setFilterGroup] = useState<'' | 'true' | 'false'>('');
+  const [filterLabel, setFilterLabel] = useState('');
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
   const [sortBy, setSortBy] = useState<'last_message' | 'unread' | 'lead_status'>('last_message');
@@ -58,21 +67,35 @@ export default function WhatsAppDashboard() {
       const params = new URLSearchParams();
       if (filterAccount) params.set('account_id', filterAccount);
       if (filterLeadStatus) params.set('lead_status', filterLeadStatus);
+      if (filterGroup) params.set('is_group', filterGroup);
+      if (filterLabel) params.set('label_id', filterLabel);
       if (dateFrom) params.set('date_from', dateFrom);
       if (dateTo) params.set('date_to', dateTo);
       if (sortBy) params.set('sort_by', sortBy);
       const qs = params.toString();
-      const [convs, accs] = await Promise.all([
+      const [convs, accs, lbls] = await Promise.all([
         api.get(`/api/whatsapp/dashboard${qs ? `?${qs}` : ''}`),
         api.get('/api/whatsapp/accounts'),
+        api.get('/api/whatsapp/labels').catch(() => []),
       ]);
       setConversations(Array.isArray(convs) ? convs : []);
       setAccounts(Array.isArray(accs) ? accs : []);
+      setLabels(Array.isArray(lbls) ? lbls : []);
     } catch { setConversations([]); }
     finally { setLoading(false); }
   }
 
-  useEffect(() => { loadData(); }, [filterAccount, filterLeadStatus, dateFrom, dateTo, sortBy]);
+  useEffect(() => { loadData(); }, [filterAccount, filterLeadStatus, filterGroup, filterLabel, dateFrom, dateTo, sortBy]);
+
+  // Clear unread locally when opening a conversation
+  function handleSelectContact(conv: Conversation) {
+    setSelectedContact(conv);
+    if (conv.unread_count > 0) {
+      setConversations(prev =>
+        prev.map(c => c.id === conv.id ? { ...c, unread_count: 0 } : c)
+      );
+    }
+  }
 
   const filtered = search
     ? conversations.filter(c =>
@@ -99,12 +122,10 @@ export default function WhatsAppDashboard() {
       <div className="flex flex-wrap gap-3 mb-4">
         {/* Search */}
         <div className="flex-1 min-w-[200px]">
-          <input
-            type="text" value={search} onChange={e => setSearch(e.target.value)}
+          <input type="text" value={search} onChange={e => setSearch(e.target.value)}
             placeholder="Search conversations..."
             className="w-full px-3 py-2 rounded-lg text-sm outline-none border"
-            style={{ borderColor: 'var(--notion-border)', background: 'var(--notion-bg)', color: 'var(--notion-text)' }}
-          />
+            style={{ borderColor: 'var(--notion-border)', background: 'var(--notion-bg)', color: 'var(--notion-text)' }} />
         </div>
         {/* Account filter */}
         <select value={filterAccount} onChange={e => setFilterAccount(e.target.value)}
@@ -115,6 +136,25 @@ export default function WhatsAppDashboard() {
             <option key={a.id} value={a.id}>{a.display_name || a.phone_number || 'Account'}</option>
           ))}
         </select>
+        {/* Group filter */}
+        <select value={filterGroup} onChange={e => setFilterGroup(e.target.value as any)}
+          className="px-3 py-2 rounded-lg text-sm border outline-none"
+          style={{ borderColor: 'var(--notion-border)', color: 'var(--notion-text)', background: 'var(--notion-bg)' }}>
+          <option value="">All Chats</option>
+          <option value="false">Direct Messages</option>
+          <option value="true">Groups</option>
+        </select>
+        {/* Label filter */}
+        {labels.length > 0 && (
+          <select value={filterLabel} onChange={e => setFilterLabel(e.target.value)}
+            className="px-3 py-2 rounded-lg text-sm border outline-none"
+            style={{ borderColor: 'var(--notion-border)', color: 'var(--notion-text)', background: 'var(--notion-bg)' }}>
+            <option value="">All Labels</option>
+            {labels.map(l => (
+              <option key={l.id} value={l.wa_label_id}>{l.name || l.wa_label_id}</option>
+            ))}
+          </select>
+        )}
         {/* Lead status */}
         <select value={filterLeadStatus} onChange={e => setFilterLeadStatus(e.target.value)}
           className="px-3 py-2 rounded-lg text-sm border outline-none"
@@ -157,21 +197,29 @@ export default function WhatsAppDashboard() {
           {filtered.map(conv => {
             const name = conv.display_name || conv.push_name || conv.phone_number || 'Unknown';
             const sc = conv.lead_status ? statusColors[conv.lead_status] : null;
+            const labelNames = (conv.wa_labels || []).map(lid => labels.find(l => l.wa_label_id === lid)?.name).filter(Boolean);
             return (
-              <button key={conv.id} onClick={() => setSelectedContact(conv)}
+              <button key={conv.id} onClick={() => handleSelectContact(conv)}
                 className="w-full flex items-center gap-3 px-4 py-3 rounded-lg text-left transition-colors"
                 style={{ background: 'var(--notion-card, white)', border: '1px solid var(--notion-border)' }}
                 onMouseEnter={e => (e.currentTarget.style.background = 'var(--notion-hover)')}
                 onMouseLeave={e => (e.currentTarget.style.background = 'var(--notion-card, white)')}>
                 {/* Avatar */}
-                <div className="w-10 h-10 rounded-full flex items-center justify-center text-white text-sm font-bold flex-shrink-0"
-                  style={{ background: '#25D366' }}>
-                  {name.charAt(0).toUpperCase()}
+                <div className="w-10 h-10 rounded-full flex items-center justify-center text-white text-sm font-bold flex-shrink-0 overflow-hidden"
+                  style={{ background: conv.is_group ? '#128C7E' : '#25D366' }}>
+                  {conv.profile_pic_url ? (
+                    <img src={conv.profile_pic_url} alt="" className="w-full h-full object-cover" />
+                  ) : (
+                    conv.is_group ? '👥' : name.charAt(0).toUpperCase()
+                  )}
                 </div>
                 {/* Info */}
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 mb-0.5">
                     <span className="text-sm font-semibold truncate" style={{ color: 'var(--notion-text)' }}>{name}</span>
+                    {conv.is_group && (
+                      <span className="text-[10px] px-1 py-0.5 rounded" style={{ background: '#e0f2f1', color: '#00796b' }}>Group</span>
+                    )}
                     {conv.lead_name && (
                       <span className="text-xs px-1.5 py-0.5 rounded truncate max-w-[120px]"
                         style={{ background: sc?.bg || '#f3f4f6', color: sc?.text || '#6b7280' }}>
@@ -182,6 +230,14 @@ export default function WhatsAppDashboard() {
                   <p className="text-xs truncate" style={{ color: 'var(--notion-text-muted)' }}>
                     {conv.last_message_preview || 'No messages'}
                   </p>
+                  {/* Label badges */}
+                  {labelNames.length > 0 && (
+                    <div className="flex gap-1 mt-0.5">
+                      {labelNames.map((ln, i) => (
+                        <span key={i} className="text-[9px] px-1 py-0.5 rounded" style={{ background: '#f3e8ff', color: '#7c3aed' }}>{ln}</span>
+                      ))}
+                    </div>
+                  )}
                 </div>
                 {/* Meta */}
                 <div className="flex flex-col items-end gap-1 flex-shrink-0">
@@ -202,13 +258,16 @@ export default function WhatsAppDashboard() {
       )}
 
       {/* Chat SlideOver */}
-      <SlideOver open={!!selectedContact} onClose={() => setSelectedContact(null)}
+      <SlideOver open={!!selectedContact} onClose={() => { setSelectedContact(null); loadData(); }}
         title={selectedContact?.display_name || selectedContact?.push_name || selectedContact?.phone_number || 'Chat'}
         width="w-[560px]">
         {selectedContact && (
           <WhatsAppChatPanel
             contactId={selectedContact.id}
             contactName={selectedContact.display_name || selectedContact.push_name || selectedContact.phone_number}
+            profilePicUrl={selectedContact.profile_pic_url}
+            isGroup={selectedContact.is_group}
+            disappearingDuration={selectedContact.disappearing_duration}
           />
         )}
       </SlideOver>

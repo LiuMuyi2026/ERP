@@ -1190,6 +1190,56 @@ TENANT_MIGRATION_DDL = [
     )""",
     "CREATE INDEX IF NOT EXISTS idx_wa_messages_contact ON whatsapp_messages(wa_contact_id, timestamp DESC)",
     "CREATE INDEX IF NOT EXISTS idx_wa_messages_account ON whatsapp_messages(wa_account_id, timestamp DESC)",
+
+    # ── Phase 2: Message operations ──────────────────────────────────────
+    "ALTER TABLE whatsapp_messages ADD COLUMN IF NOT EXISTS reply_to_message_id UUID",
+    "ALTER TABLE whatsapp_messages ADD COLUMN IF NOT EXISTS is_deleted BOOLEAN DEFAULT FALSE",
+    "ALTER TABLE whatsapp_messages ADD COLUMN IF NOT EXISTS is_edited BOOLEAN DEFAULT FALSE",
+    "ALTER TABLE whatsapp_messages ADD COLUMN IF NOT EXISTS edit_history JSONB DEFAULT '[]'",
+    "CREATE INDEX IF NOT EXISTS idx_wa_messages_wa_message_id ON whatsapp_messages(wa_message_id)",
+
+    # Reactions table
+    """CREATE TABLE IF NOT EXISTS whatsapp_reactions (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        wa_message_id UUID NOT NULL,
+        reactor_jid VARCHAR(50) NOT NULL,
+        emoji VARCHAR(20),
+        timestamp TIMESTAMPTZ DEFAULT NOW(),
+        UNIQUE(wa_message_id, reactor_jid)
+    )""",
+    "CREATE INDEX IF NOT EXISTS idx_wa_reactions_message ON whatsapp_reactions(wa_message_id)",
+
+    # Polls tables
+    """CREATE TABLE IF NOT EXISTS whatsapp_polls (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        wa_message_id UUID NOT NULL UNIQUE,
+        question TEXT NOT NULL,
+        options JSONB NOT NULL DEFAULT '[]',
+        allow_multiple BOOLEAN DEFAULT FALSE,
+        created_at TIMESTAMPTZ DEFAULT NOW()
+    )""",
+    """CREATE TABLE IF NOT EXISTS whatsapp_poll_votes (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        poll_id UUID NOT NULL,
+        voter_jid VARCHAR(50) NOT NULL,
+        selected_options JSONB NOT NULL DEFAULT '[]',
+        timestamp TIMESTAMPTZ DEFAULT NOW(),
+        UNIQUE(poll_id, voter_jid)
+    )""",
+
+    # ── Phase 3: Groups / Labels / History sync ──────────────────────────
+    "ALTER TABLE whatsapp_contacts ADD COLUMN IF NOT EXISTS group_metadata JSONB DEFAULT '{}'",
+    "ALTER TABLE whatsapp_contacts ADD COLUMN IF NOT EXISTS disappearing_duration INTEGER DEFAULT 0",
+    "ALTER TABLE whatsapp_contacts ADD COLUMN IF NOT EXISTS wa_labels JSONB DEFAULT '[]'",
+    """CREATE TABLE IF NOT EXISTS whatsapp_labels (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        wa_account_id UUID NOT NULL,
+        wa_label_id VARCHAR(50) NOT NULL,
+        name VARCHAR(100),
+        color VARCHAR(20),
+        UNIQUE(wa_account_id, wa_label_id)
+    )""",
+    "CREATE UNIQUE INDEX IF NOT EXISTS idx_wa_messages_unique_wa_id ON whatsapp_messages(wa_account_id, wa_message_id) WHERE wa_message_id IS NOT NULL",
 ]
 
 
