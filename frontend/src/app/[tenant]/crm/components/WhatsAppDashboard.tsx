@@ -132,8 +132,8 @@ export default function WhatsAppDashboard() {
           loadData();
           return;
         }
-        if (result.qr) {
-          setQrData({ accountId, qr: result.qr });
+        if (result.qr_data) {
+          setQrData({ accountId, qr: result.qr_data });
         }
       } catch { /* ignore */ }
       attempts++;

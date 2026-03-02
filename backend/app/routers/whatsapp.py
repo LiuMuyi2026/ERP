@@ -230,7 +230,12 @@ async def create_account(body: CreateAccountBody, ctx: dict = Depends(get_curren
         {"id": account_id, "uid": ctx["sub"], "label": body.label, "phone": body.phone_number},
     )
     await db.commit()
-    bridge_result = await wa_bridge.start_session(account_id, ctx["tenant_slug"])
+    bridge_result: dict = {}
+    try:
+        bridge_result = await wa_bridge.start_session(account_id, ctx["tenant_slug"])
+    except BridgeError as e:
+        logger.warning("Bridge unavailable when creating account %s: %s", account_id, e)
+        bridge_result = {"ok": False, "error": str(e)}
     return {"id": account_id, "status": "pending_qr", "bridge": bridge_result}
 
 
@@ -244,7 +249,11 @@ async def get_qr(account_id: str, ctx: dict = Depends(get_current_user_with_tena
     acc = row.fetchone()
     if not acc:
         raise HTTPException(status_code=404, detail="Account not found")
-    bridge_data = await wa_bridge.get_qr(account_id)
+    try:
+        bridge_data = await wa_bridge.get_qr(account_id)
+    except BridgeError as e:
+        logger.warning("Bridge unavailable for QR poll on account %s: %s", account_id, e)
+        return {"account_id": account_id, "status": "bridge_unavailable", "qr_data": None, "error": str(e)}
     return {
         "account_id": account_id,
         "status": bridge_data.get("status", acc.status),
@@ -262,7 +271,10 @@ async def delete_account(account_id: str, ctx: dict = Depends(get_current_user_w
     await db.commit()
     if result.rowcount == 0:
         raise HTTPException(status_code=404, detail="Account not found")
-    await wa_bridge.close_session(account_id, logout=False)
+    try:
+        await wa_bridge.close_session(account_id, logout=False)
+    except BridgeError as e:
+        logger.warning("Bridge unavailable when disconnecting account %s: %s", account_id, e)
     return {"ok": True}
 
 
@@ -276,7 +288,10 @@ async def reconnect_account(account_id: str, ctx: dict = Depends(get_current_use
     await db.commit()
     if result.rowcount == 0:
         raise HTTPException(status_code=404, detail="Account not found")
-    await wa_bridge.start_session(account_id, ctx["tenant_slug"])
+    try:
+        await wa_bridge.start_session(account_id, ctx["tenant_slug"])
+    except BridgeError as e:
+        logger.warning("Bridge unavailable when reconnecting account %s: %s", account_id, e)
     return {"ok": True, "status": "pending_qr"}
 
 

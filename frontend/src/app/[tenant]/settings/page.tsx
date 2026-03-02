@@ -1881,13 +1881,23 @@ function WhatsAppSettingsSection() {
               style={{ borderColor: 'var(--notion-border)', background: 'var(--notion-hover)' }}>
               {qrData && qrData !== 'STUB_QR_PLACEHOLDER' ? (
                 <img src={qrData} alt="QR" className="w-full h-full object-contain rounded-lg" />
+              ) : qrStatus === 'bridge_unavailable' ? (
+                <div className="text-center px-4">
+                  <div className="text-4xl mb-3" style={{ color: '#dc2626' }}>
+                    <HandIcon name="exclamation-triangle" size={48} />
+                  </div>
+                  <p className="text-xs leading-relaxed font-medium" style={{ color: '#dc2626' }}>
+                    WhatsApp Bridge 服务未启动
+                  </p>
+                  <p className="text-[10px] mt-1" style={{ color: 'var(--notion-text-muted)' }}>
+                    请确认 Bridge 服务已运行在正确端口<br />系统每 2 秒自动重试连接
+                  </p>
+                </div>
               ) : (
                 <div className="text-center px-4">
-                  <div className="text-4xl mb-3" style={{ color: '#25D366' }}>
-                    <HandIcon name="chat-bubble" size={48} />
-                  </div>
+                  <div className="inline-block animate-spin mb-3" style={{ width: 32, height: 32, border: '3px solid var(--notion-border)', borderTopColor: '#25D366', borderRadius: '50%' }} />
                   <p className="text-xs leading-relaxed" style={{ color: 'var(--notion-text-muted)' }}>
-                    WhatsApp Bridge 服务尚未接入<br />二维码将在服务就绪后显示
+                    正在获取二维码...
                   </p>
                 </div>
               )}
