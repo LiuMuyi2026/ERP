@@ -21,6 +21,28 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/whatsapp", tags=["whatsapp"])
 
 
+@router.get("/bridge-status")
+async def bridge_status():
+    """Public diagnostic: check if backend can reach the bridge."""
+    import httpx
+    url = settings.wa_bridge_url
+    try:
+        async with httpx.AsyncClient() as client:
+            resp = await client.get(f"{url}/health", timeout=10)
+            return {
+                "bridge_url": url,
+                "reachable": True,
+                "status_code": resp.status_code,
+                "bridge_response": resp.json(),
+            }
+    except Exception as e:
+        return {
+            "bridge_url": url,
+            "reachable": False,
+            "error": str(e),
+        }
+
+
 # ── Pydantic schemas ─────────────────────────────────────────────────────────
 
 class CreateAccountBody(BaseModel):
