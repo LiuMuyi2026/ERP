@@ -485,6 +485,52 @@ async def list_configs(ctx: dict = Depends(get_current_user_with_tenant)):
     return [dict(row._mapping) for row in result.fetchall()]
 
 
+@router.delete("/configs/{config_id}")
+async def delete_config(config_id: str, ctx: dict = Depends(get_current_user_with_tenant)):
+    db = ctx["db"]
+    result = await db.execute(
+        text("DELETE FROM integration_configs WHERE id = :id RETURNING id"),
+        {"id": config_id},
+    )
+    deleted = result.fetchone()
+    await db.commit()
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Config not found")
+    return {"status": "deleted", "id": config_id}
+
+
+class ConfigUpdate(BaseModel):
+    webhook_url: Optional[str] = None
+    is_active: Optional[bool] = None
+    credential_data: Optional[dict] = None
+
+
+@router.patch("/configs/{config_id}")
+async def update_config(config_id: str, body: ConfigUpdate, ctx: dict = Depends(get_current_user_with_tenant)):
+    db = ctx["db"]
+    sets: list[str] = []
+    params: dict = {"id": config_id}
+    if body.webhook_url is not None:
+        sets.append("webhook_url = :webhook_url")
+        params["webhook_url"] = body.webhook_url
+    if body.is_active is not None:
+        sets.append("is_active = :is_active")
+        params["is_active"] = body.is_active
+    if body.credential_data is not None:
+        sets.append("credential_data = CAST(:cred AS JSONB)")
+        params["cred"] = json.dumps(body.credential_data)
+    if not sets:
+        raise HTTPException(status_code=400, detail="No fields to update")
+    sets.append("updated_at = NOW()")
+    sql = f"UPDATE integration_configs SET {', '.join(sets)} WHERE id = :id RETURNING id, platform, is_active, webhook_url"
+    row = await db.execute(text(sql), params)
+    updated = row.fetchone()
+    await db.commit()
+    if not updated:
+        raise HTTPException(status_code=404, detail="Config not found")
+    return dict(updated._mapping)
+
+
 @router.post("/setup")
 async def setup_integration(body: IntegrationSetup, ctx: dict = Depends(get_current_user_with_tenant)):
     db = ctx["db"]

@@ -29,6 +29,10 @@ export default function IntegrationsPage() {
   const [tab, setTab] = useState<'my-connections' | 'gallery'>('my-connections');
   const [showCreate, setShowCreate] = useState(false);
   const [connecting, setConnecting] = useState<string | null>(null);
+  const [editingConfig, setEditingConfig] = useState<any>(null);
+  const [editWebhook, setEditWebhook] = useState('');
+  const [editSaving, setEditSaving] = useState(false);
+  const [deleting, setDeleting] = useState<string | null>(null);
 
   const [apps, setApps] = useState<AppItem[]>([]);
   const [templates, setTemplates] = useState<LinkTemplate[]>([]);
@@ -76,6 +80,41 @@ export default function IntegrationsPage() {
       alert(err.message);
     } finally {
       setConnecting(null);
+    }
+  }
+
+  async function deleteConfig(configId: string) {
+    if (!window.confirm(t('integDeleteConfirm'))) return;
+    setDeleting(configId);
+    try {
+      await api.delete(`/api/integrations/configs/${configId}`);
+      await loadAll();
+    } catch (err: any) {
+      alert(err.message);
+    } finally {
+      setDeleting(null);
+    }
+  }
+
+  function openConfigure(config: any) {
+    setEditingConfig(config);
+    setEditWebhook(config.webhook_url || '');
+  }
+
+  async function saveConfigure(e: React.FormEvent) {
+    e.preventDefault();
+    if (!editingConfig) return;
+    setEditSaving(true);
+    try {
+      await api.patch(`/api/integrations/configs/${editingConfig.id}`, {
+        webhook_url: editWebhook,
+      });
+      setEditingConfig(null);
+      await loadAll();
+    } catch (err: any) {
+      alert(err.message);
+    } finally {
+      setEditSaving(false);
     }
   }
 
@@ -154,9 +193,22 @@ export default function IntegrationsPage() {
                       </div>
                     </div>
                     <div className="flex items-center gap-4">
-                      <button className="px-3 py-1.5 rounded-md text-xs font-bold border border-gray-200 text-gray-600 hover:bg-white hover:shadow-sm transition-all">{t('integConfigure')}</button>
-                      <button className="p-2 text-gray-300 hover:text-red-500 transition-colors">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
+                      <button
+                        onClick={() => openConfigure(config)}
+                        className="px-3 py-1.5 rounded-md text-xs font-bold border border-gray-200 text-gray-600 hover:bg-white hover:shadow-sm transition-all"
+                      >
+                        {t('integConfigure')}
+                      </button>
+                      <button
+                        onClick={() => deleteConfig(config.id)}
+                        disabled={deleting === config.id}
+                        className="p-2 text-gray-300 hover:text-red-500 transition-colors disabled:opacity-50"
+                      >
+                        {deleting === config.id ? (
+                          <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-red-500" />
+                        ) : (
+                          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
+                        )}
                       </button>
                     </div>
                   </div>
@@ -243,6 +295,57 @@ export default function IntegrationsPage() {
           </div>
         )}
       </div>
+
+      {/* Configure Connection Modal */}
+      {editingConfig && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl p-8 w-full max-w-md shadow-2xl animate-in fade-in zoom-in duration-200">
+            <div className="flex items-center justify-between mb-6">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-gray-50 border border-gray-100 flex items-center justify-center text-xl">
+                  {editingConfig.platform === 'n8n' ? '♾️' : <HandIcon name={editingConfig.platform === 'wecom' ? 'chat-bubble' : editingConfig.platform === 'feishu' ? 'kite' : 'plug'} size={22} />}
+                </div>
+                <div>
+                  <h3 className="text-lg font-bold text-gray-900 capitalize">{editingConfig.platform}</h3>
+                  <p className="text-xs text-gray-500">{t('integConfigure')}</p>
+                </div>
+              </div>
+              <button onClick={() => setEditingConfig(null)} className="text-gray-400 hover:text-gray-600">
+                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+              </button>
+            </div>
+
+            <form onSubmit={saveConfigure} className="space-y-5">
+              <div className="space-y-1">
+                <label className="text-[10px] font-black uppercase tracking-widest text-gray-400">Webhook URL</label>
+                <input
+                  value={editWebhook}
+                  onChange={e => setEditWebhook(e.target.value)}
+                  placeholder="https://..."
+                  className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-indigo-500/10 transition-all outline-none"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-[10px] font-black uppercase tracking-widest text-gray-400">{t('integStatus')}</label>
+                <div className="flex items-center gap-2 text-sm">
+                  <span className={`flex h-2 w-2 rounded-full ${editingConfig.is_active ? 'bg-green-500' : 'bg-gray-300'}`} />
+                  <span className="text-gray-700">{editingConfig.is_active ? t('integStatusActive') : t('integStatusDisabled')}</span>
+                </div>
+              </div>
+
+              <div className="pt-4 flex gap-3">
+                <button type="button" onClick={() => setEditingConfig(null)} className="flex-1 py-3 border border-gray-200 text-gray-600 rounded-xl text-xs font-black uppercase tracking-widest hover:bg-gray-50 transition-all">
+                  {t('integCancel')}
+                </button>
+                <button type="submit" disabled={editSaving} className="flex-1 py-3 bg-indigo-600 text-white rounded-xl text-xs font-black uppercase tracking-widest hover:bg-indigo-700 shadow-lg shadow-indigo-200 transition-all disabled:opacity-50">
+                  {editSaving ? '...' : t('integSave')}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       {showCreate && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
