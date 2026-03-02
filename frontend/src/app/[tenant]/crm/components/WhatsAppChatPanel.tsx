@@ -20,6 +20,7 @@ type Message = {
   reply_to_message_id?: string;
   reactions?: Reaction[];
   metadata?: any;
+  created_by_name?: string;
 };
 
 interface WhatsAppChatPanelProps {
@@ -483,6 +484,11 @@ export default function WhatsAppChatPanel({
                         <div className="mb-1.5 rounded px-2 py-1 border-l-2" style={{ borderColor: '#25D366', background: 'rgba(0,0,0,0.04)' }}>
                           <p className="text-xs truncate" style={{ color: 'var(--notion-text-muted)' }}>{quoted.content || '(media)'}</p>
                         </div>
+                      )}
+
+                      {/* Sender name for outbound messages */}
+                      {isOut && msg.created_by_name && (
+                        <p className="text-[10px] font-semibold mb-0.5" style={{ color: '#128C7E' }}>{msg.created_by_name}</p>
                       )}
 
                       {/* Media rendering */}

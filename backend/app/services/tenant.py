@@ -1240,6 +1240,11 @@ TENANT_MIGRATION_DDL = [
         UNIQUE(wa_account_id, wa_label_id)
     )""",
     "CREATE UNIQUE INDEX IF NOT EXISTS idx_wa_messages_unique_wa_id ON whatsapp_messages(wa_account_id, wa_message_id) WHERE wa_message_id IS NOT NULL",
+
+    # ── Phase 4: CRM linkage & attribution ───────────────────────────────
+    "ALTER TABLE whatsapp_contacts ADD COLUMN IF NOT EXISTS account_id UUID",
+    "CREATE INDEX IF NOT EXISTS idx_wa_contacts_account_id ON whatsapp_contacts(account_id)",
+    "ALTER TABLE whatsapp_messages ADD COLUMN IF NOT EXISTS created_by UUID",
 ]
 
 

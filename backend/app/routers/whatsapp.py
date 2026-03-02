@@ -358,10 +358,12 @@ async def list_conversations(
     db = ctx["db"]
     q = """
         SELECT c.*, a.display_name AS account_name, a.phone_number AS account_phone,
-               l.full_name AS lead_name, l.status AS lead_status
+               l.full_name AS lead_name, l.status AS lead_status,
+               ca.name AS crm_account_name
         FROM whatsapp_contacts c
         JOIN whatsapp_accounts a ON a.id = c.wa_account_id AND a.is_active = TRUE
         LEFT JOIN leads l ON l.id = c.lead_id
+        LEFT JOIN crm_accounts ca ON ca.id = c.account_id
         WHERE a.owner_user_id = :uid
     """
     params: dict = {"uid": ctx["sub"]}
@@ -388,12 +390,14 @@ async def get_messages(
 ):
     db = ctx["db"]
     await _verify_contact_ownership(db, contact_id, ctx["sub"])
-    q = "SELECT * FROM whatsapp_messages WHERE wa_contact_id = :cid AND is_deleted = FALSE"
+    q = """SELECT m.*, u.display_name AS created_by_name
+           FROM whatsapp_messages m LEFT JOIN users u ON u.id = m.created_by
+           WHERE m.wa_contact_id = :cid AND m.is_deleted = FALSE"""
     params: dict = {"cid": contact_id}
     if before:
-        q += " AND timestamp < :before"
+        q += " AND m.timestamp < :before"
         params["before"] = before
-    q += " ORDER BY timestamp DESC LIMIT :lim"
+    q += " ORDER BY m.timestamp DESC LIMIT :lim"
     params["lim"] = min(limit, 200)
     rows = await db.execute(text(q), params)
     messages = [dict(r._mapping) for r in rows.fetchall()]
@@ -432,14 +436,14 @@ async def send_message(contact_id: str, body: SendMessageBody, ctx: dict = Depen
 
     await db.execute(text("""
         INSERT INTO whatsapp_messages (id, wa_account_id, wa_contact_id, direction, message_type, content,
-            media_url, media_mime_type, status, timestamp, created_at, reply_to_message_id, metadata)
-        VALUES (:id, :aid, :cid, 'outbound', :mtype, :content, :murl, :mmime, 'pending', :ts, :ts, :reply_id, :meta)
+            media_url, media_mime_type, status, timestamp, created_at, reply_to_message_id, metadata, created_by)
+        VALUES (:id, :aid, :cid, 'outbound', :mtype, :content, :murl, :mmime, 'pending', :ts, :ts, :reply_id, :meta, :created_by)
     """), {
         "id": msg_id, "aid": account_id, "cid": contact_id,
         "mtype": body.message_type, "content": body.content or body.caption or "",
         "murl": body.media_url, "mmime": body.media_mime_type,
         "ts": now, "reply_id": body.reply_to_message_id,
-        "meta": json.dumps({}),
+        "meta": json.dumps({}), "created_by": ctx["sub"],
     })
     await db.execute(text("""
         UPDATE whatsapp_contacts SET last_message_at = :ts, updated_at = :ts WHERE id = :cid
@@ -589,9 +593,9 @@ async def send_poll(contact_id: str, body: SendPollBody, ctx: dict = Depends(get
     now = datetime.now(timezone.utc)
     await db.execute(text("""
         INSERT INTO whatsapp_messages (id, wa_account_id, wa_contact_id, wa_message_id, direction, message_type,
-            content, status, timestamp, created_at)
-        VALUES (:id, :aid, :cid, :wmid, 'outbound', 'poll', :content, 'sent', :ts, :ts)
-    """), {"id": msg_id, "aid": account_id, "cid": contact_id, "wmid": wa_message_id, "content": body.question, "ts": now})
+            content, status, timestamp, created_at, created_by)
+        VALUES (:id, :aid, :cid, :wmid, 'outbound', 'poll', :content, 'sent', :ts, :ts, :created_by)
+    """), {"id": msg_id, "aid": account_id, "cid": contact_id, "wmid": wa_message_id, "content": body.question, "ts": now, "created_by": ctx["sub"]})
 
     # Store poll metadata
     poll_id = str(uuid.uuid4())
@@ -863,9 +867,15 @@ async def lead_messages(lead_id: str, limit: int = 50, ctx: dict = Depends(get_c
 async def link_lead(contact_id: str, body: LinkLeadBody, ctx: dict = Depends(get_current_user_with_tenant)):
     db = ctx["db"]
     await _verify_contact_ownership(db, contact_id, ctx["sub"])
+    # Also try to find account_id from contracts linked to this lead
+    acct_row = await db.execute(text(
+        "SELECT account_id FROM crm_contracts WHERE lead_id = :lid AND account_id IS NOT NULL LIMIT 1"
+    ), {"lid": body.lead_id})
+    acct = acct_row.fetchone()
+    account_id = str(acct.account_id) if acct else None
     await db.execute(
-        text("UPDATE whatsapp_contacts SET lead_id = :lid, updated_at = NOW() WHERE id = :cid"),
-        {"lid": body.lead_id, "cid": contact_id},
+        text("UPDATE whatsapp_contacts SET lead_id = :lid, account_id = COALESCE(:aid, account_id), updated_at = NOW() WHERE id = :cid"),
+        {"lid": body.lead_id, "cid": contact_id, "aid": account_id},
     )
     await db.commit()
     return {"ok": True}
@@ -1053,10 +1063,39 @@ async def internal_message_received(body: InternalMessageBody, ctx: dict = Depen
 
     # Get contact id
     contact = await db.execute(text(
-        "SELECT id FROM whatsapp_contacts WHERE wa_account_id = :aid AND wa_jid = :jid"
+        "SELECT id, lead_id, phone_number FROM whatsapp_contacts WHERE wa_account_id = :aid AND wa_jid = :jid"
     ), {"aid": body.wa_account_id, "jid": body.wa_jid})
     contact_row = contact.fetchone()
     contact_id = str(contact_row.id) if contact_row else None
+
+    # Auto-match to lead by phone number if not already linked
+    if contact_row and not contact_row.lead_id:
+        # Extract phone digits from JID (e.g., "8613800138000@s.whatsapp.net" → "8613800138000")
+        raw_jid = body.wa_jid.split("@")[0] if "@" in body.wa_jid else body.wa_jid
+        phone_variants = [raw_jid, f"+{raw_jid}"]
+        if contact_row.phone_number:
+            phone_variants.append(contact_row.phone_number)
+            phone_variants.append(contact_row.phone_number.lstrip("+"))
+        # Deduplicate
+        phone_variants = list(set(v for v in phone_variants if v))
+        if phone_variants:
+            lead_match = await db.execute(text("""
+                SELECT id FROM leads
+                WHERE whatsapp IS NOT NULL AND whatsapp != ''
+                  AND REPLACE(REPLACE(REPLACE(whatsapp, '+', ''), '-', ''), ' ', '') = ANY(:phones)
+                LIMIT 1
+            """), {"phones": [v.replace("+", "").replace("-", "").replace(" ", "") for v in phone_variants]})
+            matched_lead = lead_match.fetchone()
+            if matched_lead:
+                # Also find account_id from contracts
+                acct_row = await db.execute(text(
+                    "SELECT account_id FROM crm_contracts WHERE lead_id = :lid AND account_id IS NOT NULL LIMIT 1"
+                ), {"lid": str(matched_lead.id)})
+                acct = acct_row.fetchone()
+                await db.execute(text(
+                    "UPDATE whatsapp_contacts SET lead_id = :lid, account_id = :aid, updated_at = NOW() WHERE id = :cid"
+                ), {"lid": str(matched_lead.id), "cid": contact_id, "aid": str(acct.account_id) if acct else None})
+                logger.info(f"Auto-linked WhatsApp contact {contact_id} to lead {matched_lead.id}")
 
     if contact_id:
         # Build metadata with wa_key
