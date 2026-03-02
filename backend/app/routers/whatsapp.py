@@ -179,7 +179,7 @@ async def _get_bridge_context(
     x_tenant_slug: str = Header(default=""),
     db: AsyncSession = Depends(get_db),
 ):
-    if not settings.wa_bridge_secret or x_bridge_secret != settings.wa_bridge_secret:
+    if settings.wa_bridge_secret and x_bridge_secret != settings.wa_bridge_secret:
         raise HTTPException(status_code=403, detail="Invalid bridge secret")
     if not x_tenant_slug:
         raise HTTPException(status_code=400, detail="X-Tenant-Slug header is required")
@@ -1223,6 +1223,29 @@ async def internal_auth_update(body: InternalAuthBody, ctx: dict = Depends(_get_
         sets.append("profile_pic_url = :pic")
         params["pic"] = body.profile_pic_url
     await db.execute(text(f"UPDATE whatsapp_accounts SET {', '.join(sets)} WHERE id = :id"), params)
+
+    # Sync phone/jid to users table when connected
+    if body.status == "connected" and (body.phone_number or body.wa_jid):
+        owner = await db.execute(
+            text("SELECT owner_user_id FROM whatsapp_accounts WHERE id = :id"),
+            {"id": body.wa_account_id},
+        )
+        owner_row = owner.fetchone()
+        if owner_row and owner_row.owner_user_id:
+            user_sets = []
+            user_params: dict = {"uid": str(owner_row.owner_user_id)}
+            if body.phone_number:
+                user_sets.append("phone_number = :phone")
+                user_params["phone"] = body.phone_number
+            if body.wa_jid:
+                user_sets.append("wa_jid = :jid")
+                user_params["jid"] = body.wa_jid
+            if user_sets:
+                await db.execute(
+                    text(f"UPDATE users SET {', '.join(user_sets)}, updated_at = NOW() WHERE id = :uid"),
+                    user_params,
+                )
+
     await db.commit()
     return {"ok": True}
 

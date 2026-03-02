@@ -1275,6 +1275,9 @@ TENANT_MIGRATION_DDL = [
     )""",
     "CREATE INDEX IF NOT EXISTS idx_acq_req_status ON customer_acquisition_requests(status)",
     "CREATE INDEX IF NOT EXISTS idx_acq_req_owner ON customer_acquisition_requests(current_owner_id)",
+    # ── Phase 6: Bind WhatsApp info to users ─────────────────────────────
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS phone_number VARCHAR(50)",
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS wa_jid VARCHAR(50)",
 ]
 
 

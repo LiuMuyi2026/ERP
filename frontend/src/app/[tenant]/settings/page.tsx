@@ -774,12 +774,19 @@ function AccountSection() {
   const [showAvatarPicker, setShowAvatarPicker] = useState(false);
   const [pendingAvatar, setPendingAvatar] = useState<AvatarConfig | null>(null);
   const [savingAvatar, setSavingAvatar] = useState(false);
+  const [waPhone, setWaPhone] = useState<string | null>(null);
+  const [waJid, setWaJid] = useState<string | null>(null);
 
   useEffect(() => {
     const currentUser = getCurrentUser();
     setUser(currentUser);
     setName(currentUser?.full_name || currentUser?.email || '');
     setAvatarUrl(currentUser?.avatar_url || null);
+    // Fetch WA binding info from API (not in JWT)
+    api.get('/api/auth/me').then((me: any) => {
+      setWaPhone(me.phone_number || null);
+      setWaJid(me.wa_jid || null);
+    }).catch(() => {});
   }, []);
 
   const roleColors: Record<string, string> = {
@@ -918,6 +925,25 @@ function AccountSection() {
             <span className="text-sm" style={{ color: 'var(--notion-text)' }}>{user?.email || '—'}</span>
           } />
         </SettingsCard>
+
+        {/* WhatsApp binding */}
+        {(waPhone || waJid) && (
+          <SettingsCard>
+            <SettingsRow label="WhatsApp" value={
+              <span className="text-sm" style={{ color: 'var(--notion-text)' }}>
+                {waPhone || waJid || '—'}
+              </span>
+            } />
+            <SettingsDivider />
+            <SettingsRow label={tSettings('bindingStatus')} value={
+              <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-medium"
+                style={{ background: '#dcfce7', color: '#166534' }}>
+                <span className="w-1.5 h-1.5 rounded-full" style={{ background: '#22c55e' }} />
+                {tSettings('connected')}
+              </span>
+            } />
+          </SettingsCard>
+        )}
 
         {/* Password change */}
         <PasswordChangeCard />

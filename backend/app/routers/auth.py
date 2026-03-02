@@ -150,7 +150,7 @@ async def get_me(ctx: dict = Depends(get_current_user_with_tenant)):
     db = ctx["db"]
     user_id = ctx["sub"]
     result = await db.execute(
-        text("SELECT email, full_name, avatar_url FROM users WHERE id = :id"),
+        text("SELECT email, full_name, avatar_url, phone_number, wa_jid FROM users WHERE id = :id"),
         {"id": user_id},
     )
     row = result.fetchone()
@@ -163,6 +163,8 @@ async def get_me(ctx: dict = Depends(get_current_user_with_tenant)):
         "permissions": ctx.get("permissions", []),
         "full_name": row.full_name if row else None,
         "avatar_url": row.avatar_url if row else None,
+        "phone_number": row.phone_number if row else None,
+        "wa_jid": row.wa_jid if row else None,
     }
 
 

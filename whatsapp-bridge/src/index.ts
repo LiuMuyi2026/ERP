@@ -7,6 +7,15 @@ import sessionsRouter from './routes/sessions';
 import healthRouter from './routes/health';
 
 const logger = pino({ level: config.logLevel });
+
+// Prevent Baileys unhandled errors from crashing the process
+process.on('uncaughtException', (err) => {
+  logger.error({ err: err.message, stack: err.stack }, 'Uncaught exception (kept alive)');
+});
+process.on('unhandledRejection', (reason: any) => {
+  logger.error({ err: reason?.message || String(reason), stack: reason?.stack }, 'Unhandled rejection (kept alive)');
+});
+
 const app = express();
 
 app.use(express.json());
