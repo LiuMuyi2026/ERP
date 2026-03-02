@@ -75,6 +75,7 @@ export async function startSession(accountId: string, tenantSlug: string): Promi
     logger: logger as any,
     printQRInTerminal: false,
     generateHighQualityLinkPreview: false,
+    shouldSyncHistoryMessage: () => true,
   });
 
   const entry: SessionEntry = {
