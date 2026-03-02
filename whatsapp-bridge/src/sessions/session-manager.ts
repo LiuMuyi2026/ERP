@@ -23,6 +23,58 @@ const logger = pino({ level: config.logLevel });
 const sessions = new Map<string, SessionEntry>();
 const MAX_RETRIES = 5;
 
+// ── Simple CacheStore adapter (Baileys requires get/set/del/flushAll) ──
+interface CacheStore {
+  get<T>(key: string): T | undefined;
+  set<T>(key: string, value: T): void;
+  del(key: string): void;
+  flushAll(): void;
+}
+
+function makeMapCacheStore(): CacheStore {
+  const map = new Map<string, any>();
+  return {
+    get: <T>(key: string) => map.get(key) as T | undefined,
+    set: <T>(key: string, value: T) => { map.set(key, value); },
+    del: (key: string) => { map.delete(key); },
+    flushAll: () => { map.clear(); },
+  };
+}
+
+// ── Message retry counter cache (per-session) ──
+const msgRetryCaches = new Map<string, CacheStore>();
+
+function getMsgRetryCache(accountId: string): CacheStore {
+  let cache = msgRetryCaches.get(accountId);
+  if (!cache) {
+    cache = makeMapCacheStore();
+    msgRetryCaches.set(accountId, cache);
+  }
+  return cache;
+}
+
+// ── Sent message store for getMessage callback (keeps last 500 per session) ──
+const sentMessageStores = new Map<string, Map<string, proto.IMessage>>();
+
+function getSentMessageStore(accountId: string): Map<string, proto.IMessage> {
+  let store = sentMessageStores.get(accountId);
+  if (!store) {
+    store = new Map();
+    sentMessageStores.set(accountId, store);
+  }
+  return store;
+}
+
+function storeSentMessage(accountId: string, msgId: string, message: proto.IMessage) {
+  const store = getSentMessageStore(accountId);
+  store.set(msgId, message);
+  // Evict oldest if over 500
+  if (store.size > 500) {
+    const firstKey = store.keys().next().value;
+    if (firstKey) store.delete(firstKey);
+  }
+}
+
 // ── Helper: download media from URL to Buffer ──
 async function downloadMedia(url: string): Promise<Buffer> {
   const response = await axios.get(url, { responseType: 'arraybuffer', timeout: 60000 });
@@ -66,6 +118,9 @@ export async function startSession(accountId: string, tenantSlug: string): Promi
   const { state, saveCreds } = await getAuthState(accountId);
   const { version } = await fetchLatestBaileysVersion();
 
+  const msgRetryCache = getMsgRetryCache(accountId);
+  const sentStore = getSentMessageStore(accountId);
+
   const socket = makeWASocket({
     version,
     auth: {
@@ -76,6 +131,15 @@ export async function startSession(accountId: string, tenantSlug: string): Promi
     printQRInTerminal: false,
     generateHighQualityLinkPreview: false,
     shouldSyncHistoryMessage: () => true,
+    msgRetryCounterCache: msgRetryCache,
+    getMessage: async (key) => {
+      // Baileys calls this when it needs to re-encrypt a message for retry
+      const id = key.id;
+      if (id && sentStore.has(id)) {
+        return sentStore.get(id)!;
+      }
+      return proto.Message.fromObject({});
+    },
   });
 
   const entry: SessionEntry = {
@@ -147,6 +211,8 @@ export async function startSession(accountId: string, tenantSlug: string): Promi
 
       if (loggedOut) {
         sessions.delete(accountId);
+        msgRetryCaches.delete(accountId);
+        sentMessageStores.delete(accountId);
         await deleteSessionFiles(accountId);
         await backendClient.authUpdate(tenantSlug, {
           wa_account_id: accountId,
@@ -160,6 +226,8 @@ export async function startSession(accountId: string, tenantSlug: string): Promi
       } else {
         logger.error({ accountId }, 'Max retries reached, giving up');
         sessions.delete(accountId);
+        msgRetryCaches.delete(accountId);
+        sentMessageStores.delete(accountId);
         await backendClient.authUpdate(tenantSlug, {
           wa_account_id: accountId,
           status: 'disconnected',
@@ -517,6 +585,11 @@ export async function sendMessage(
 
   const sentMsg = await entry.socket.sendMessage(jid, msgContent, { quoted });
 
+  // Store for getMessage callback (retry decryption)
+  if (sentMsg?.key?.id && sentMsg.message) {
+    storeSentMessage(accountId, sentMsg.key.id, sentMsg.message);
+  }
+
   const waKey: WAKey | undefined = sentMsg?.key ? {
     remoteJid: sentMsg.key.remoteJid || jid,
     fromMe: sentMsg.key.fromMe || true,
@@ -772,6 +845,8 @@ export async function closeSession(accountId: string, logout: boolean = false): 
       logger.warn({ err, accountId }, 'Error closing session');
     }
     sessions.delete(accountId);
+    msgRetryCaches.delete(accountId);
+    sentMessageStores.delete(accountId);
   }
   if (logout) {
     await deleteSessionFiles(accountId);
