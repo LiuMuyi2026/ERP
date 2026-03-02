@@ -1,4 +1,4 @@
-"""WhatsApp integration API — connected to Baileys bridge service."""
+"""WhatsApp integration API — connected to Evolution API."""
 
 import logging
 import uuid
@@ -6,7 +6,7 @@ import json
 from datetime import datetime, timezone
 from typing import Optional, List
 
-from fastapi import APIRouter, Depends, HTTPException, Header, UploadFile, File
+from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile, File
 from pydantic import BaseModel
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -23,17 +23,20 @@ router = APIRouter(prefix="/whatsapp", tags=["whatsapp"])
 
 @router.get("/bridge-status")
 async def bridge_status():
-    """Public diagnostic: check if backend can reach the bridge."""
+    """Public diagnostic: check if backend can reach Evolution API."""
     import httpx
-    url = settings.wa_bridge_url
-    result: dict = {"bridge_url": url, "wa_bridge_secret_set": bool(settings.wa_bridge_secret)}
+    url = settings.evo_api_url
+    result: dict = {"evo_api_url": url, "evo_api_key_set": bool(settings.evo_api_key)}
     try:
         async with httpx.AsyncClient() as client:
-            resp = await client.get(f"{url}/health", timeout=10)
+            resp = await client.get(
+                f"{url.rstrip('/')}/instance/fetchInstances",
+                headers={"apikey": settings.evo_api_key},
+                timeout=10,
+            )
             result.update({
                 "reachable": True,
                 "status_code": resp.status_code,
-                "bridge_response": resp.json(),
             })
     except Exception as e:
         result.update({"reachable": False, "error": str(e)})
@@ -92,108 +95,11 @@ class GroupCreateBody(BaseModel):
 class GroupParticipantsBody(BaseModel):
     participants: List[str]
 
-# ── Internal bridge callback schemas ──
-
-class InternalMessageBody(BaseModel):
-    wa_account_id: str
-    wa_jid: str
-    wa_message_id: Optional[str] = None
-    content: Optional[str] = None
-    message_type: str = "text"
-    media_url: Optional[str] = None
-    media_mime_type: Optional[str] = None
-    timestamp: Optional[str] = None
-    push_name: Optional[str] = None
-    profile_pic_url: Optional[str] = None
-    wa_key: Optional[dict] = None
-    quoted_message_id: Optional[str] = None
-    quoted_content: Optional[str] = None
-    direction: Optional[str] = None
-    is_history_sync: bool = False
-
-class InternalStatusBody(BaseModel):
-    wa_message_id: str
-    status: str
-
-class InternalAuthBody(BaseModel):
-    wa_account_id: str
-    status: str
-    wa_jid: Optional[str] = None
-    phone_number: Optional[str] = None
-    display_name: Optional[str] = None
-    profile_pic_url: Optional[str] = None
-
-class InternalReactionBody(BaseModel):
-    wa_account_id: str
-    wa_message_id: str
-    reactor_jid: str
-    emoji: Optional[str] = None
-    timestamp: Optional[str] = None
-
-class InternalMessageDeletedBody(BaseModel):
-    wa_account_id: str
-    wa_message_id: str
-
-class InternalMessageEditedBody(BaseModel):
-    wa_account_id: str
-    wa_message_id: str
-    new_content: str
-    timestamp: Optional[str] = None
-
-class InternalPollVoteBody(BaseModel):
-    wa_account_id: str
-    wa_message_id: str
-    voter_jid: str
-    selected_options: List[int] = []
-
-class InternalGroupUpdateBody(BaseModel):
-    wa_account_id: str
-    group_jid: str
-    metadata: dict = {}
-
-class InternalGroupParticipantsBody(BaseModel):
-    wa_account_id: str
-    group_jid: str
-    action: str
-    participants: List[str] = []
-
-class InternalLabelsBody(BaseModel):
-    wa_account_id: str
-    labels: List[dict] = []
-
-class InternalLabelAssociationBody(BaseModel):
-    wa_account_id: str
-    label_id: str
-    chat_jid: str
-    action: str  # add | remove
-
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
-
-
-async def _get_bridge_context(
-    x_bridge_secret: str = Header(default=""),
-    x_tenant_slug: str = Header(default=""),
-    db: AsyncSession = Depends(get_db),
-):
-    if settings.wa_bridge_secret and x_bridge_secret != settings.wa_bridge_secret:
-        raise HTTPException(status_code=403, detail="Invalid bridge secret")
-    if not x_tenant_slug:
-        raise HTTPException(status_code=400, detail="X-Tenant-Slug header is required")
-    tenant = await db.execute(
-        text("SELECT is_active, schema_provisioned FROM platform.tenants WHERE slug = :slug"),
-        {"slug": x_tenant_slug},
-    )
-    tenant_row = tenant.fetchone()
-    if not tenant_row:
-        raise HTTPException(status_code=404, detail="Tenant not found")
-    if not tenant_row.is_active:
-        raise HTTPException(status_code=403, detail="Tenant is disabled")
-    await safe_set_search_path(db, x_tenant_slug)
-    return {"db": db, "tenant_slug": x_tenant_slug}
 
 
 async def _verify_contact_ownership(db, contact_id: str, uid: str):
@@ -253,7 +159,7 @@ async def create_account(body: CreateAccountBody, ctx: dict = Depends(get_curren
     try:
         bridge_result = await wa_bridge.start_session(account_id, ctx["tenant_slug"])
     except BridgeError as e:
-        logger.warning("Bridge unavailable when creating account %s: %s", account_id, e)
+        logger.warning("Evolution API unavailable when creating account %s: %s", account_id, e)
         bridge_result = {"ok": False, "error": str(e)}
     return {"id": account_id, "status": "pending_qr", "bridge": bridge_result}
 
@@ -272,15 +178,14 @@ async def get_qr(account_id: str, ctx: dict = Depends(get_current_user_with_tena
         bridge_data = await wa_bridge.get_qr(account_id)
     except BridgeError as e:
         if e.is_session_not_found:
-            # Session expired or crashed on bridge — auto-restart it
-            logger.info("Session %s not found on bridge, auto-restarting...", account_id)
+            logger.info("Instance %s not found on Evolution API, auto-creating...", account_id)
             try:
                 await wa_bridge.start_session(account_id, ctx["tenant_slug"])
                 return {"account_id": account_id, "status": "restarting", "qr_data": None}
             except BridgeError as restart_err:
-                logger.warning("Failed to restart session %s: %s", account_id, restart_err)
+                logger.warning("Failed to create instance %s: %s", account_id, restart_err)
                 return {"account_id": account_id, "status": "bridge_unavailable", "qr_data": None, "error": str(restart_err)}
-        logger.warning("Bridge unavailable for QR poll on account %s: %s", account_id, e)
+        logger.warning("Evolution API unavailable for QR poll on account %s: %s", account_id, e)
         return {"account_id": account_id, "status": "bridge_unavailable", "qr_data": None, "error": str(e)}
     return {
         "account_id": account_id,
@@ -302,7 +207,7 @@ async def delete_account(account_id: str, ctx: dict = Depends(get_current_user_w
     try:
         await wa_bridge.close_session(account_id, logout=False)
     except BridgeError as e:
-        logger.warning("Bridge unavailable when disconnecting account %s: %s", account_id, e)
+        logger.warning("Evolution API unavailable when disconnecting account %s: %s", account_id, e)
     return {"ok": True}
 
 
@@ -319,7 +224,7 @@ async def reconnect_account(account_id: str, ctx: dict = Depends(get_current_use
     try:
         await wa_bridge.start_session(account_id, ctx["tenant_slug"])
     except BridgeError as e:
-        logger.warning("Bridge unavailable when reconnecting account %s: %s", account_id, e)
+        logger.warning("Evolution API unavailable when reconnecting account %s: %s", account_id, e)
     return {"ok": True, "status": "pending_qr"}
 
 
@@ -535,7 +440,7 @@ async def mark_conversation_read(contact_id: str, ctx: dict = Depends(get_curren
     await db.execute(text("UPDATE whatsapp_contacts SET unread_count = 0, updated_at = NOW() WHERE id = :cid"), {"cid": contact_id})
     await db.commit()
 
-    # Tell bridge to send read receipts
+    # Tell Evolution API to send read receipts
     if msg_ids:
         await wa_bridge.mark_read(account_id, contact.wa_jid, msg_ids)
 
@@ -1070,176 +975,235 @@ Be specific and actionable. Reference actual messages where relevant. Write in t
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# Bridge internal callbacks
+# Evolution API Webhook (replaces all internal/* endpoints)
 # ══════════════════════════════════════════════════════════════════════════════
 
-@router.post("/internal/message-received")
-async def internal_message_received(body: InternalMessageBody, ctx: dict = Depends(_get_bridge_context)):
-    db = ctx["db"]
-    now = datetime.now(timezone.utc)
-    ts = body.timestamp or now.isoformat()
-    direction = body.direction or "inbound"
-    is_history = body.is_history_sync
+# Status mapping from Evolution API to our DB
+EVO_STATUS_MAP = {
+    "SERVER_ACK": "sent",
+    "DELIVERY_ACK": "delivered",
+    "READ": "read",
+    "PLAYED": "read",
+    "PENDING": "pending",
+}
 
-    # Upsert contact
-    upsert_params = {"aid": body.wa_account_id, "jid": body.wa_jid, "pn": body.push_name, "ts": ts}
-    if is_history:
-        # History sync: don't increment unread
-        await db.execute(text("""
-            INSERT INTO whatsapp_contacts (wa_account_id, wa_jid, push_name, display_name, last_message_at, unread_count, created_at)
-            VALUES (:aid, :jid, :pn, :pn, :ts, 0, NOW())
-            ON CONFLICT (wa_account_id, wa_jid) DO UPDATE
-            SET push_name = COALESCE(EXCLUDED.push_name, whatsapp_contacts.push_name),
-                last_message_at = GREATEST(whatsapp_contacts.last_message_at, EXCLUDED.last_message_at),
-                updated_at = NOW()
-        """), upsert_params)
-    else:
-        unread_inc = 1 if direction == "inbound" else 0
-        await db.execute(text(f"""
-            INSERT INTO whatsapp_contacts (wa_account_id, wa_jid, push_name, display_name, last_message_at, unread_count, created_at)
-            VALUES (:aid, :jid, :pn, :pn, :ts, {unread_inc}, NOW())
-            ON CONFLICT (wa_account_id, wa_jid) DO UPDATE
-            SET push_name = COALESCE(EXCLUDED.push_name, whatsapp_contacts.push_name),
-                last_message_at = EXCLUDED.last_message_at,
-                unread_count = whatsapp_contacts.unread_count + {unread_inc},
-                updated_at = NOW()
-        """), upsert_params)
 
-    # Update profile pic if provided
-    if body.profile_pic_url:
-        await db.execute(text(
-            "UPDATE whatsapp_contacts SET profile_pic_url = :pic WHERE wa_account_id = :aid AND wa_jid = :jid"
-        ), {"pic": body.profile_pic_url, "aid": body.wa_account_id, "jid": body.wa_jid})
+def _extract_evo_message_content(msg: dict) -> dict:
+    """Extract message content from Evolution webhook message object."""
+    # Text messages
+    text_content = msg.get("conversation") or msg.get("extendedTextMessage", {}).get("text")
 
-    # Get contact id
-    contact = await db.execute(text(
-        "SELECT id, lead_id, phone_number FROM whatsapp_contacts WHERE wa_account_id = :aid AND wa_jid = :jid"
-    ), {"aid": body.wa_account_id, "jid": body.wa_jid})
-    contact_row = contact.fetchone()
-    contact_id = str(contact_row.id) if contact_row else None
+    # Image
+    if "imageMessage" in msg:
+        im = msg["imageMessage"]
+        return {
+            "type": "image",
+            "text": im.get("caption", ""),
+            "media_mime": im.get("mimetype", "image/jpeg"),
+            "media_url": im.get("url"),
+        }
+    # Video
+    if "videoMessage" in msg:
+        vm = msg["videoMessage"]
+        return {
+            "type": "video",
+            "text": vm.get("caption", ""),
+            "media_mime": vm.get("mimetype", "video/mp4"),
+            "media_url": vm.get("url"),
+        }
+    # Audio / voice note
+    if "audioMessage" in msg:
+        am = msg["audioMessage"]
+        return {
+            "type": "audio",
+            "text": "",
+            "media_mime": am.get("mimetype", "audio/ogg"),
+            "media_url": am.get("url"),
+        }
+    # Document
+    if "documentMessage" in msg:
+        dm = msg["documentMessage"]
+        return {
+            "type": "document",
+            "text": dm.get("fileName", ""),
+            "media_mime": dm.get("mimetype", "application/octet-stream"),
+            "media_url": dm.get("url"),
+        }
+    # Sticker
+    if "stickerMessage" in msg:
+        sm = msg["stickerMessage"]
+        return {
+            "type": "sticker",
+            "text": "",
+            "media_mime": sm.get("mimetype", "image/webp"),
+            "media_url": sm.get("url"),
+        }
+    # Location
+    if "locationMessage" in msg:
+        lm = msg["locationMessage"]
+        return {
+            "type": "location",
+            "text": f"{lm.get('degreesLatitude', 0)},{lm.get('degreesLongitude', 0)}",
+            "media_mime": None,
+            "media_url": None,
+        }
+    # Contact card
+    if "contactMessage" in msg:
+        cm = msg["contactMessage"]
+        return {
+            "type": "contact",
+            "text": cm.get("displayName", ""),
+            "media_mime": None,
+            "media_url": None,
+        }
+    # Reaction (handled separately)
+    if "reactionMessage" in msg:
+        rm = msg["reactionMessage"]
+        return {
+            "type": "reaction",
+            "text": rm.get("text", ""),
+            "media_mime": None,
+            "media_url": None,
+            "reaction_key": rm.get("key"),
+        }
+    # Poll
+    if "pollCreationMessage" in msg or "pollCreationMessageV3" in msg:
+        pm = msg.get("pollCreationMessage") or msg.get("pollCreationMessageV3", {})
+        return {
+            "type": "poll",
+            "text": pm.get("name", ""),
+            "media_mime": None,
+            "media_url": None,
+        }
+    # Default: text
+    return {
+        "type": "text",
+        "text": text_content or "",
+        "media_mime": None,
+        "media_url": None,
+    }
 
-    # Auto-match to lead by phone number if not already linked
-    if contact_row and not contact_row.lead_id:
-        # Extract phone digits from JID (e.g., "8613800138000@s.whatsapp.net" → "8613800138000")
-        raw_jid = body.wa_jid.split("@")[0] if "@" in body.wa_jid else body.wa_jid
-        phone_variants = [raw_jid, f"+{raw_jid}"]
-        if contact_row.phone_number:
-            phone_variants.append(contact_row.phone_number)
-            phone_variants.append(contact_row.phone_number.lstrip("+"))
-        # Deduplicate
-        phone_variants = list(set(v for v in phone_variants if v))
-        if phone_variants:
-            lead_match = await db.execute(text("""
-                SELECT id FROM leads
-                WHERE whatsapp IS NOT NULL AND whatsapp != ''
-                  AND REPLACE(REPLACE(REPLACE(whatsapp, '+', ''), '-', ''), ' ', '') = ANY(:phones)
-                LIMIT 1
-            """), {"phones": [v.replace("+", "").replace("-", "").replace(" ", "") for v in phone_variants]})
-            matched_lead = lead_match.fetchone()
-            if matched_lead:
-                # Also find account_id from contracts
-                acct_row = await db.execute(text(
-                    "SELECT account_id FROM crm_contracts WHERE lead_id = :lid AND account_id IS NOT NULL LIMIT 1"
-                ), {"lid": str(matched_lead.id)})
-                acct = acct_row.fetchone()
-                await db.execute(text(
-                    "UPDATE whatsapp_contacts SET lead_id = :lid, account_id = :aid, updated_at = NOW() WHERE id = :cid"
-                ), {"lid": str(matched_lead.id), "cid": contact_id, "aid": str(acct.account_id) if acct else None})
-                logger.info(f"Auto-linked WhatsApp contact {contact_id} to lead {matched_lead.id}")
 
-    if contact_id:
-        # Build metadata with wa_key
-        metadata = {}
-        if body.wa_key:
-            metadata["wa_key"] = body.wa_key
+async def _resolve_tenant_for_instance(db: AsyncSession, instance_name: str) -> Optional[str]:
+    """Find the tenant slug for a given wa_account_id (instance name)."""
+    row = await db.execute(text("""
+        SELECT t.slug FROM platform.tenants t
+        JOIN information_schema.tables ist ON ist.table_schema = 'tenant_' || t.slug
+        WHERE ist.table_name = 'whatsapp_accounts'
+        LIMIT 100
+    """))
+    for tenant_row in row.fetchall():
+        slug = tenant_row.slug
+        try:
+            await safe_set_search_path(db, slug)
+            acc = await db.execute(text(
+                "SELECT id FROM whatsapp_accounts WHERE id = :id AND is_active = TRUE"
+            ), {"id": instance_name})
+            if acc.fetchone():
+                return slug
+        except Exception:
+            continue
+    return None
 
-        # Find reply_to_message_id from quoted_message_id
-        reply_to = None
-        if body.quoted_message_id:
-            ref = await db.execute(text(
-                "SELECT id FROM whatsapp_messages WHERE wa_message_id = :mid AND wa_account_id = :aid LIMIT 1"
-            ), {"mid": body.quoted_message_id, "aid": body.wa_account_id})
-            ref_row = ref.fetchone()
-            if ref_row:
-                reply_to = str(ref_row.id)
-            if body.quoted_content:
-                metadata["quoted_content"] = body.quoted_content
 
-        if is_history:
-            # History sync: ON CONFLICT DO NOTHING
-            await db.execute(text("""
-                INSERT INTO whatsapp_messages (wa_account_id, wa_contact_id, wa_message_id, direction, message_type,
-                    content, media_url, media_mime_type, status, timestamp, created_at, metadata, reply_to_message_id)
-                VALUES (:aid, :cid, :mid, :dir, :mtype, :content, :murl, :mmime, 'received', :ts, NOW(), :meta, :reply_to)
-                ON CONFLICT DO NOTHING
-            """), {
-                "aid": body.wa_account_id, "cid": contact_id, "mid": body.wa_message_id,
-                "dir": direction, "mtype": body.message_type, "content": body.content,
-                "murl": body.media_url, "mmime": body.media_mime_type, "ts": ts,
-                "meta": json.dumps(metadata), "reply_to": reply_to,
-            })
+@router.post("/evo-webhook")
+async def evo_webhook(request: Request, db: AsyncSession = Depends(get_db)):
+    """Unified webhook for all Evolution API events."""
+    body = await request.json()
+    event = body.get("event")
+    instance = body.get("instance")  # = wa_account_id
+    data = body.get("data", {})
+
+    if not event or not instance:
+        return {"ok": False, "reason": "missing event or instance"}
+
+    # Try to get tenant slug from webhook headers or resolve from DB
+    tenant_slug = request.headers.get("x-tenant-slug", "")
+    if not tenant_slug:
+        # Fallback: resolve tenant from instance name
+        tenant_slug = await _resolve_tenant_for_instance(db, instance)
+        if not tenant_slug:
+            logger.warning("evo-webhook: could not resolve tenant for instance %s", instance)
+            return {"ok": False, "reason": "tenant not found"}
+
+    await safe_set_search_path(db, tenant_slug)
+
+    logger.debug("evo-webhook: event=%s instance=%s", event, instance)
+
+    try:
+        if event == "CONNECTION_UPDATE":
+            await _handle_connection_update(db, instance, data)
+        elif event == "QRCODE_UPDATED":
+            pass  # QR is fetched on-demand via get_qr endpoint
+        elif event == "MESSAGES_UPSERT":
+            await _handle_messages_upsert(db, instance, data)
+        elif event == "MESSAGES_UPDATE":
+            await _handle_messages_update(db, instance, data)
+        elif event == "MESSAGES_DELETE":
+            await _handle_messages_delete(db, instance, data)
+        elif event == "GROUPS_UPSERT":
+            await _handle_groups_upsert(db, instance, data)
+        elif event == "GROUP_PARTICIPANTS_UPDATE":
+            await _handle_group_participants_update(db, instance, data)
+        elif event == "PRESENCE_UPDATE":
+            pass  # Presence updates are not stored
         else:
-            await db.execute(text("""
-                INSERT INTO whatsapp_messages (wa_account_id, wa_contact_id, wa_message_id, direction, message_type,
-                    content, media_url, media_mime_type, status, timestamp, created_at, metadata, reply_to_message_id)
-                VALUES (:aid, :cid, :mid, :dir, :mtype, :content, :murl, :mmime, 'received', :ts, NOW(), :meta, :reply_to)
-            """), {
-                "aid": body.wa_account_id, "cid": contact_id, "mid": body.wa_message_id,
-                "dir": direction, "mtype": body.message_type, "content": body.content,
-                "murl": body.media_url, "mmime": body.media_mime_type, "ts": ts,
-                "meta": json.dumps(metadata), "reply_to": reply_to,
-            })
+            logger.debug("evo-webhook: unhandled event %s", event)
+    except Exception as e:
+        logger.error("evo-webhook: error handling event %s for instance %s: %s", event, instance, e, exc_info=True)
+        return {"ok": False, "error": str(e)}
 
-    await db.commit()
     return {"ok": True}
 
 
-@router.post("/internal/status-update")
-async def internal_status_update(body: InternalStatusBody, ctx: dict = Depends(_get_bridge_context)):
-    db = ctx["db"]
-    await db.execute(
-        text("UPDATE whatsapp_messages SET status = :st WHERE wa_message_id = :mid"),
-        {"st": body.status, "mid": body.wa_message_id},
-    )
-    await db.commit()
-    return {"ok": True}
+async def _handle_connection_update(db: AsyncSession, instance: str, data: dict):
+    """Handle CONNECTION_UPDATE event from Evolution API."""
+    state = data.get("state") or data.get("status", "")
+    # Evolution states: open, close, connecting
+    status_map = {"open": "connected", "connecting": "pending_qr", "close": "disconnected"}
+    new_status = status_map.get(state, "disconnected")
 
-
-@router.post("/internal/auth-update")
-async def internal_auth_update(body: InternalAuthBody, ctx: dict = Depends(_get_bridge_context)):
-    db = ctx["db"]
     sets = ["status = :st", "updated_at = NOW()"]
-    params: dict = {"st": body.status, "id": body.wa_account_id}
-    if body.wa_jid:
-        sets.append("wa_jid = :jid")
-        params["jid"] = body.wa_jid
-    if body.phone_number:
-        sets.append("phone_number = :phone")
-        params["phone"] = body.phone_number
-    if body.display_name:
-        sets.append("display_name = :dn")
-        params["dn"] = body.display_name
-    if body.profile_pic_url:
-        sets.append("profile_pic_url = :pic")
-        params["pic"] = body.profile_pic_url
+    params: dict = {"st": new_status, "id": instance}
+
+    # Extract phone/jid info if available
+    instance_data = data.get("instance", {})
+    if isinstance(instance_data, dict):
+        wuid = instance_data.get("wuid")
+        if wuid:
+            # wuid format: "5511999999999:0@s.whatsapp.net"
+            phone = wuid.split(":")[0] if ":" in wuid else wuid.split("@")[0]
+            sets.append("phone_number = :phone")
+            params["phone"] = f"+{phone}"
+            sets.append("wa_jid = :jid")
+            params["jid"] = wuid
+        display_name = instance_data.get("profileName")
+        if display_name:
+            sets.append("display_name = :dn")
+            params["dn"] = display_name
+        pic_url = instance_data.get("profilePictureUrl")
+        if pic_url:
+            sets.append("profile_pic_url = :pic")
+            params["pic"] = pic_url
+
     await db.execute(text(f"UPDATE whatsapp_accounts SET {', '.join(sets)} WHERE id = :id"), params)
 
     # Sync phone/jid to users table when connected
-    if body.status == "connected" and (body.phone_number or body.wa_jid):
+    if new_status == "connected" and params.get("phone"):
         owner = await db.execute(
             text("SELECT owner_user_id FROM whatsapp_accounts WHERE id = :id"),
-            {"id": body.wa_account_id},
+            {"id": instance},
         )
         owner_row = owner.fetchone()
         if owner_row and owner_row.owner_user_id:
             user_sets = []
             user_params: dict = {"uid": str(owner_row.owner_user_id)}
-            if body.phone_number:
+            if params.get("phone"):
                 user_sets.append("phone_number = :phone")
-                user_params["phone"] = body.phone_number
-            if body.wa_jid:
+                user_params["phone"] = params["phone"]
+            if params.get("jid"):
                 user_sets.append("wa_jid = :jid")
-                user_params["jid"] = body.wa_jid
+                user_params["jid"] = params["jid"]
             if user_sets:
                 await db.execute(
                     text(f"UPDATE users SET {', '.join(user_sets)}, updated_at = NOW() WHERE id = :uid"),
@@ -1247,159 +1211,264 @@ async def internal_auth_update(body: InternalAuthBody, ctx: dict = Depends(_get_
                 )
 
     await db.commit()
-    return {"ok": True}
 
 
-@router.post("/internal/reaction-received")
-async def internal_reaction_received(body: InternalReactionBody, ctx: dict = Depends(_get_bridge_context)):
-    db = ctx["db"]
-    # Find the message by wa_message_id
-    msg = await db.execute(text(
-        "SELECT id FROM whatsapp_messages WHERE wa_message_id = :mid LIMIT 1"
-    ), {"mid": body.wa_message_id})
-    msg_row = msg.fetchone()
-    if not msg_row:
-        return {"ok": False, "reason": "message not found"}
+async def _handle_messages_upsert(db: AsyncSession, instance: str, data: dict):
+    """Handle MESSAGES_UPSERT event — new incoming/outgoing message."""
+    # Evolution sends array or single message
+    messages = data if isinstance(data, list) else [data]
 
-    if body.emoji:
+    for msg_data in messages:
+        key = msg_data.get("key", {})
+        wa_message_id = key.get("id")
+        remote_jid = key.get("remoteJid", "")
+        from_me = key.get("fromMe", False)
+
+        if not wa_message_id or not remote_jid:
+            continue
+
+        # Skip status broadcast
+        if remote_jid == "status@broadcast":
+            continue
+
+        message_obj = msg_data.get("message", {})
+        if not message_obj:
+            continue
+
+        extracted = _extract_evo_message_content(message_obj)
+
+        # Handle reactions separately
+        if extracted["type"] == "reaction":
+            reaction_key = extracted.get("reaction_key", {})
+            reacted_msg_id = reaction_key.get("id") if reaction_key else None
+            if reacted_msg_id:
+                msg_row = await db.execute(text(
+                    "SELECT id FROM whatsapp_messages WHERE wa_message_id = :mid LIMIT 1"
+                ), {"mid": reacted_msg_id})
+                msg = msg_row.fetchone()
+                if msg:
+                    reactor_jid = remote_jid if not from_me else (key.get("participant") or remote_jid)
+                    emoji = extracted["text"]
+                    if emoji:
+                        await db.execute(text("""
+                            INSERT INTO whatsapp_reactions (wa_message_id, reactor_jid, emoji, timestamp)
+                            VALUES (:mid, :jid, :emoji, :ts)
+                            ON CONFLICT (wa_message_id, reactor_jid) DO UPDATE SET emoji = :emoji, timestamp = :ts
+                        """), {"mid": str(msg.id), "jid": reactor_jid, "emoji": emoji, "ts": _now_iso()})
+                    else:
+                        await db.execute(text(
+                            "DELETE FROM whatsapp_reactions WHERE wa_message_id = :mid AND reactor_jid = :jid"
+                        ), {"mid": str(msg.id), "jid": reactor_jid})
+            await db.commit()
+            continue
+
+        direction = "outbound" if from_me else "inbound"
+        push_name = msg_data.get("pushName", "")
+        timestamp = msg_data.get("messageTimestamp")
+        if timestamp and isinstance(timestamp, (int, float)):
+            ts = datetime.fromtimestamp(timestamp, tz=timezone.utc).isoformat()
+        else:
+            ts = _now_iso()
+
+        is_group = remote_jid.endswith("@g.us")
+        is_history = msg_data.get("messageStubType") is not None
+
+        # Upsert contact
+        unread_inc = 1 if direction == "inbound" and not is_history else 0
+        if is_history:
+            await db.execute(text("""
+                INSERT INTO whatsapp_contacts (wa_account_id, wa_jid, push_name, display_name, is_group, last_message_at, unread_count, created_at)
+                VALUES (:aid, :jid, :pn, :pn, :ig, :ts, 0, NOW())
+                ON CONFLICT (wa_account_id, wa_jid) DO UPDATE
+                SET push_name = COALESCE(EXCLUDED.push_name, whatsapp_contacts.push_name),
+                    last_message_at = GREATEST(whatsapp_contacts.last_message_at, EXCLUDED.last_message_at),
+                    updated_at = NOW()
+            """), {"aid": instance, "jid": remote_jid, "pn": push_name or None, "ig": is_group, "ts": ts})
+        else:
+            await db.execute(text(f"""
+                INSERT INTO whatsapp_contacts (wa_account_id, wa_jid, push_name, display_name, is_group, last_message_at, unread_count, created_at)
+                VALUES (:aid, :jid, :pn, :pn, :ig, :ts, {unread_inc}, NOW())
+                ON CONFLICT (wa_account_id, wa_jid) DO UPDATE
+                SET push_name = COALESCE(EXCLUDED.push_name, whatsapp_contacts.push_name),
+                    last_message_at = EXCLUDED.last_message_at,
+                    unread_count = whatsapp_contacts.unread_count + {unread_inc},
+                    updated_at = NOW()
+            """), {"aid": instance, "jid": remote_jid, "pn": push_name or None, "ig": is_group, "ts": ts})
+
+        # Get contact id
+        contact = await db.execute(text(
+            "SELECT id, lead_id, phone_number FROM whatsapp_contacts WHERE wa_account_id = :aid AND wa_jid = :jid"
+        ), {"aid": instance, "jid": remote_jid})
+        contact_row = contact.fetchone()
+        contact_id = str(contact_row.id) if contact_row else None
+
+        # Auto-match to lead by phone number if not already linked
+        if contact_row and not contact_row.lead_id and not is_group:
+            raw_jid = remote_jid.split("@")[0] if "@" in remote_jid else remote_jid
+            phone_variants = [raw_jid, f"+{raw_jid}"]
+            if contact_row.phone_number:
+                phone_variants.append(contact_row.phone_number)
+                phone_variants.append(contact_row.phone_number.lstrip("+"))
+            phone_variants = list(set(v for v in phone_variants if v))
+            if phone_variants:
+                lead_match = await db.execute(text("""
+                    SELECT id FROM leads
+                    WHERE whatsapp IS NOT NULL AND whatsapp != ''
+                      AND REPLACE(REPLACE(REPLACE(whatsapp, '+', ''), '-', ''), ' ', '') = ANY(:phones)
+                    LIMIT 1
+                """), {"phones": [v.replace("+", "").replace("-", "").replace(" ", "") for v in phone_variants]})
+                matched_lead = lead_match.fetchone()
+                if matched_lead:
+                    acct_row = await db.execute(text(
+                        "SELECT account_id FROM crm_contracts WHERE lead_id = :lid AND account_id IS NOT NULL LIMIT 1"
+                    ), {"lid": str(matched_lead.id)})
+                    acct = acct_row.fetchone()
+                    await db.execute(text(
+                        "UPDATE whatsapp_contacts SET lead_id = :lid, account_id = :aid, updated_at = NOW() WHERE id = :cid"
+                    ), {"lid": str(matched_lead.id), "cid": contact_id, "aid": str(acct.account_id) if acct else None})
+
+        if contact_id:
+            # Build metadata
+            metadata = {"wa_key": key}
+
+            # Find reply_to from quoted message
+            reply_to = None
+            context_info = message_obj.get("extendedTextMessage", {}).get("contextInfo") or message_obj.get("contextInfo", {})
+            quoted_msg_id = context_info.get("stanzaId") if context_info else None
+            if quoted_msg_id:
+                ref = await db.execute(text(
+                    "SELECT id FROM whatsapp_messages WHERE wa_message_id = :mid AND wa_account_id = :aid LIMIT 1"
+                ), {"mid": quoted_msg_id, "aid": instance})
+                ref_row = ref.fetchone()
+                if ref_row:
+                    reply_to = str(ref_row.id)
+                quoted_text = context_info.get("quotedMessage", {}).get("conversation")
+                if quoted_text:
+                    metadata["quoted_content"] = quoted_text
+
+            if is_history:
+                await db.execute(text("""
+                    INSERT INTO whatsapp_messages (wa_account_id, wa_contact_id, wa_message_id, direction, message_type,
+                        content, media_url, media_mime_type, status, timestamp, created_at, metadata, reply_to_message_id)
+                    VALUES (:aid, :cid, :mid, :dir, :mtype, :content, :murl, :mmime, 'received', :ts, NOW(), :meta, :reply_to)
+                    ON CONFLICT DO NOTHING
+                """), {
+                    "aid": instance, "cid": contact_id, "mid": wa_message_id,
+                    "dir": direction, "mtype": extracted["type"], "content": extracted["text"],
+                    "murl": extracted.get("media_url"), "mmime": extracted.get("media_mime"),
+                    "ts": ts, "meta": json.dumps(metadata), "reply_to": reply_to,
+                })
+            else:
+                await db.execute(text("""
+                    INSERT INTO whatsapp_messages (wa_account_id, wa_contact_id, wa_message_id, direction, message_type,
+                        content, media_url, media_mime_type, status, timestamp, created_at, metadata, reply_to_message_id)
+                    VALUES (:aid, :cid, :mid, :dir, :mtype, :content, :murl, :mmime, 'received', :ts, NOW(), :meta, :reply_to)
+                    ON CONFLICT (wa_account_id, wa_message_id) DO NOTHING
+                """), {
+                    "aid": instance, "cid": contact_id, "mid": wa_message_id,
+                    "dir": direction, "mtype": extracted["type"], "content": extracted["text"],
+                    "murl": extracted.get("media_url"), "mmime": extracted.get("media_mime"),
+                    "ts": ts, "meta": json.dumps(metadata), "reply_to": reply_to,
+                })
+
+    await db.commit()
+
+
+async def _handle_messages_update(db: AsyncSession, instance: str, data: dict):
+    """Handle MESSAGES_UPDATE event — status changes (sent/delivered/read)."""
+    updates = data if isinstance(data, list) else [data]
+
+    for update in updates:
+        key = update.get("key", {})
+        wa_message_id = key.get("id")
+        if not wa_message_id:
+            continue
+
+        # Status update
+        raw_status = update.get("status")
+        if raw_status:
+            status_str = str(raw_status)
+            # Evolution may send numeric or string status
+            if status_str.isdigit():
+                # Numeric: 1=PENDING, 2=SERVER_ACK, 3=DELIVERY_ACK, 4=READ, 5=PLAYED
+                num_map = {"1": "pending", "2": "sent", "3": "delivered", "4": "read", "5": "read"}
+                new_status = num_map.get(status_str, "sent")
+            else:
+                new_status = EVO_STATUS_MAP.get(status_str, status_str.lower())
+
+            await db.execute(
+                text("UPDATE whatsapp_messages SET status = :st WHERE wa_message_id = :mid"),
+                {"st": new_status, "mid": wa_message_id},
+            )
+
+    await db.commit()
+
+
+async def _handle_messages_delete(db: AsyncSession, instance: str, data: dict):
+    """Handle MESSAGES_DELETE event."""
+    key = data.get("key", {})
+    wa_message_id = key.get("id")
+    if wa_message_id:
         await db.execute(text("""
-            INSERT INTO whatsapp_reactions (wa_message_id, reactor_jid, emoji, timestamp)
-            VALUES (:mid, :jid, :emoji, :ts)
-            ON CONFLICT (wa_message_id, reactor_jid) DO UPDATE SET emoji = :emoji, timestamp = :ts
-        """), {"mid": str(msg_row.id), "jid": body.reactor_jid, "emoji": body.emoji, "ts": body.timestamp or _now_iso()})
-    else:
-        # Empty emoji = remove reaction
-        await db.execute(text(
-            "DELETE FROM whatsapp_reactions WHERE wa_message_id = :mid AND reactor_jid = :jid"
-        ), {"mid": str(msg_row.id), "jid": body.reactor_jid})
+            UPDATE whatsapp_messages SET is_deleted = TRUE, content = NULL WHERE wa_message_id = :mid
+        """), {"mid": wa_message_id})
+        await db.commit()
+
+
+async def _handle_groups_upsert(db: AsyncSession, instance: str, data: dict):
+    """Handle GROUPS_UPSERT event — group metadata updates."""
+    groups = data if isinstance(data, list) else [data]
+    for group in groups:
+        group_jid = group.get("id") or group.get("jid", "")
+        if not group_jid:
+            continue
+        metadata = {
+            "subject": group.get("subject", ""),
+            "owner": group.get("owner", ""),
+            "creation": group.get("creation"),
+            "desc": group.get("desc", ""),
+            "participants": [p.get("id", "") for p in group.get("participants", [])],
+            "size": group.get("size", 0),
+        }
+        subject = group.get("subject", "")
+        await db.execute(text("""
+            UPDATE whatsapp_contacts SET group_metadata = :meta, is_group = TRUE,
+                display_name = COALESCE(NULLIF(:subject, ''), display_name), updated_at = NOW()
+            WHERE wa_account_id = :aid AND wa_jid = :jid
+        """), {"meta": json.dumps(metadata), "subject": subject, "aid": instance, "jid": group_jid})
     await db.commit()
-    return {"ok": True}
 
 
-@router.post("/internal/message-deleted")
-async def internal_message_deleted(body: InternalMessageDeletedBody, ctx: dict = Depends(_get_bridge_context)):
-    db = ctx["db"]
-    await db.execute(text("""
-        UPDATE whatsapp_messages SET is_deleted = TRUE, content = NULL WHERE wa_message_id = :mid
-    """), {"mid": body.wa_message_id})
-    await db.commit()
-    return {"ok": True}
+async def _handle_group_participants_update(db: AsyncSession, instance: str, data: dict):
+    """Handle GROUP_PARTICIPANTS_UPDATE event."""
+    group_jid = data.get("id") or data.get("groupJid", "")
+    action = data.get("action", "")
+    participants = data.get("participants", [])
 
+    if not group_jid:
+        return
 
-@router.post("/internal/message-edited")
-async def internal_message_edited(body: InternalMessageEditedBody, ctx: dict = Depends(_get_bridge_context)):
-    db = ctx["db"]
-    # Get old content for history
-    old = await db.execute(text(
-        "SELECT content, edit_history FROM whatsapp_messages WHERE wa_message_id = :mid LIMIT 1"
-    ), {"mid": body.wa_message_id})
-    old_row = old.fetchone()
-    history = json.loads(old_row.edit_history) if old_row and old_row.edit_history else []
-    if old_row and old_row.content:
-        history.append({"content": old_row.content, "edited_at": body.timestamp or _now_iso()})
-
-    await db.execute(text("""
-        UPDATE whatsapp_messages SET content = :content, is_edited = TRUE, edit_history = :history
-        WHERE wa_message_id = :mid
-    """), {"content": body.new_content, "history": json.dumps(history), "mid": body.wa_message_id})
-    await db.commit()
-    return {"ok": True}
-
-
-@router.post("/internal/poll-vote-received")
-async def internal_poll_vote_received(body: InternalPollVoteBody, ctx: dict = Depends(_get_bridge_context)):
-    db = ctx["db"]
-    # Find poll by wa_message_id
-    msg = await db.execute(text(
-        "SELECT id FROM whatsapp_messages WHERE wa_message_id = :mid LIMIT 1"
-    ), {"mid": body.wa_message_id})
-    msg_row = msg.fetchone()
-    if not msg_row:
-        return {"ok": False, "reason": "message not found"}
-
-    poll = await db.execute(text("SELECT id FROM whatsapp_polls WHERE wa_message_id = :mid"), {"mid": str(msg_row.id)})
-    poll_row = poll.fetchone()
-    if not poll_row:
-        return {"ok": False, "reason": "poll not found"}
-
-    await db.execute(text("""
-        INSERT INTO whatsapp_poll_votes (poll_id, voter_jid, selected_options, timestamp)
-        VALUES (:pid, :jid, :opts, NOW())
-        ON CONFLICT (poll_id, voter_jid) DO UPDATE SET selected_options = :opts, timestamp = NOW()
-    """), {"pid": str(poll_row.id), "jid": body.voter_jid, "opts": json.dumps(body.selected_options)})
-    await db.commit()
-    return {"ok": True}
-
-
-@router.post("/internal/group-updated")
-async def internal_group_updated(body: InternalGroupUpdateBody, ctx: dict = Depends(_get_bridge_context)):
-    db = ctx["db"]
-    await db.execute(text("""
-        UPDATE whatsapp_contacts SET group_metadata = :meta, is_group = TRUE, updated_at = NOW()
-        WHERE wa_account_id = :aid AND wa_jid = :jid
-    """), {"meta": json.dumps(body.metadata), "aid": body.wa_account_id, "jid": body.group_jid})
-    await db.commit()
-    return {"ok": True}
-
-
-@router.post("/internal/group-participants-updated")
-async def internal_group_participants_updated(body: InternalGroupParticipantsBody, ctx: dict = Depends(_get_bridge_context)):
-    db = ctx["db"]
-    # Update group_metadata with participant changes
     row = await db.execute(text(
         "SELECT group_metadata FROM whatsapp_contacts WHERE wa_account_id = :aid AND wa_jid = :jid"
-    ), {"aid": body.wa_account_id, "jid": body.group_jid})
+    ), {"aid": instance, "jid": group_jid})
     existing = row.fetchone()
     meta = json.loads(existing.group_metadata) if existing and existing.group_metadata else {}
-    participants = meta.get("participants", [])
+    current_participants = meta.get("participants", [])
 
-    if body.action == "add":
-        for p in body.participants:
-            if p not in participants:
-                participants.append(p)
-    elif body.action in ("remove", "leave"):
-        participants = [p for p in participants if p not in body.participants]
+    if action == "add":
+        for p in participants:
+            pid = p if isinstance(p, str) else p.get("id", "")
+            if pid and pid not in current_participants:
+                current_participants.append(pid)
+    elif action in ("remove", "leave"):
+        remove_ids = [p if isinstance(p, str) else p.get("id", "") for p in participants]
+        current_participants = [p for p in current_participants if p not in remove_ids]
 
-    meta["participants"] = participants
+    meta["participants"] = current_participants
     meta["last_update"] = _now_iso()
 
     await db.execute(text("""
         UPDATE whatsapp_contacts SET group_metadata = :meta, updated_at = NOW()
         WHERE wa_account_id = :aid AND wa_jid = :jid
-    """), {"meta": json.dumps(meta), "aid": body.wa_account_id, "jid": body.group_jid})
+    """), {"meta": json.dumps(meta), "aid": instance, "jid": group_jid})
     await db.commit()
-    return {"ok": True}
-
-
-@router.post("/internal/labels-updated")
-async def internal_labels_updated(body: InternalLabelsBody, ctx: dict = Depends(_get_bridge_context)):
-    db = ctx["db"]
-    for label in body.labels:
-        await db.execute(text("""
-            INSERT INTO whatsapp_labels (wa_account_id, wa_label_id, name, color)
-            VALUES (:aid, :lid, :name, :color)
-            ON CONFLICT (wa_account_id, wa_label_id) DO UPDATE SET name = :name, color = :color
-        """), {"aid": body.wa_account_id, "lid": label.get("id", ""), "name": label.get("name", ""), "color": label.get("color", "")})
-    await db.commit()
-    return {"ok": True}
-
-
-@router.post("/internal/label-association")
-async def internal_label_association(body: InternalLabelAssociationBody, ctx: dict = Depends(_get_bridge_context)):
-    db = ctx["db"]
-    row = await db.execute(text(
-        "SELECT wa_labels FROM whatsapp_contacts WHERE wa_account_id = :aid AND wa_jid = :jid"
-    ), {"aid": body.wa_account_id, "jid": body.chat_jid})
-    existing = row.fetchone()
-    labels = json.loads(existing.wa_labels) if existing and existing.wa_labels else []
-
-    if body.action == "add" and body.label_id not in labels:
-        labels.append(body.label_id)
-    elif body.action == "remove" and body.label_id in labels:
-        labels.remove(body.label_id)
-
-    await db.execute(text(
-        "UPDATE whatsapp_contacts SET wa_labels = :labels, updated_at = NOW() WHERE wa_account_id = :aid AND wa_jid = :jid"
-    ), {"labels": json.dumps(labels), "aid": body.wa_account_id, "jid": body.chat_jid})
-    await db.commit()
-    return {"ok": True}

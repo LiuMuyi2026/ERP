@@ -48,29 +48,18 @@ services:
         value: "http://localhost:3000,https://nexus-frontend-5thy.onrender.com"
       - key: APP_BASE_URL
         value: "https://nexus-frontend-5thy.onrender.com"
-      - key: WA_BRIDGE_URL
+      - key: EVO_API_URL
         sync: false
-      - key: WA_BRIDGE_SECRET
+      - key: EVO_API_KEY
+        sync: false
+      - key: EVO_WEBHOOK_SECRET
+        sync: false
+      - key: BACKEND_PUBLIC_URL
         sync: false
 
-  - type: web
-    name: nexus-wa-bridge
-    env: docker
-    rootDir: whatsapp-bridge
-    dockerfilePath: ./Dockerfile
-    autoDeploy: true
-    healthCheckPath: /health
-    envVars:
-      - key: PORT
-        value: "3100"
-      - key: BRIDGE_SECRET
-        sync: false
-      - key: BACKEND_URL
-        sync: false
-      - key: SESSION_DIR
-        value: /app/data/wa-sessions
-      - key: LOG_LEVEL
-        value: info
+  # Evolution API: deployed separately via Render Dashboard
+  # (public repo: https://github.com/EvolutionAPI/evolution-api)
+  # See env vars needed: SERVER_PORT, AUTHENTICATION_API_KEY, DATABASE_CONNECTION_URI, etc.
 
   - type: web
     name: nexus-frontend

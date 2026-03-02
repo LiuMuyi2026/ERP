@@ -50,8 +50,10 @@ class Settings(BaseSettings):
     smtp_use_ssl: bool = False
     smtp_timeout_seconds: int = 20
 
-    wa_bridge_url: str = "http://localhost:3100"
-    wa_bridge_secret: str = ""
+    evo_api_url: str = ""
+    evo_api_key: str = ""
+    evo_webhook_secret: str = ""
+    backend_public_url: str = ""  # e.g. https://nexus-backend-xxx.onrender.com
 
     class Config:
         env_file = ".env"

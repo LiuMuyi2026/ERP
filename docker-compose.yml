@@ -36,8 +36,10 @@ services:
       - N8N_API_URL=http://n8n:5678
       - N8N_API_KEY=${N8N_API_KEY:-}
       - GEMINI_API_KEY=${GEMINI_API_KEY:-}
-      - WA_BRIDGE_URL=http://wa-bridge:3100
-      - WA_BRIDGE_SECRET=${WA_BRIDGE_SECRET:-}
+      - EVO_API_URL=${EVO_API_URL:-http://evolution-api:8080}
+      - EVO_API_KEY=${EVO_API_KEY:-}
+      - EVO_WEBHOOK_SECRET=${EVO_WEBHOOK_SECRET:-}
+      - BACKEND_PUBLIC_URL=${BACKEND_PUBLIC_URL:-http://backend:8000}
     ports:
       - "8000:8000"
     depends_on:
@@ -93,25 +95,25 @@ services:
     volumes:
       - n8n_data:/home/node/.n8n
 
-  wa-bridge:
-    build:
-      context: ./whatsapp-bridge
-      dockerfile: ../docker/bridge.Dockerfile
-    container_name: nexus_wa_bridge
+  evolution-api:
+    image: atendai/evolution-api:latest
+    container_name: nexus_evolution_api
     environment:
-      - PORT=3100
-      - BRIDGE_SECRET=${WA_BRIDGE_SECRET:-}
-      - BACKEND_URL=http://backend:8000
-      - SESSION_DIR=/app/data/wa-sessions
-      - LOG_LEVEL=info
+      - SERVER_PORT=8080
+      - AUTHENTICATION_API_KEY=${EVO_API_KEY:-}
+      - AUTHENTICATION_TYPE=apikey
+      - DATABASE_ENABLED=true
+      - DATABASE_PROVIDER=postgresql
+      - DATABASE_CONNECTION_URI=postgresql://${POSTGRES_USER:-nexus}:${POSTGRES_PASSWORD:-nexus_secret}@postgres:5432/${POSTGRES_DB:-nexus_platform}
+      - CACHE_REDIS_ENABLED=false
+      - LOG_LEVEL=warn
+      - LOG_BAILEYS=error
     ports:
-      - "3100:3100"
+      - "8080:8080"
     depends_on:
-      - backend
-    volumes:
-      - wa_sessions:/app/data/wa-sessions
+      postgres:
+        condition: service_healthy
 
 volumes:
   postgres_data:
   n8n_data:
-  wa_sessions:

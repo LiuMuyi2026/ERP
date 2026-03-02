@@ -1,3 +1,5 @@
+"""Evolution API client — replaces the old Baileys bridge."""
+
 import httpx
 import logging
 from typing import Optional
@@ -7,7 +9,7 @@ logger = logging.getLogger(__name__)
 
 
 class BridgeError(Exception):
-    """Raised when bridge communication fails."""
+    """Raised when Evolution API communication fails."""
     def __init__(self, message: str, status_code: int = 502):
         super().__init__(message)
         self.status_code = status_code
@@ -22,159 +24,285 @@ class BridgeError(Exception):
 
 
 class WABridgeClient:
+    """HTTP client for Evolution API."""
+
     def __init__(self):
-        self.base_url = settings.wa_bridge_url
+        self.base_url = settings.evo_api_url.rstrip("/") if settings.evo_api_url else ""
         self.headers = {
-            "X-Bridge-Secret": settings.wa_bridge_secret,
+            "apikey": settings.evo_api_key,
             "Content-Type": "application/json",
         }
+        self.backend_url = settings.backend_public_url.rstrip("/") if settings.backend_public_url else ""
+
+    async def _request(self, method: str, path: str, json: dict | None = None) -> dict:
+        if not self.base_url:
+            raise BridgeError("EVO_API_URL is not configured")
+        async with httpx.AsyncClient() as client:
+            try:
+                resp = await client.request(
+                    method, f"{self.base_url}{path}",
+                    json=json, headers=self.headers, timeout=30,
+                )
+                resp.raise_for_status()
+                try:
+                    return resp.json()
+                except Exception:
+                    return {"ok": True}
+            except httpx.ConnectError as e:
+                logger.error("Evolution API %s %s connection failed: %s", method, path, e)
+                raise BridgeError(f"Evolution API unavailable: {e}")
+            except httpx.HTTPStatusError as e:
+                body = e.response.text[:300]
+                logger.error("Evolution API %s %s returned %s: %s", method, path, e.response.status_code, body)
+                raise BridgeError(f"Evolution API error: {body}", e.response.status_code)
+            except Exception as e:
+                logger.error("Evolution API %s %s failed: %s", method, path, e)
+                raise BridgeError(f"Evolution API communication failed: {e}")
 
     async def _post(self, path: str, json: dict | None = None) -> dict:
-        async with httpx.AsyncClient() as client:
-            try:
-                resp = await client.post(f"{self.base_url}{path}", json=json, headers=self.headers, timeout=30)
-                resp.raise_for_status()
-                return resp.json()
-            except httpx.ConnectError as e:
-                logger.error("Bridge POST %s connection failed: %s", path, e)
-                raise BridgeError(f"WhatsApp bridge unavailable: {e}")
-            except httpx.HTTPStatusError as e:
-                logger.error("Bridge POST %s returned %s: %s", path, e.response.status_code, e.response.text[:200])
-                raise BridgeError(f"Bridge error: {e.response.text[:200]}", e.response.status_code)
-            except Exception as e:
-                logger.error("Bridge POST %s failed: %s", path, e)
-                raise BridgeError(f"Bridge communication failed: {e}")
+        return await self._request("POST", path, json)
 
     async def _get(self, path: str) -> dict:
-        async with httpx.AsyncClient() as client:
-            try:
-                resp = await client.get(f"{self.base_url}{path}", headers=self.headers, timeout=30)
-                resp.raise_for_status()
-                return resp.json()
-            except httpx.ConnectError as e:
-                logger.error("Bridge GET %s connection failed: %s", path, e)
-                raise BridgeError(f"WhatsApp bridge unavailable: {e}")
-            except httpx.HTTPStatusError as e:
-                logger.error("Bridge GET %s returned %s", path, e.response.status_code)
-                raise BridgeError(f"Bridge error: {e.response.text[:200]}", e.response.status_code)
-            except Exception as e:
-                logger.error("Bridge GET %s failed: %s", path, e)
-                raise BridgeError(f"Bridge communication failed: {e}")
+        return await self._request("GET", path)
+
+    async def _put(self, path: str, json: dict | None = None) -> dict:
+        return await self._request("PUT", path, json)
 
     async def _delete(self, path: str, json: dict | None = None) -> dict:
-        async with httpx.AsyncClient() as client:
-            try:
-                resp = await client.request("DELETE", f"{self.base_url}{path}", json=json, headers=self.headers, timeout=30)
-                resp.raise_for_status()
-                return resp.json()
-            except httpx.ConnectError as e:
-                logger.error("Bridge DELETE %s connection failed: %s", path, e)
-                raise BridgeError(f"WhatsApp bridge unavailable: {e}")
-            except httpx.HTTPStatusError as e:
-                logger.error("Bridge DELETE %s returned %s", path, e.response.status_code)
-                raise BridgeError(f"Bridge error: {e.response.text[:200]}", e.response.status_code)
-            except Exception as e:
-                logger.error("Bridge DELETE %s failed: %s", path, e)
-                raise BridgeError(f"Bridge communication failed: {e}")
+        return await self._request("DELETE", path, json)
 
     # ── Session management ──
+
     async def start_session(self, account_id: str, tenant_slug: str) -> dict:
-        return await self._post(f"/sessions/{account_id}/start", {"tenant_slug": tenant_slug})
+        """Create an Evolution instance and configure its webhook."""
+        return await self._post("/instance/create", {
+            "instanceName": account_id,
+            "integration": "WHATSAPP-BAILEYS",
+            "qrcode": True,
+            "webhook": {
+                "url": f"{self.backend_url}/api/whatsapp/evo-webhook",
+                "enabled": True,
+                "webhookByEvents": False,
+                "events": [
+                    "QRCODE_UPDATED",
+                    "MESSAGES_UPSERT",
+                    "MESSAGES_UPDATE",
+                    "MESSAGES_DELETE",
+                    "CONNECTION_UPDATE",
+                    "PRESENCE_UPDATE",
+                    "GROUPS_UPSERT",
+                    "GROUP_PARTICIPANTS_UPDATE",
+                ],
+                "headers": {
+                    "X-Tenant-Slug": tenant_slug,
+                },
+            },
+        })
 
     async def get_qr(self, account_id: str) -> dict:
-        return await self._get(f"/sessions/{account_id}/qr")
+        """Get the QR code for an instance. Returns base64 QR data."""
+        result = await self._get(f"/instance/connect/{account_id}")
+        # Normalize response to match old bridge format
+        base64 = result.get("base64")
+        code = result.get("code")
+        return {
+            "qr_data": base64 or code,
+            "status": "pending_qr" if (base64 or code) else "connected",
+        }
 
     async def get_status(self, account_id: str) -> dict:
-        return await self._get(f"/sessions/{account_id}/status")
+        """Query connection state of an instance."""
+        result = await self._get(f"/instance/connectionState/{account_id}")
+        state = result.get("instance", {}).get("state", "close")
+        status_map = {"open": "connected", "connecting": "pending_qr", "close": "disconnected"}
+        return {"status": status_map.get(state, "disconnected"), "raw_state": state}
 
     async def close_session(self, account_id: str, logout: bool = True) -> dict:
-        return await self._delete(f"/sessions/{account_id}", {"logout": logout})
+        if logout:
+            try:
+                await self._delete(f"/instance/logout/{account_id}")
+            except BridgeError:
+                pass
+        return await self._delete(f"/instance/delete/{account_id}")
 
     # ── Messaging ──
+
     async def send_message(
         self, account_id: str, jid: str, content: str, message_type: str = "text",
         media_url: Optional[str] = None, media_mime_type: Optional[str] = None,
         filename: Optional[str] = None, caption: Optional[str] = None,
         quoted_wa_key: Optional[dict] = None,
     ) -> dict:
-        payload: dict = {"jid": jid, "content": content, "message_type": message_type}
-        if media_url:
-            payload["media_url"] = media_url
-        if media_mime_type:
-            payload["media_mime_type"] = media_mime_type
-        if filename:
-            payload["filename"] = filename
-        if caption:
-            payload["caption"] = caption
+        # Build quoted context if replying
+        quoted = None
         if quoted_wa_key:
-            payload["quoted_wa_key"] = quoted_wa_key
-        return await self._post(f"/sessions/{account_id}/send", payload)
+            quoted = {"key": quoted_wa_key}
+
+        if message_type == "text" or (not media_url and not media_mime_type):
+            payload: dict = {
+                "number": jid,
+                "text": content,
+            }
+            if quoted:
+                payload["quoted"] = quoted
+            result = await self._post(f"/message/sendText/{account_id}", payload)
+        else:
+            # Media message
+            media_type_map = {
+                "image": "image",
+                "video": "video",
+                "audio": "audio",
+                "document": "document",
+                "sticker": "sticker",
+            }
+            evo_media_type = media_type_map.get(message_type, "document")
+            payload = {
+                "number": jid,
+                "mediatype": evo_media_type,
+                "media": media_url,
+                "mimetype": media_mime_type,
+                "caption": caption or "",
+                "fileName": filename or "",
+            }
+            if quoted:
+                payload["quoted"] = quoted
+            result = await self._post(f"/message/sendMedia/{account_id}", payload)
+
+        # Normalize response
+        key = result.get("key", {})
+        return {
+            "wa_message_id": key.get("id"),
+            "wa_key": key,
+            "status": "sent" if key.get("id") else "pending",
+        }
 
     # ── Read receipts ──
+
     async def mark_read(self, account_id: str, jid: str, message_ids: list[str]) -> dict:
-        return await self._post(f"/sessions/{account_id}/read", {"jid": jid, "message_ids": message_ids})
+        keys = [{"remoteJid": jid, "id": mid} for mid in message_ids]
+        return await self._post(f"/chat/markMessageAsRead/{account_id}", {
+            "readMessages": keys,
+        })
 
     # ── Typing presence ──
+
     async def send_presence(self, account_id: str, jid: str, type: str) -> dict:
-        return await self._post(f"/sessions/{account_id}/presence", {"jid": jid, "type": type})
+        presence_map = {"composing": "composing", "paused": "paused", "recording": "recording"}
+        return await self._post(f"/chat/updatePresence/{account_id}", {
+            "number": jid,
+            "presence": presence_map.get(type, "composing"),
+        })
 
     # ── Reactions ──
+
     async def send_reaction(self, account_id: str, jid: str, message_key: dict, emoji: str) -> dict:
-        return await self._post(f"/sessions/{account_id}/react", {"jid": jid, "message_key": message_key, "emoji": emoji})
+        return await self._post(f"/message/sendReaction/{account_id}", {
+            "key": message_key,
+            "reaction": emoji,
+        })
 
     # ── Forward ──
+
     async def forward_message(self, account_id: str, source_jid: str, target_jid: str, message_key: dict) -> dict:
-        return await self._post(f"/sessions/{account_id}/forward", {
-            "source_jid": source_jid, "target_jid": target_jid, "message_key": message_key,
+        # Evolution doesn't have a direct forward — re-send with quoted
+        return await self._post(f"/message/sendText/{account_id}", {
+            "number": target_jid,
+            "text": "",
+            "quoted": {"key": message_key},
         })
 
     # ── Delete (revoke) ──
+
     async def delete_message(self, account_id: str, jid: str, message_key: dict) -> dict:
-        return await self._post(f"/sessions/{account_id}/delete-message", {"jid": jid, "message_key": message_key})
+        return await self._delete(f"/chat/deleteMessageForEveryone/{account_id}", {
+            "key": message_key,
+        })
 
     # ── Edit ──
+
     async def edit_message(self, account_id: str, jid: str, message_key: dict, new_content: str) -> dict:
-        return await self._post(f"/sessions/{account_id}/edit-message", {
-            "jid": jid, "message_key": message_key, "new_content": new_content,
+        return await self._put(f"/message/editMessage/{account_id}", {
+            "key": message_key,
+            "text": new_content,
         })
 
     # ── Poll ──
+
     async def send_poll(self, account_id: str, jid: str, question: str, options: list[str], allow_multiple: bool = False) -> dict:
-        return await self._post(f"/sessions/{account_id}/send-poll", {
-            "jid": jid, "question": question, "options": options, "allow_multiple": allow_multiple,
+        result = await self._post(f"/message/sendPoll/{account_id}", {
+            "number": jid,
+            "name": question,
+            "values": options,
+            "selectableCount": 0 if allow_multiple else 1,
         })
+        key = result.get("key", {})
+        return {"wa_message_id": key.get("id"), "wa_key": key}
 
     # ── Check number ──
+
     async def check_number(self, account_id: str, phone_numbers: list[str]) -> dict:
-        return await self._post(f"/sessions/{account_id}/check-number", {"phone_numbers": phone_numbers})
+        result = await self._post(f"/chat/whatsappNumbers/{account_id}", {
+            "numbers": phone_numbers,
+        })
+        # Normalize to old bridge format
+        results = []
+        for item in result if isinstance(result, list) else result.get("result", result.get("data", [])):
+            results.append({
+                "number": item.get("number", ""),
+                "jid": item.get("jid", ""),
+                "exists": item.get("exists", False),
+            })
+        return {"results": results}
 
     # ── Presence ──
+
     async def subscribe_presence(self, account_id: str, jid: str) -> dict:
-        return await self._post(f"/sessions/{account_id}/subscribe-presence", {"jid": jid})
+        return await self._post(f"/chat/updatePresence/{account_id}", {
+            "number": jid,
+            "presence": "composing",
+        })
 
     async def get_presence(self, account_id: str, jid: str) -> dict:
-        return await self._get(f"/sessions/{account_id}/presence/{jid}")
+        # Evolution doesn't have a dedicated get-presence — return unknown
+        return {"jid": jid, "status": "unknown"}
 
     # ── Groups ──
+
     async def create_group(self, account_id: str, name: str, participants: list[str]) -> dict:
-        return await self._post(f"/sessions/{account_id}/groups/create", {"name": name, "participants": participants})
+        return await self._post(f"/group/create/{account_id}", {
+            "subject": name,
+            "participants": participants,
+        })
 
     async def get_group_metadata(self, account_id: str, group_jid: str) -> dict:
-        return await self._get(f"/sessions/{account_id}/groups/{group_jid}/metadata")
+        return await self._get(f"/group/findGroupInfos/{account_id}?groupJid={group_jid}")
 
     async def add_group_participants(self, account_id: str, group_jid: str, participants: list[str]) -> dict:
-        return await self._post(f"/sessions/{account_id}/groups/{group_jid}/participants/add", {"participants": participants})
+        return await self._post(f"/group/updateParticipant/{account_id}", {
+            "groupJid": group_jid,
+            "action": "add",
+            "participants": participants,
+        })
 
     async def remove_group_participants(self, account_id: str, group_jid: str, participants: list[str]) -> dict:
-        return await self._post(f"/sessions/{account_id}/groups/{group_jid}/participants/remove", {"participants": participants})
+        return await self._post(f"/group/updateParticipant/{account_id}", {
+            "groupJid": group_jid,
+            "action": "remove",
+            "participants": participants,
+        })
 
     # ── Disappearing messages ──
+
     async def set_disappearing(self, account_id: str, jid: str, duration: int) -> dict:
-        return await self._post(f"/sessions/{account_id}/disappearing", {"jid": jid, "duration": duration})
+        return await self._post(f"/chat/updateSettings/{account_id}", {
+            "number": jid,
+            "ephemeralExpiration": duration,
+        })
 
     # ── Labels ──
+
     async def get_labels(self, account_id: str) -> dict:
-        return await self._get(f"/sessions/{account_id}/labels")
+        return await self._get(f"/label/findLabels/{account_id}")
 
 
 wa_bridge = WABridgeClient()
