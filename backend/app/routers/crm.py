@@ -2831,6 +2831,9 @@ async def list_communications(
     lead_id: Optional[str] = None,
     channel: Optional[str] = None,
     direction: Optional[str] = None,
+    source: Optional[str] = None,
+    message_type: Optional[str] = None,
+    status: Optional[str] = None,
     search: Optional[str] = None,
     date_from: Optional[str] = None,
     date_to: Optional[str] = None,
@@ -2856,8 +2859,17 @@ async def list_communications(
     if direction:
         where_outer.append("direction = :direction")
         params["direction"] = direction
+    if source:
+        where_outer.append("source = :source")
+        params["source"] = source
+    if message_type:
+        where_outer.append("message_type = :message_type")
+        params["message_type"] = message_type
+    if status:
+        where_outer.append("status = :status")
+        params["status"] = status
     if search:
-        where_outer.append("content ILIKE :search")
+        where_outer.append("(content ILIKE :search OR lead_name ILIKE :search OR lead_company ILIKE :search)")
         params["search"] = f"%{search}%"
     if date_from:
         where_outer.append("timestamp >= :date_from")
@@ -2867,7 +2879,15 @@ async def list_communications(
         params["date_to"] = date_to
 
     where_sql = (" AND ".join(where_outer)) if where_outer else "TRUE"
-    order = "timestamp DESC" if sort_by != "time_asc" else "timestamp ASC"
+    sort_map = {
+        "time_desc": "timestamp DESC",
+        "time_asc": "timestamp ASC",
+        "lead_name_asc": "lead_name ASC NULLS LAST, timestamp DESC",
+        "lead_name_desc": "lead_name DESC NULLS LAST, timestamp DESC",
+        "channel_asc": "channel ASC, timestamp DESC",
+        "channel_desc": "channel DESC, timestamp DESC",
+    }
+    order = sort_map.get(sort_by, "timestamp DESC")
 
     union_sql = f"""
         WITH unified AS (
@@ -2884,7 +2904,8 @@ async def list_communications(
                 l.company            AS lead_company,
                 NULL                 AS message_type,
                 NULL                 AS media_url,
-                NULL                 AS status
+                NULL                 AS status,
+                NULL                 AS wa_contact_id
             FROM interactions i
             LEFT JOIN users u ON u.id = i.created_by
             LEFT JOIN leads l ON l.id = i.lead_id
@@ -2904,7 +2925,8 @@ async def list_communications(
                 l.company            AS lead_company,
                 m.message_type,
                 m.media_url,
-                m.status
+                m.status,
+                m.wa_contact_id::text
             FROM whatsapp_messages m
             JOIN whatsapp_contacts c ON c.id = m.wa_contact_id
             LEFT JOIN leads l ON l.id = c.lead_id
@@ -2920,16 +2942,20 @@ async def list_communications(
         WITH unified AS (
             SELECT i.id, 'interaction' AS source, i.type AS channel, i.direction,
                    COALESCE(i.content,'') AS content, i.created_at AS timestamp,
-                   i.lead_id
+                   i.lead_id, l.full_name AS lead_name, l.company AS lead_company,
+                   NULL::text AS message_type, NULL::text AS status
             FROM interactions i
+            LEFT JOIN leads l ON l.id = i.lead_id
 
             UNION ALL
 
             SELECT m.id, 'whatsapp_message' AS source, 'whatsapp' AS channel, m.direction,
                    COALESCE(m.content,'') AS content, m.timestamp,
-                   c.lead_id
+                   c.lead_id, l.full_name AS lead_name, l.company AS lead_company,
+                   m.message_type, m.status
             FROM whatsapp_messages m
             JOIN whatsapp_contacts c ON c.id = m.wa_contact_id
+            LEFT JOIN leads l ON l.id = c.lead_id
             WHERE m.is_deleted = FALSE
         )
         SELECT COUNT(*) FROM unified WHERE {where_sql}

@@ -6,6 +6,13 @@ from app.config import settings
 logger = logging.getLogger(__name__)
 
 
+class BridgeError(Exception):
+    """Raised when bridge communication fails."""
+    def __init__(self, message: str, status_code: int = 502):
+        super().__init__(message)
+        self.status_code = status_code
+
+
 class WABridgeClient:
     def __init__(self):
         self.base_url = settings.wa_bridge_url
@@ -20,9 +27,15 @@ class WABridgeClient:
                 resp = await client.post(f"{self.base_url}{path}", json=json, headers=self.headers, timeout=30)
                 resp.raise_for_status()
                 return resp.json()
+            except httpx.ConnectError as e:
+                logger.error("Bridge POST %s connection failed: %s", path, e)
+                raise BridgeError(f"WhatsApp bridge unavailable: {e}")
+            except httpx.HTTPStatusError as e:
+                logger.error("Bridge POST %s returned %s: %s", path, e.response.status_code, e.response.text[:200])
+                raise BridgeError(f"Bridge error: {e.response.text[:200]}", e.response.status_code)
             except Exception as e:
                 logger.error("Bridge POST %s failed: %s", path, e)
-                return {"ok": False, "error": str(e)}
+                raise BridgeError(f"Bridge communication failed: {e}")
 
     async def _get(self, path: str) -> dict:
         async with httpx.AsyncClient() as client:
@@ -30,9 +43,15 @@ class WABridgeClient:
                 resp = await client.get(f"{self.base_url}{path}", headers=self.headers, timeout=30)
                 resp.raise_for_status()
                 return resp.json()
+            except httpx.ConnectError as e:
+                logger.error("Bridge GET %s connection failed: %s", path, e)
+                raise BridgeError(f"WhatsApp bridge unavailable: {e}")
+            except httpx.HTTPStatusError as e:
+                logger.error("Bridge GET %s returned %s", path, e.response.status_code)
+                raise BridgeError(f"Bridge error: {e.response.text[:200]}", e.response.status_code)
             except Exception as e:
                 logger.error("Bridge GET %s failed: %s", path, e)
-                return {"error": str(e)}
+                raise BridgeError(f"Bridge communication failed: {e}")
 
     async def _delete(self, path: str, json: dict | None = None) -> dict:
         async with httpx.AsyncClient() as client:
@@ -40,9 +59,15 @@ class WABridgeClient:
                 resp = await client.request("DELETE", f"{self.base_url}{path}", json=json, headers=self.headers, timeout=30)
                 resp.raise_for_status()
                 return resp.json()
+            except httpx.ConnectError as e:
+                logger.error("Bridge DELETE %s connection failed: %s", path, e)
+                raise BridgeError(f"WhatsApp bridge unavailable: {e}")
+            except httpx.HTTPStatusError as e:
+                logger.error("Bridge DELETE %s returned %s", path, e.response.status_code)
+                raise BridgeError(f"Bridge error: {e.response.text[:200]}", e.response.status_code)
             except Exception as e:
                 logger.error("Bridge DELETE %s failed: %s", path, e)
-                return {"ok": False, "error": str(e)}
+                raise BridgeError(f"Bridge communication failed: {e}")
 
     # ── Session management ──
     async def start_session(self, account_id: str, tenant_slug: str) -> dict:

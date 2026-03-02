@@ -125,15 +125,25 @@ export default function WhatsAppChatPanel({
   // Typing indicator
   const typingTimer = useRef<NodeJS.Timeout | null>(null);
 
+  // Resolved contactId (when opened via leadId, resolve from messages)
+  const [resolvedContactId, setResolvedContactId] = useState<string | undefined>(contactId);
+
+  const effectiveContactId = contactId || resolvedContactId;
+
   // ── Load messages ──
   async function loadMessages() {
     setLoading(true);
     try {
       let data: Message[];
-      if (leadId) {
-        data = await api.get(`/api/whatsapp/leads/${leadId}/messages`);
-      } else if (contactId) {
+      if (contactId) {
         data = await api.get(`/api/whatsapp/conversations/${contactId}/messages`);
+      } else if (leadId) {
+        data = await api.get(`/api/whatsapp/leads/${leadId}/messages`);
+        // Resolve contactId from first message so send/reactions/etc. work
+        if (!resolvedContactId && Array.isArray(data) && data.length > 0) {
+          const cid = (data[0] as any).wa_contact_id;
+          if (cid) setResolvedContactId(cid);
+        }
       } else {
         data = [];
       }
@@ -145,34 +155,34 @@ export default function WhatsAppChatPanel({
   // ── Mark read on open ──
   useEffect(() => {
     loadMessages();
-    if (contactId) {
-      api.post(`/api/whatsapp/conversations/${contactId}/read`, {}).catch(() => {});
+    if (effectiveContactId) {
+      api.post(`/api/whatsapp/conversations/${effectiveContactId}/read`, {}).catch(() => {});
       // Subscribe presence
-      api.post(`/api/whatsapp/conversations/${contactId}/subscribe-presence`, {}).catch(() => {});
+      api.post(`/api/whatsapp/conversations/${effectiveContactId}/subscribe-presence`, {}).catch(() => {});
     }
-  }, [contactId, leadId]);
+  }, [effectiveContactId, leadId]);
 
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages]);
 
   // ── Presence polling (5s) ──
   useEffect(() => {
-    if (!contactId) return;
+    if (!effectiveContactId) return;
     const fetchPresence = async () => {
       try {
-        const data = await api.get(`/api/whatsapp/conversations/${contactId}/presence`);
+        const data = await api.get(`/api/whatsapp/conversations/${effectiveContactId}/presence`);
         setPresence(data);
       } catch {}
     };
     fetchPresence();
     const iv = setInterval(fetchPresence, 5000);
     return () => clearInterval(iv);
-  }, [contactId]);
+  }, [effectiveContactId]);
 
   // ── Typing indicator ──
   const sendTyping = useCallback((type: 'composing' | 'paused') => {
-    if (!contactId) return;
-    api.post(`/api/whatsapp/conversations/${contactId}/typing`, { type }).catch(() => {});
-  }, [contactId]);
+    if (!effectiveContactId) return;
+    api.post(`/api/whatsapp/conversations/${effectiveContactId}/typing`, { type }).catch(() => {});
+  }, [effectiveContactId]);
 
   function handleInputChange(val: string) {
     setInput(val);
@@ -186,7 +196,7 @@ export default function WhatsAppChatPanel({
   // ── Send message ──
   async function sendMessage(e: React.FormEvent) {
     e.preventDefault();
-    if ((!input.trim() && !attachFile) || !contactId) return;
+    if ((!input.trim() && !attachFile) || !effectiveContactId) return;
     setSending(true);
     try {
       let media_url: string | undefined;
@@ -206,7 +216,7 @@ export default function WhatsAppChatPanel({
         else message_type = 'document';
       }
 
-      await api.post(`/api/whatsapp/conversations/${contactId}/send`, {
+      await api.post(`/api/whatsapp/conversations/${effectiveContactId}/send`, {
         content: input.trim(),
         message_type,
         media_url,
@@ -226,9 +236,9 @@ export default function WhatsAppChatPanel({
 
   // ── Reaction ──
   async function handleReaction(msg: Message, emoji: string) {
-    if (!contactId) return;
+    if (!effectiveContactId) return;
     try {
-      await api.post(`/api/whatsapp/conversations/${contactId}/messages/${msg.id}/react`, { emoji });
+      await api.post(`/api/whatsapp/conversations/${effectiveContactId}/messages/${msg.id}/react`, { emoji });
       loadMessages();
     } catch {}
     setMenuMsg(null);
@@ -236,9 +246,9 @@ export default function WhatsAppChatPanel({
 
   // ── Delete (revoke) ──
   async function handleDelete(msg: Message) {
-    if (!contactId) return;
+    if (!effectiveContactId) return;
     try {
-      await api.delete(`/api/whatsapp/conversations/${contactId}/messages/${msg.id}`);
+      await api.delete(`/api/whatsapp/conversations/${effectiveContactId}/messages/${msg.id}`);
       loadMessages();
     } catch {}
     setMenuMsg(null);
@@ -246,9 +256,9 @@ export default function WhatsAppChatPanel({
 
   // ── Edit ──
   async function handleEditSubmit() {
-    if (!contactId || !editingMsg || !editInput.trim()) return;
+    if (!effectiveContactId || !editingMsg || !editInput.trim()) return;
     try {
-      await api.patch(`/api/whatsapp/conversations/${contactId}/messages/${editingMsg.id}`, { content: editInput.trim() });
+      await api.patch(`/api/whatsapp/conversations/${effectiveContactId}/messages/${editingMsg.id}`, { content: editInput.trim() });
       setEditingMsg(null);
       setEditInput('');
       loadMessages();
@@ -265,9 +275,9 @@ export default function WhatsAppChatPanel({
   }
 
   async function handleForward(targetContactId: string) {
-    if (!contactId || !forwardMsg) return;
+    if (!effectiveContactId || !forwardMsg) return;
     try {
-      await api.post(`/api/whatsapp/conversations/${contactId}/messages/${forwardMsg.id}/forward`, {
+      await api.post(`/api/whatsapp/conversations/${effectiveContactId}/messages/${forwardMsg.id}/forward`, {
         target_contact_id: targetContactId,
       });
     } catch {}
@@ -276,9 +286,9 @@ export default function WhatsAppChatPanel({
 
   // ── Poll ──
   async function handleSendPoll() {
-    if (!contactId || !pollQuestion.trim() || pollOptions.filter(o => o.trim()).length < 2) return;
+    if (!effectiveContactId || !pollQuestion.trim() || pollOptions.filter(o => o.trim()).length < 2) return;
     try {
-      await api.post(`/api/whatsapp/conversations/${contactId}/send-poll`, {
+      await api.post(`/api/whatsapp/conversations/${effectiveContactId}/send-poll`, {
         question: pollQuestion,
         options: pollOptions.filter(o => o.trim()),
         allow_multiple: pollMultiple,
@@ -293,9 +303,9 @@ export default function WhatsAppChatPanel({
 
   // ── Disappearing ──
   async function handleDisappearing(duration: number) {
-    if (!contactId) return;
+    if (!effectiveContactId) return;
     try {
-      await api.post(`/api/whatsapp/conversations/${contactId}/disappearing`, { duration });
+      await api.post(`/api/whatsapp/conversations/${effectiveContactId}/disappearing`, { duration });
       setCurrentDisappearing(duration);
     } catch {}
     setShowDisappearing(false);
@@ -307,7 +317,7 @@ export default function WhatsAppChatPanel({
     setAiResult(null);
     try {
       const data = await api.post('/api/whatsapp/ai/analyze', {
-        contact_id: contactId || null,
+        contact_id: effectiveContactId || null,
         lead_id: leadId || null,
         action,
       });
@@ -600,7 +610,7 @@ export default function WhatsAppChatPanel({
       )}
 
       {/* ── Send bar ── */}
-      {contactId && (
+      {effectiveContactId && (
         <form onSubmit={sendMessage}
           className="px-4 py-3 border-t flex items-center gap-2"
           style={{ borderColor: 'var(--notion-border)', background: 'var(--notion-card, white)' }}>

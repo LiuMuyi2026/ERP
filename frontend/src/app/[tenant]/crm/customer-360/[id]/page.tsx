@@ -7,6 +7,7 @@ import { useTranslations } from 'next-intl';
 import { WorkflowTab } from './WorkflowTab';
 import { HandIcon } from '@/components/ui/HandIcon';
 import WhatsAppChatPanel from '../../components/WhatsAppChatPanel';
+import SlideOver from '@/components/ui/SlideOver';
 
 // ── Types ───────────────────────────────────────────────────────────────────
 type Interaction = {
@@ -1539,6 +1540,7 @@ export default function Customer360Page() {
   const [advancing, setAdvancing] = useState(false);
   const [showColdModal, setShowColdModal] = useState(false);
   const [changingStage, setChangingStage] = useState(false);
+  const [waSlideOpen, setWaSlideOpen] = useState(false);
   useEffect(() => {
     let mounted = true;
     api.get('/api/crm/workflow-template')
@@ -1828,6 +1830,15 @@ export default function Customer360Page() {
                 <span className="text-xs w-4 flex-shrink-0"><HandIcon name={f.icon} size={12} /></span>
                 <span className="text-[10px] flex-shrink-0 w-14" style={{ color: '#9B9A97' }}>{f.label}</span>
                 <span className="text-[11px] flex-1 truncate" style={{ color: 'var(--notion-text)' }}>{f.value}</span>
+                {f.label === 'WhatsApp' && data?.wa_contact && (
+                  <button onClick={() => setWaSlideOpen(true)}
+                    className="text-[10px] px-2 py-0.5 rounded-md font-medium flex-shrink-0"
+                    style={{ color: '#15803d', background: '#f0fdf4', border: '1px solid #86efac' }}
+                    onMouseEnter={e => { e.currentTarget.style.background = '#dcfce7'; }}
+                    onMouseLeave={e => { e.currentTarget.style.background = '#f0fdf4'; }}>
+                    {t('openChat')}
+                  </button>
+                )}
               </div>
             ))}
           </div>
@@ -2033,6 +2044,20 @@ export default function Customer360Page() {
           onSaved={() => { setShowColdModal(false); load(); }}
         />
       )}
+
+      {/* WhatsApp Chat SlideOver */}
+      <SlideOver open={waSlideOpen} onClose={() => setWaSlideOpen(false)} title={`WhatsApp - ${data?.wa_contact?.display_name || data?.wa_contact?.push_name || lead.full_name || ''}`}>
+        {waSlideOpen && data?.wa_contact && (
+          <div style={{ height: 500 }}>
+            <WhatsAppChatPanel
+              contactId={data.wa_contact.id}
+              contactName={data.wa_contact.display_name || data.wa_contact.push_name || lead.full_name}
+              profilePicUrl={data.wa_contact.profile_pic_url}
+              isGroup={data.wa_contact.is_group}
+            />
+          </div>
+        )}
+      </SlideOver>
     </div>
   );
 }

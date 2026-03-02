@@ -38,6 +38,13 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+from app.services.wa_bridge import BridgeError
+
+@app.exception_handler(BridgeError)
+async def bridge_error_handler(request: Request, exc: BridgeError):
+    """Return proper HTTP error when WhatsApp bridge communication fails."""
+    return JSONResponse(status_code=exc.status_code, content={"detail": str(exc)})
+
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
     """Catch unhandled exceptions so the CORS middleware can still add headers."""

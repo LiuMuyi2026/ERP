@@ -15,7 +15,7 @@ from app.config import settings
 from app.deps import get_current_user_with_tenant, require_admin_with_tenant, get_db
 from app.utils.sql import safe_set_search_path
 from app.services.ai.provider import generate_text_for_tenant
-from app.services.wa_bridge import wa_bridge
+from app.services.wa_bridge import wa_bridge, BridgeError
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/whatsapp", tags=["whatsapp"])
@@ -160,7 +160,7 @@ async def _get_bridge_context(
     x_tenant_slug: str = Header(default=""),
     db: AsyncSession = Depends(get_db),
 ):
-    if settings.wa_bridge_secret and x_bridge_secret != settings.wa_bridge_secret:
+    if not settings.wa_bridge_secret or x_bridge_secret != settings.wa_bridge_secret:
         raise HTTPException(status_code=403, detail="Invalid bridge secret")
     if not x_tenant_slug:
         raise HTTPException(status_code=400, detail="X-Tenant-Slug header is required")
@@ -849,6 +849,13 @@ async def admin_list_conversations(
 @router.get("/leads/{lead_id}/messages")
 async def lead_messages(lead_id: str, limit: int = 50, ctx: dict = Depends(get_current_user_with_tenant)):
     db = ctx["db"]
+    # Verify lead access for salesperson role
+    if ctx.get("role") == "salesperson":
+        lead_check = await db.execute(text(
+            "SELECT id FROM leads WHERE id = :lid AND (assigned_to = :uid OR sales_owner_id = :uid)"
+        ), {"lid": lead_id, "uid": ctx["sub"]})
+        if not lead_check.fetchone():
+            raise HTTPException(status_code=404, detail="Lead not found")
     rows = await db.execute(text("""
         SELECT m.*, c.display_name AS contact_name, c.phone_number AS contact_phone
         FROM whatsapp_messages m
