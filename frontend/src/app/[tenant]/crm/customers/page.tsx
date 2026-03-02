@@ -832,7 +832,7 @@ function CustomersTab() {
   const [fAssignedTo, setFAssignedTo] = useState<string[]>([]);
   const [fSource, setFSource] = useState<string[]>([]);
   const [showFilterPanel, setShowFilterPanel] = useState(false);
-  const [users, setUsers] = useState<{ id: string; full_name: string }[]>([]);
+  const [users, setUsers] = useState<{ id: string; full_name: string; email?: string; role?: string; position_name?: string }[]>([]);
   const filterRef = useRef<HTMLDivElement>(null);
 
   // ── View mode ──
@@ -872,8 +872,8 @@ function CustomersTab() {
   useEffect(() => {
     (async () => {
       try {
-        const data = await api.get('/api/users');
-        setUsers((data.users || data || []).map((u: any) => ({ id: String(u.id), full_name: u.full_name })));
+        const data = await api.get('/api/admin/users');
+        setUsers((data.users || data || []).map((u: any) => ({ id: String(u.id), full_name: u.full_name || u.email, email: u.email, role: u.role, position_name: u.position_name })));
       } catch {}
     })();
   }, []);
@@ -1177,9 +1177,11 @@ function CustomersTab() {
       {selected && <CustomerDrawer customer={selected} onClose={() => setSelected(null)} onUpdated={() => load(search)} />}
       {showAddCustomer && (
         <LeadModal
-          users={users.map(u => ({ id: u.id, email: '', full_name: u.full_name, role: '' }))}
+          users={users.map(u => ({ id: u.id, email: u.email || '', full_name: u.full_name || u.email || '', role: u.role || '', position_name: u.position_name }))}
           onClose={() => setShowAddCustomer(false)}
           onSave={() => { setShowAddCustomer(false); load(search); }}
+          customTitle={tCrm('addCustomer')}
+          customSubmitLabel={tCrm('addCustomer')}
         />
       )}
     </div>

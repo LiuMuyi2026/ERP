@@ -1828,7 +1828,7 @@ const translations = {
       publicPoolDesc: '这些线索已被判定为低潜力并进入公共池。任何人可认领并重新开发。',
       noColdLeads: '暂无冷线索',
       // CRM Hub
-      crmHub: 'CRM 业务中台',
+      crmHub: '业务中台',
       crmSubtitle: '线索 → 跟进 → 报价 → 成交 → 履约 → 回款',
       kpiLeadPool: '线索池',
       kpiActiveCustomers: '活跃客户',

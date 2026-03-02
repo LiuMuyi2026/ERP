@@ -57,11 +57,31 @@ interface WaConversation {
   profile_pic_url?: string;
   lead_id?: string;
   lead_name?: string;
+  lead_status?: string;
+  account_name?: string;
+  account_phone?: string;
+  owner_name?: string;
+  wa_labels?: { id: string; name: string; color?: string }[];
   last_message_at?: string;
   last_message_preview?: string;
   unread_count: number;
   is_group?: boolean;
   disappearing_duration?: number;
+}
+
+interface WaAccount {
+  id: string;
+  display_name?: string;
+  phone_number?: string;
+  status: string;
+  wa_jid?: string;
+  last_seen_at?: string;
+}
+
+interface WaLabel {
+  id: string;
+  name: string;
+  color?: string;
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
@@ -82,6 +102,16 @@ function formatTime(d: string, locale: string) {
 function Avatar({ id, name, email, avatarUrl, size = 32 }: { id: string; name?: string; email?: string; avatarUrl?: string | null; size?: number }) {
   return <UserAvatar userId={id} name={name || email} avatarUrl={avatarUrl} size={size} />;
 }
+
+const LEAD_STATUS_COLORS: Record<string, { bg: string; text: string }> = {
+  new: { bg: '#dbeafe', text: '#1d4ed8' },
+  inquiry: { bg: '#dbeafe', text: '#1d4ed8' },
+  engaged: { bg: '#fef9c3', text: '#a16207' },
+  qualified: { bg: '#dcfce7', text: '#15803d' },
+  quoted: { bg: '#e9d5ff', text: '#7c3aed' },
+  negotiating: { bg: '#fce7f3', text: '#be185d' },
+  converted: { bg: '#d1fae5', text: '#065f46' },
+};
 
 // ── WhatsApp-style double checkmark ────────────────────────────────────────────
 function DoubleCheck({ isRead }: { isRead: boolean }) {
@@ -124,6 +154,12 @@ export default function MessagesPanel({ label }: { label?: string }) {
   const [waSearch, setWaSearch]               = useState('');
   const [waSelected, setWaSelected]           = useState<WaConversation | null>(null);
   const [waUnread, setWaUnread]               = useState(0);
+  const [waAccounts, setWaAccounts]           = useState<WaAccount[]>([]);
+  const [waLabels, setWaLabels]               = useState<WaLabel[]>([]);
+  const [waFilterAccount, setWaFilterAccount] = useState('');
+  const [waFilterGroup, setWaFilterGroup]     = useState<'' | 'true' | 'false'>('');
+  const [waFilterLabel, setWaFilterLabel]     = useState('');
+  const [waSortBy, setWaSortBy]               = useState<'last_message' | 'unread'>('last_message');
 
   // ── Unread badge polling ──────────────────────────────────────────────────
   useEffect(() => {
@@ -146,16 +182,45 @@ export default function MessagesPanel({ label }: { label?: string }) {
   }, []);
 
   // ── WhatsApp conversations load ───────────────────────────────────────────
-  const loadWaConversations = useCallback(async () => {
+  const loadWaConversations = useCallback(async (filters?: {
+    account_id?: string; is_group?: string; label_id?: string; sort_by?: string;
+  }) => {
     setWaLoading(true);
     try {
-      const convs = await api.get('/api/whatsapp/dashboard');
+      const params = new URLSearchParams();
+      const f = filters || {};
+      if (f.account_id) params.set('account_id', f.account_id);
+      if (f.is_group === 'true' || f.is_group === 'false') params.set('is_group', f.is_group);
+      if (f.label_id) params.set('label_id', f.label_id);
+      if (f.sort_by) params.set('sort_by', f.sort_by);
+      const qs = params.toString();
+      const convs = await api.get(`/api/whatsapp/dashboard${qs ? `?${qs}` : ''}`);
       const list: WaConversation[] = Array.isArray(convs) ? convs : [];
       setWaConversations(list);
       setWaUnread(list.reduce((s, c) => s + (c.unread_count || 0), 0));
     } catch {}
     finally { setWaLoading(false); }
   }, []);
+
+  const loadWaAccounts = useCallback(async () => {
+    try {
+      const data = await api.get('/api/whatsapp/accounts');
+      setWaAccounts(Array.isArray(data) ? data : []);
+    } catch {}
+  }, []);
+
+  const loadWaLabels = useCallback(async () => {
+    try {
+      const data = await api.get('/api/whatsapp/labels');
+      setWaLabels(Array.isArray(data) ? data : []);
+    } catch {}
+  }, []);
+
+  // ── Reload WhatsApp when filters change ───────────────────────────────────
+  useEffect(() => {
+    if (!open || activeTab !== 'whatsapp') return;
+    loadWaConversations({ account_id: waFilterAccount, is_group: waFilterGroup, label_id: waFilterLabel, sort_by: waSortBy });
+  }, [open, activeTab, waFilterAccount, waFilterGroup, waFilterLabel, waSortBy, loadWaConversations]);
 
   // ── Thread polling ────────────────────────────────────────────────────────
   useEffect(() => {
@@ -193,6 +258,8 @@ export default function MessagesPanel({ label }: { label?: string }) {
       setAllUsers(Array.isArray(users) ? users : []);
     } catch {}
     loadWaConversations();
+    loadWaAccounts();
+    loadWaLabels();
   }
 
   // ── Select internal user ──────────────────────────────────────────────────
@@ -559,9 +626,31 @@ export default function MessagesPanel({ label }: { label?: string }) {
           {activeTab === 'whatsapp' && (
             <>
               {/* LEFT: WhatsApp conversation list */}
-              <div className="flex flex-col flex-shrink-0" style={{ width: 228, borderRight: '1px solid var(--sb-divider)', background: 'var(--sb-bg)' }}>
+              <div className="flex flex-col flex-shrink-0" style={{ width: 260, borderRight: '1px solid var(--sb-divider)', background: 'var(--sb-bg)' }}>
+
+                {/* Account status bar */}
+                {waAccounts.length > 0 && (
+                  <div className="flex items-center gap-1.5 px-2.5 py-1.5 overflow-x-auto flex-shrink-0" style={{ borderBottom: '1px solid var(--sb-divider)', background: 'var(--sb-surface)' }}>
+                    {waAccounts.map(acc => (
+                      <div key={acc.id} className="flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] flex-shrink-0"
+                        style={{ background: acc.status === 'connected' ? '#dcfce7' : acc.status === 'pending_qr' ? '#fef9c3' : '#fee2e2',
+                                 color: acc.status === 'connected' ? '#15803d' : acc.status === 'pending_qr' ? '#a16207' : '#dc2626' }}
+                        title={acc.phone_number || acc.wa_jid || ''}>
+                        <span className="w-1.5 h-1.5 rounded-full flex-shrink-0"
+                          style={{ background: acc.status === 'connected' ? '#22c55e' : acc.status === 'pending_qr' ? '#eab308' : '#ef4444' }} />
+                        <span className="truncate max-w-[80px]">{acc.display_name || acc.phone_number || t('waFilterAccount')}</span>
+                      </div>
+                    ))}
+                    <a href={`/${typeof window !== 'undefined' ? window.location.pathname.split('/')[1] : ''}/settings?tab=whatsapp`}
+                      className="flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] flex-shrink-0 hover:underline"
+                      style={{ color: '#25D366' }}>
+                      {t('waManageAccounts')} &rarr;
+                    </a>
+                  </div>
+                )}
+
                 {/* Search */}
-                <div className="px-2.5 py-2">
+                <div className="px-2.5 py-1.5">
                   <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg" style={{ background: 'var(--sb-hover)' }}>
                     <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="var(--sb-text-muted)" strokeWidth="2">
                       <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
@@ -576,10 +665,47 @@ export default function MessagesPanel({ label }: { label?: string }) {
                   </div>
                 </div>
 
-                {/* List */}
+                {/* Filter toolbar */}
+                <div className="flex flex-wrap gap-1 px-2.5 pb-1.5">
+                  {waAccounts.length > 1 && (
+                    <select value={waFilterAccount} onChange={e => setWaFilterAccount(e.target.value)}
+                      className="text-[10px] h-6 rounded px-1.5 outline-none cursor-pointer"
+                      style={{ background: 'var(--sb-hover)', color: 'var(--sb-text)', border: 'none' }}>
+                      <option value="">{t('waFilterAccount')}</option>
+                      {waAccounts.map(a => <option key={a.id} value={a.id}>{a.display_name || a.phone_number || a.id.slice(0, 8)}</option>)}
+                    </select>
+                  )}
+                  <select value={waFilterGroup} onChange={e => setWaFilterGroup(e.target.value as '' | 'true' | 'false')}
+                    className="text-[10px] h-6 rounded px-1.5 outline-none cursor-pointer"
+                    style={{ background: 'var(--sb-hover)', color: 'var(--sb-text)', border: 'none' }}>
+                    <option value="">{t('waFilterAll')}</option>
+                    <option value="false">{t('waFilterDM')}</option>
+                    <option value="true">{t('waFilterGroup')}</option>
+                  </select>
+                  {waLabels.length > 0 && (
+                    <select value={waFilterLabel} onChange={e => setWaFilterLabel(e.target.value)}
+                      className="text-[10px] h-6 rounded px-1.5 outline-none cursor-pointer"
+                      style={{ background: 'var(--sb-hover)', color: 'var(--sb-text)', border: 'none' }}>
+                      <option value="">{t('waFilterLabel')}</option>
+                      {waLabels.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
+                    </select>
+                  )}
+                  <select value={waSortBy} onChange={e => setWaSortBy(e.target.value as 'last_message' | 'unread')}
+                    className="text-[10px] h-6 rounded px-1.5 outline-none cursor-pointer"
+                    style={{ background: 'var(--sb-hover)', color: 'var(--sb-text)', border: 'none' }}>
+                    <option value="last_message">{t('waSortLastMsg')}</option>
+                    <option value="unread">{t('waSortUnread')}</option>
+                  </select>
+                </div>
+
+                {/* Conversation List */}
                 <div className="flex-1 overflow-y-auto">
                   {waLoading ? (
                     <div className="py-10 text-center text-xs" style={{ color: 'var(--sb-text-muted)' }}>{t('loading')}</div>
+                  ) : waAccounts.length === 0 && waConversations.length === 0 ? (
+                    <div className="py-10 text-center text-xs px-4" style={{ color: 'var(--sb-text-muted)' }}>
+                      {t('waNoAccounts')}
+                    </div>
                   ) : waFiltered.length === 0 ? (
                     <div className="py-10 text-center text-xs" style={{ color: 'var(--sb-text-muted)' }}>
                       {waSearch ? t('noMatchingContacts') : t('noWhatsApp')}
@@ -587,6 +713,8 @@ export default function MessagesPanel({ label }: { label?: string }) {
                   ) : waFiltered.map(conv => {
                     const name = conv.display_name || conv.push_name || conv.phone_number || 'Unknown';
                     const isActive = waSelected?.id === conv.id;
+                    const statusColor = conv.lead_status ? LEAD_STATUS_COLORS[conv.lead_status] : null;
+                    const labels = Array.isArray(conv.wa_labels) ? conv.wa_labels : [];
                     return (
                       <div key={conv.id}
                         onClick={() => {
@@ -596,7 +724,7 @@ export default function MessagesPanel({ label }: { label?: string }) {
                             setWaUnread(prev => Math.max(0, prev - conv.unread_count));
                           }
                         }}
-                        className="flex items-center gap-2.5 px-3 py-2.5 cursor-pointer"
+                        className="flex items-start gap-2.5 px-3 py-2 cursor-pointer"
                         style={{
                           background: isActive ? 'var(--sb-selected)' : 'transparent',
                           borderLeft: isActive ? '2px solid #25D366' : '2px solid transparent',
@@ -604,8 +732,8 @@ export default function MessagesPanel({ label }: { label?: string }) {
                         onMouseEnter={e => { if (!isActive) e.currentTarget.style.background = 'var(--sb-hover)'; }}
                         onMouseLeave={e => { e.currentTarget.style.background = isActive ? 'var(--sb-selected)' : 'transparent'; }}
                       >
-                        {/* WA Avatar */}
-                        <div className="relative flex-shrink-0">
+                        {/* Avatar */}
+                        <div className="relative flex-shrink-0 mt-0.5">
                           <div className="w-9 h-9 rounded-full flex items-center justify-center text-white text-xs font-bold overflow-hidden"
                             style={{ background: conv.is_group ? '#128C7E' : '#25D366' }}>
                             {conv.profile_pic_url ? (
@@ -619,17 +747,53 @@ export default function MessagesPanel({ label }: { label?: string }) {
                         </div>
 
                         <div className="flex-1 min-w-0">
+                          {/* Row 1: Name + group badge + time */}
                           <div className="flex items-baseline justify-between gap-1">
-                            <span className="text-xs font-semibold truncate" style={{ color: 'var(--sb-text)' }}>{name}</span>
+                            <div className="flex items-center gap-1 min-w-0">
+                              <span className="text-xs font-semibold truncate" style={{ color: 'var(--sb-text)' }}>{name}</span>
+                              {conv.is_group && <span className="text-[9px] px-1 rounded" style={{ background: '#128C7E20', color: '#128C7E' }}>G</span>}
+                            </div>
                             {conv.last_message_at && (
                               <span className="text-[10px] flex-shrink-0" style={{ color: 'var(--sb-text-faint)' }}>
                                 {timeAgo(conv.last_message_at, t('justNow'))}
                               </span>
                             )}
                           </div>
+
+                          {/* Row 2: Lead info + status */}
+                          {(conv.lead_name || conv.lead_status) && (
+                            <div className="flex items-center gap-1 mt-0.5">
+                              {conv.lead_name && (
+                                <span className="text-[10px] truncate" style={{ color: '#25D366' }}>{conv.lead_name}</span>
+                              )}
+                              {statusColor && conv.lead_status && (
+                                <span className="text-[9px] px-1 rounded flex-shrink-0"
+                                  style={{ background: statusColor.bg, color: statusColor.text }}>
+                                  {conv.lead_status}
+                                </span>
+                              )}
+                            </div>
+                          )}
+
+                          {/* Row 3: Message preview */}
                           <span className="text-[11px] block truncate mt-0.5" style={{ color: 'var(--sb-text-muted)' }}>
-                            {conv.last_message_preview || (conv.lead_name ? conv.lead_name : '')}
+                            {conv.last_message_preview || ''}
                           </span>
+
+                          {/* Row 4: Labels */}
+                          {labels.length > 0 && (
+                            <div className="flex items-center gap-1 mt-0.5 overflow-hidden">
+                              {labels.slice(0, 3).map((lb, i) => (
+                                <span key={i} className="text-[9px] px-1 rounded truncate max-w-[70px]"
+                                  style={{ background: 'var(--sb-hover)', color: 'var(--sb-text-muted)' }}>
+                                  {lb.name}
+                                </span>
+                              ))}
+                              {labels.length > 3 && (
+                                <span className="text-[9px]" style={{ color: 'var(--sb-text-faint)' }}>+{labels.length - 3}</span>
+                              )}
+                            </div>
+                          )}
                         </div>
                       </div>
                     );

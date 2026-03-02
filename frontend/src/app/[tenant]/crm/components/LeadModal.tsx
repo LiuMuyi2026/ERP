@@ -109,9 +109,13 @@ export interface LeadModalProps {
   onSave: () => void;
   /** If true, this is called from leads page — enables "create lead under customer" flow */
   isLeadContext?: boolean;
+  /** Override modal title (defaults to tCrm('modalTitle')) */
+  customTitle?: string;
+  /** Override submit button label (defaults to tCrm('createLeadBtn')) */
+  customSubmitLabel?: string;
 }
 
-export default function LeadModal({ users, onClose, onSave, isLeadContext }: LeadModalProps) {
+export default function LeadModal({ users, onClose, onSave, isLeadContext, customTitle, customSubmitLabel }: LeadModalProps) {
   const tCrm = useTranslations('crm');
   const tCommon = useTranslations('common');
   const LEAD_STATUS_OPTIONS = getLeadStatusOptions(tCrm);
@@ -205,7 +209,7 @@ export default function LeadModal({ users, onClose, onSave, isLeadContext }: Lea
       <div className="ml-auto h-full flex flex-col bg-white overflow-hidden" style={{ width: 680, boxShadow: '-4px 0 24px rgba(0,0,0,0.12)' }}>
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 flex-shrink-0" style={{ borderBottom: '1px solid var(--notion-border)' }}>
-          <span className="text-lg font-bold" style={{ color: 'var(--notion-text)' }}>{tCrm('modalTitle')}</span>
+          <span className="text-lg font-bold" style={{ color: 'var(--notion-text)' }}>{customTitle || tCrm('modalTitle')}</span>
           <button onClick={onClose} className="p-1.5 rounded-lg" style={{ color: '#9B9A97' }}
             onMouseEnter={e => { e.currentTarget.style.background = 'var(--notion-hover)'; }}
             onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; }}>
@@ -603,11 +607,10 @@ export default function LeadModal({ users, onClose, onSave, isLeadContext }: Lea
             className="px-4 py-2 rounded-lg text-sm border" style={{ borderColor: 'var(--notion-border)', color: 'var(--notion-text)' }}>
             {tCrm('cancelBtn')}
           </button>
-          <button disabled={saving}
+          <button type="button" disabled={saving}
             className="px-4 py-2 rounded-lg text-sm font-semibold text-white disabled:opacity-50"
             style={{ background: '#7c3aed' }}
-            onClick={async (e) => {
-              e.preventDefault();
+            onClick={async () => {
               if (!form.full_name.trim()) { alert(tCrm('pleaseEnterName')); return; }
               setSaving(true);
               try {
@@ -625,7 +628,7 @@ export default function LeadModal({ users, onClose, onSave, isLeadContext }: Lea
                 onSave();
               } catch (e: any) { alert(e.message); } finally { setSaving(false); }
             }}>
-            {saving ? tCrm('savingText') : tCrm('createLeadBtn')}
+            {saving ? tCrm('savingText') : (customSubmitLabel || tCrm('createLeadBtn'))}
           </button>
         </div>
       </div>
