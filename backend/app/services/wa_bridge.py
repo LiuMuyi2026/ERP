@@ -12,6 +12,14 @@ class BridgeError(Exception):
         super().__init__(message)
         self.status_code = status_code
 
+    @property
+    def is_session_not_found(self) -> bool:
+        return self.status_code == 404
+
+    @property
+    def is_connection_error(self) -> bool:
+        return self.status_code == 502
+
 
 class WABridgeClient:
     def __init__(self):

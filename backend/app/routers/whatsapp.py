@@ -26,21 +26,18 @@ async def bridge_status():
     """Public diagnostic: check if backend can reach the bridge."""
     import httpx
     url = settings.wa_bridge_url
+    result: dict = {"bridge_url": url, "wa_bridge_secret_set": bool(settings.wa_bridge_secret)}
     try:
         async with httpx.AsyncClient() as client:
             resp = await client.get(f"{url}/health", timeout=10)
-            return {
-                "bridge_url": url,
+            result.update({
                 "reachable": True,
                 "status_code": resp.status_code,
                 "bridge_response": resp.json(),
-            }
+            })
     except Exception as e:
-        return {
-            "bridge_url": url,
-            "reachable": False,
-            "error": str(e),
-        }
+        result.update({"reachable": False, "error": str(e)})
+    return result
 
 
 # ── Pydantic schemas ─────────────────────────────────────────────────────────
@@ -274,6 +271,15 @@ async def get_qr(account_id: str, ctx: dict = Depends(get_current_user_with_tena
     try:
         bridge_data = await wa_bridge.get_qr(account_id)
     except BridgeError as e:
+        if e.is_session_not_found:
+            # Session expired or crashed on bridge — auto-restart it
+            logger.info("Session %s not found on bridge, auto-restarting...", account_id)
+            try:
+                await wa_bridge.start_session(account_id, ctx["tenant_slug"])
+                return {"account_id": account_id, "status": "restarting", "qr_data": None}
+            except BridgeError as restart_err:
+                logger.warning("Failed to restart session %s: %s", account_id, restart_err)
+                return {"account_id": account_id, "status": "bridge_unavailable", "qr_data": None, "error": str(restart_err)}
         logger.warning("Bridge unavailable for QR poll on account %s: %s", account_id, e)
         return {"account_id": account_id, "status": "bridge_unavailable", "qr_data": None, "error": str(e)}
     return {

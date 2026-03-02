@@ -729,8 +729,8 @@ export default function Sidebar({ tenant, userName, userRole, avatarUrl, collaps
 
   // App items with translated labels
   const appItems = [
-    { key: 'crm',        label: tNav('customerMgmt'),   path: 'crm',           icon: 'people-group',  bg: '#dbeafe', color: '#1e40af' },
     { key: 'customers',  label: tNav('customerCenter'),  path: 'crm/customers', icon: 'building',      bg: '#e0e7ff', color: '#4338ca' },
+    { key: 'crm',        label: tNav('customerMgmt'),   path: 'crm',           icon: 'people-group',  bg: '#dbeafe', color: '#1e40af' },
     { key: 'inventory',  label: tNav('supplyChain'),     path: 'inventory',     icon: 'factory',       bg: '#ffedd5', color: '#c2410c' },
     { key: 'accounting', label: tNav('financeMgmt'),     path: 'accounting',    icon: 'money-bag',     bg: '#dcfce7', color: '#166534' },
     { key: 'hr',         label: tNav('peopleMgmt'),      path: 'hr',            icon: 'person',        bg: '#ede9fe', color: '#5b21b6' },

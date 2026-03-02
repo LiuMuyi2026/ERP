@@ -1893,11 +1893,21 @@ function WhatsAppSettingsSection() {
                     请确认 Bridge 服务已运行在正确端口<br />系统每 2 秒自动重试连接
                   </p>
                 </div>
+              ) : qrStatus === 'disconnected' ? (
+                <div className="text-center px-4">
+                  <div className="inline-block animate-spin mb-3" style={{ width: 32, height: 32, border: '3px solid var(--notion-border)', borderTopColor: '#d97706', borderRadius: '50%' }} />
+                  <p className="text-xs leading-relaxed font-medium" style={{ color: '#d97706' }}>
+                    会话正在重新连接...
+                  </p>
+                  <p className="text-[10px] mt-1" style={{ color: 'var(--notion-text-muted)' }}>
+                    WhatsApp 会话断开，正在自动重连
+                  </p>
+                </div>
               ) : (
                 <div className="text-center px-4">
                   <div className="inline-block animate-spin mb-3" style={{ width: 32, height: 32, border: '3px solid var(--notion-border)', borderTopColor: '#25D366', borderRadius: '50%' }} />
                   <p className="text-xs leading-relaxed" style={{ color: 'var(--notion-text-muted)' }}>
-                    正在获取二维码...
+                    {qrStatus === 'restarting' ? '正在重新初始化会话...' : '正在获取二维码...'}
                   </p>
                 </div>
               )}

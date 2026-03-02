@@ -6,6 +6,8 @@ import { api, getApiUrl, getAuthHeaders } from '@/lib/api';
 import { getCurrentUser, getTenantId } from '@/lib/auth';
 import { HandIcon } from '@/components/ui/HandIcon';
 import CustomerMap from '@/components/ui/CustomerMap';
+import { useTranslations } from 'next-intl';
+import LeadModal from '../components/LeadModal';
 
 // ── Shared Types ───────────────────────────────────────────────────────────────
 interface Customer {
@@ -835,7 +837,11 @@ function CustomersTab() {
 
   // ── View mode ──
   const [viewMode, setViewMode] = useState<'table' | 'kanban' | 'map'>('table');
-  const [groupBy, setGroupBy] = useState<'stage' | 'customer_grade' | 'customer_type' | 'country'>('stage');
+  const groupBy = 'stage' as const;
+
+  // ── Add Customer modal ──
+  const [showAddCustomer, setShowAddCustomer] = useState(false);
+  const tCrm = useTranslations('crm');
 
   // ── New filters ──
   const [fCountry, setFCountry] = useState<string[]>([]);
@@ -1000,41 +1006,38 @@ function CustomersTab() {
             )}
           </div>
 
-          {/* GroupBy selector */}
-          <select value={groupBy} onChange={e => setGroupBy(e.target.value as any)}
-            style={{ padding: '7px 10px', borderRadius: 8, border: `1px solid ${groupBy !== 'stage' ? '#7c3aed' : 'var(--notion-border)'}`, fontSize: 12, background: groupBy !== 'stage' ? '#f5f3ff' : 'var(--notion-card, white)', color: groupBy !== 'stage' ? '#7c3aed' : 'var(--notion-text)', cursor: 'pointer' }}>
-            <option value="stage">按阶段</option>
-            <option value="customer_grade">按等级</option>
-            <option value="customer_type">按类型</option>
-            <option value="country">按国家</option>
-          </select>
-        </div>
-      </div>
+          {/* View Mode Pill Switcher (inline) */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 2, padding: 2, borderRadius: 8, background: 'var(--notion-active)' }}>
+            {([
+              { mode: 'table' as const, icon: '☰', label: '表格' },
+              { mode: 'kanban' as const, icon: '⊞', label: '看板' },
+              { mode: 'map' as const, icon: '🗺', label: '地图' },
+            ]).map(item => {
+              const active = viewMode === item.mode;
+              return (
+                <button key={item.mode} onClick={() => setViewMode(item.mode)}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: 6,
+                    padding: '6px 12px', borderRadius: 6, fontSize: 12, fontWeight: 500, cursor: 'pointer',
+                    border: 'none',
+                    background: active ? 'white' : 'transparent',
+                    color: active ? 'var(--notion-text)' : 'var(--notion-text-muted)',
+                    boxShadow: active ? '0 1px 3px rgba(0,0,0,0.08)' : 'none',
+                    transition: 'all 0.15s ease',
+                  }}>
+                  <span style={{ fontSize: 14 }}>{item.icon}</span> {item.label}
+                </button>
+              );
+            })}
+          </div>
 
-      {/* View Mode Pill Switcher */}
-      <div style={{ display: 'flex', justifyContent: 'flex-end', padding: '8px 32px', borderBottom: '1px solid var(--notion-border)', background: 'var(--notion-card, white)' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 2, padding: 2, borderRadius: 8, background: 'var(--notion-active)' }}>
-          {([
-            { mode: 'table' as const, icon: '☰', label: '表格' },
-            { mode: 'kanban' as const, icon: '⊞', label: '看板' },
-            { mode: 'map' as const, icon: '🗺', label: '地图' },
-          ]).map(item => {
-            const active = viewMode === item.mode;
-            return (
-              <button key={item.mode} onClick={() => setViewMode(item.mode)}
-                style={{
-                  display: 'flex', alignItems: 'center', gap: 6,
-                  padding: '6px 12px', borderRadius: 6, fontSize: 12, fontWeight: 500, cursor: 'pointer',
-                  border: 'none',
-                  background: active ? 'white' : 'transparent',
-                  color: active ? 'var(--notion-text)' : 'var(--notion-text-muted)',
-                  boxShadow: active ? '0 1px 3px rgba(0,0,0,0.08)' : 'none',
-                  transition: 'all 0.15s ease',
-                }}>
-                <span style={{ fontSize: 14 }}>{item.icon}</span> {item.label}
-              </button>
-            );
-          })}
+          {/* Add Customer button */}
+          <button onClick={() => setShowAddCustomer(true)}
+            style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 16px', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer', border: 'none', background: '#7c3aed', color: 'white' }}>
+            <span style={{ fontSize: 16, lineHeight: 1 }}>+</span> {tCrm('addCustomer')}
+          </button>
+
+          <span style={{ fontSize: 12, color: 'var(--notion-text-muted)', whiteSpace: 'nowrap' }}>{customers.length} 条记录</span>
         </div>
       </div>
 
@@ -1172,6 +1175,13 @@ function CustomersTab() {
         )}
       </div>
       {selected && <CustomerDrawer customer={selected} onClose={() => setSelected(null)} onUpdated={() => load(search)} />}
+      {showAddCustomer && (
+        <LeadModal
+          users={users.map(u => ({ id: u.id, email: '', full_name: u.full_name, role: '' }))}
+          onClose={() => setShowAddCustomer(false)}
+          onSave={() => { setShowAddCustomer(false); load(search); }}
+        />
+      )}
     </div>
   );
 
@@ -1321,33 +1331,13 @@ function CustomersTab() {
       ],
     };
 
-    // Dynamic country groups from countryStats
-    let groups: { key: string; label: string; color: string; bg: string }[];
-    if (groupBy === 'country') {
-      const palette = ['#0284c7', '#7c3aed', '#059669', '#c2410c', '#dc2626', '#f59e0b', '#4338ca', '#10b981'];
-      const bgPalette = ['#e0f2fe', '#ede9fe', '#d1fae5', '#fff7ed', '#fef2f2', '#fef3c7', '#e0e7ff', '#d1fae5'];
-      groups = countryStats.map((cs, i) => ({ key: cs.country, label: cs.country, color: palette[i % palette.length], bg: bgPalette[i % bgPalette.length] }));
-      groups.push({ key: '_unknown', label: '未知', color: '#9B9A97', bg: '#f5f5f5' });
-    } else {
-      groups = KANBAN_GROUPS[groupBy] || KANBAN_GROUPS.stage;
-    }
+    // Fixed grouping by stage
+    const groups = KANBAN_GROUPS.stage;
     const grouped: Record<string, Customer[]> = {};
     for (const g of groups) grouped[g.key] = [];
 
     for (const c of customers) {
-      let key: string;
-      if (groupBy === 'stage') {
-        key = groups.some(g => g.key === c.status) ? c.status : '_other';
-      } else if (groupBy === 'customer_grade') {
-        const grade = c.custom_fields?.customer_grade as string | undefined;
-        key = grade && groups.some(g => g.key === grade) ? grade : '_unrated';
-      } else if (groupBy === 'country') {
-        const country = c.country || cf(c, 'country') || '';
-        key = country && groups.some(g => g.key === country) ? country : '_unknown';
-      } else {
-        const ctype = c.custom_fields?.customer_type as string | undefined;
-        key = ctype && groups.some(g => g.key === ctype) ? ctype : '_other';
-      }
+      const key = groups.some(g => g.key === c.status) ? c.status : '_other';
       (grouped[key] ??= []).push(c);
     }
 

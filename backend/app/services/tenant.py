@@ -778,6 +778,21 @@ TENANT_SCHEMA_DDL = [
     )""",
     "CREATE INDEX IF NOT EXISTS idx_wa_messages_contact ON whatsapp_messages(wa_contact_id, timestamp DESC)",
     "CREATE INDEX IF NOT EXISTS idx_wa_messages_account ON whatsapp_messages(wa_account_id, timestamp DESC)",
+
+    # ── Customer acquisition requests ────────────────────────────────────
+    """CREATE TABLE IF NOT EXISTS customer_acquisition_requests (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        customer_lead_id UUID NOT NULL,
+        requested_by UUID NOT NULL,
+        current_owner_id UUID NOT NULL,
+        status VARCHAR(20) DEFAULT 'pending',
+        decided_by UUID,
+        decided_at TIMESTAMPTZ,
+        decision_notes TEXT,
+        created_at TIMESTAMPTZ DEFAULT NOW()
+    )""",
+    "CREATE INDEX IF NOT EXISTS idx_acq_req_status ON customer_acquisition_requests(status)",
+    "CREATE INDEX IF NOT EXISTS idx_acq_req_owner ON customer_acquisition_requests(current_owner_id)",
 ]
 
 
@@ -1245,6 +1260,21 @@ TENANT_MIGRATION_DDL = [
     "ALTER TABLE whatsapp_contacts ADD COLUMN IF NOT EXISTS account_id UUID",
     "CREATE INDEX IF NOT EXISTS idx_wa_contacts_account_id ON whatsapp_contacts(account_id)",
     "ALTER TABLE whatsapp_messages ADD COLUMN IF NOT EXISTS created_by UUID",
+
+    # ── Phase 5: Customer acquisition requests ───────────────────────────
+    """CREATE TABLE IF NOT EXISTS customer_acquisition_requests (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        customer_lead_id UUID NOT NULL,
+        requested_by UUID NOT NULL,
+        current_owner_id UUID NOT NULL,
+        status VARCHAR(20) DEFAULT 'pending',
+        decided_by UUID,
+        decided_at TIMESTAMPTZ,
+        decision_notes TEXT,
+        created_at TIMESTAMPTZ DEFAULT NOW()
+    )""",
+    "CREATE INDEX IF NOT EXISTS idx_acq_req_status ON customer_acquisition_requests(status)",
+    "CREATE INDEX IF NOT EXISTS idx_acq_req_owner ON customer_acquisition_requests(current_owner_id)",
 ]
 
 

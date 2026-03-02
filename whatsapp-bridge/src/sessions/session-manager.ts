@@ -139,9 +139,10 @@ export async function startSession(accountId: string, tenantSlug: string): Promi
     if (connection === 'close') {
       entry.status = 'disconnected';
       const statusCode = (lastDisconnect?.error as Boom)?.output?.statusCode;
+      const errorMessage = (lastDisconnect?.error as Error)?.message || 'unknown';
       const loggedOut = statusCode === DisconnectReason.loggedOut;
 
-      logger.info({ accountId, statusCode, loggedOut }, 'WhatsApp disconnected');
+      logger.info({ accountId, statusCode, loggedOut, errorMessage, retryCount: entry.retryCount }, 'WhatsApp disconnected');
 
       if (loggedOut) {
         sessions.delete(accountId);

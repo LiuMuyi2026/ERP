@@ -3031,3 +3031,189 @@ async def send_lead_email(
     await db.commit()
 
     return {"ok": True, "interaction_id": interaction_id}
+
+
+# ---------------------------------------------------------------------------
+# Customer acquisition: duplicate check by name + acquire + approve
+# ---------------------------------------------------------------------------
+
+class NameDupCheck(BaseModel):
+    full_name: str
+
+
+@router.post("/leads/check-name-duplicate")
+async def check_name_duplicate(
+    body: NameDupCheck,
+    ctx: dict = Depends(get_current_user_with_tenant),
+):
+    """Lightweight name-based duplicate check returning owner info."""
+    db = ctx["db"]
+    current_user = ctx["sub"]
+    name = body.full_name.strip()
+    if not name:
+        return {"matches": []}
+
+    rows = await db.execute(
+        text("""
+            SELECT l.id, l.full_name, l.company, l.email, l.whatsapp, l.status,
+                   l.assigned_to,
+                   COALESCE(u.full_name, '') AS assigned_to_name
+            FROM leads l
+            LEFT JOIN users u ON u.id = l.assigned_to
+            WHERE l.full_name ILIKE :name
+              AND (l.is_cold IS NULL OR l.is_cold = FALSE)
+            LIMIT 10
+        """),
+        {"name": f"%{name}%"},
+    )
+    matches = []
+    for r in rows.fetchall():
+        d = dict(r._mapping)
+        d["is_mine"] = str(d.get("assigned_to") or "") == str(current_user)
+        matches.append(d)
+
+    return {"matches": matches}
+
+
+class AcquireCustomerBody(BaseModel):
+    customer_lead_id: str
+
+
+@router.post("/customers/acquire")
+async def acquire_customer(
+    body: AcquireCustomerBody,
+    ctx: dict = Depends(get_current_user_with_tenant),
+):
+    """Request to acquire a customer currently owned by another user."""
+    db = ctx["db"]
+    current_user = ctx["sub"]
+
+    lead_row = await db.execute(
+        text("SELECT id, assigned_to, full_name FROM leads WHERE id = :id"),
+        {"id": body.customer_lead_id},
+    )
+    lead = lead_row.fetchone()
+    if not lead:
+        raise HTTPException(status_code=404, detail="Customer not found")
+
+    lead_dict = dict(lead._mapping)
+    owner = str(lead_dict.get("assigned_to") or "")
+    if owner == str(current_user):
+        raise HTTPException(status_code=400, detail="You already own this customer")
+
+    # Check for existing pending request
+    existing = await db.execute(
+        text("""
+            SELECT id FROM customer_acquisition_requests
+            WHERE customer_lead_id = :lid AND requested_by = :uid AND status = 'pending'
+        """),
+        {"lid": body.customer_lead_id, "uid": current_user},
+    )
+    if existing.fetchone():
+        raise HTTPException(status_code=400, detail="You already have a pending request for this customer")
+
+    req_id = str(uuid.uuid4())
+    await db.execute(
+        text("""
+            INSERT INTO customer_acquisition_requests
+                (id, customer_lead_id, requested_by, current_owner_id, status)
+            VALUES (:id, :lid, :uid, :owner, 'pending')
+        """),
+        {"id": req_id, "lid": body.customer_lead_id, "uid": current_user, "owner": owner},
+    )
+    await db.commit()
+    return {"id": req_id, "status": "pending"}
+
+
+@router.get("/customers/acquisition-requests")
+async def list_acquisition_requests(
+    ctx: dict = Depends(get_current_user_with_tenant),
+):
+    """List pending acquisition requests visible to current user."""
+    db = ctx["db"]
+    role = ctx.get("role", "")
+    current_user = ctx["sub"]
+
+    if role in ("manager", "tenant_admin", "admin"):
+        rows = await db.execute(
+            text("""
+                SELECT r.*, l.full_name AS customer_name, l.company AS customer_company,
+                       req_u.full_name AS requester_name,
+                       own_u.full_name AS owner_name
+                FROM customer_acquisition_requests r
+                JOIN leads l ON l.id = r.customer_lead_id
+                LEFT JOIN users req_u ON req_u.id = r.requested_by
+                LEFT JOIN users own_u ON own_u.id = r.current_owner_id
+                WHERE r.status = 'pending'
+                ORDER BY r.created_at DESC
+            """)
+        )
+    else:
+        rows = await db.execute(
+            text("""
+                SELECT r.*, l.full_name AS customer_name, l.company AS customer_company,
+                       req_u.full_name AS requester_name,
+                       own_u.full_name AS owner_name
+                FROM customer_acquisition_requests r
+                JOIN leads l ON l.id = r.customer_lead_id
+                LEFT JOIN users req_u ON req_u.id = r.requested_by
+                LEFT JOIN users own_u ON own_u.id = r.current_owner_id
+                WHERE r.status = 'pending' AND r.current_owner_id = :uid
+                ORDER BY r.created_at DESC
+            """),
+            {"uid": current_user},
+        )
+
+    return {"requests": [dict(r._mapping) for r in rows.fetchall()]}
+
+
+class DecideBody(BaseModel):
+    decision: Literal["approved", "rejected"]
+    notes: Optional[str] = None
+
+
+@router.post("/customers/acquisition-requests/{request_id}/decide")
+async def decide_acquisition(
+    request_id: str,
+    body: DecideBody,
+    ctx: dict = Depends(get_current_user_with_tenant),
+):
+    """Approve or reject a customer acquisition request."""
+    db = ctx["db"]
+    role = ctx.get("role", "")
+    current_user = ctx["sub"]
+
+    req_row = await db.execute(
+        text("SELECT * FROM customer_acquisition_requests WHERE id = :id AND status = 'pending'"),
+        {"id": request_id},
+    )
+    req = req_row.fetchone()
+    if not req:
+        raise HTTPException(status_code=404, detail="Request not found or already decided")
+
+    req_dict = dict(req._mapping)
+
+    # Permission: current owner, manager, or tenant_admin
+    is_owner = str(req_dict["current_owner_id"]) == str(current_user)
+    is_privileged = role in ("manager", "tenant_admin", "admin")
+    if not is_owner and not is_privileged:
+        raise HTTPException(status_code=403, detail="Not authorized to decide this request")
+
+    await db.execute(
+        text("""
+            UPDATE customer_acquisition_requests
+            SET status = :status, decided_by = :decided_by,
+                decided_at = NOW(), decision_notes = :notes
+            WHERE id = :id
+        """),
+        {"status": body.decision, "decided_by": current_user, "notes": body.notes, "id": request_id},
+    )
+
+    if body.decision == "approved":
+        await db.execute(
+            text("UPDATE leads SET assigned_to = :new_owner WHERE id = :lid"),
+            {"new_owner": req_dict["requested_by"], "lid": req_dict["customer_lead_id"]},
+        )
+
+    await db.commit()
+    return {"ok": True, "status": body.decision}
