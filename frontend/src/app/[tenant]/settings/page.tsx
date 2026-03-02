@@ -1819,7 +1819,7 @@ function WhatsAppSettingsSection() {
 
   return (
     <div>
-      <SectionHeader title="WhatsApp" subtitle="Connect and manage your WhatsApp accounts for CRM messaging." />
+      <SectionHeader title="WhatsApp 设置" subtitle="连接并管理您的 WhatsApp 账号，用于 CRM 消息沟通。" />
 
       <div className="space-y-4">
         {accounts.map(acc => (
