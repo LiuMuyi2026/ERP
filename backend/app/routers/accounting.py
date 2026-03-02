@@ -741,6 +741,104 @@ async def delete_expense_report(report_id: str, ctx: dict = Depends(get_current_
 
 # ── Reports ──────────────────────────────────────────────────────────────────
 
+@router.get("/profit-analysis")
+async def profit_analysis(
+    dimension: str = Query("lead"),
+    date_from: str | None = None,
+    date_to: str | None = None,
+    salesperson_id: str | None = None,
+    status: str | None = None,
+    ctx: dict = Depends(get_current_user_with_tenant),
+):
+    db = ctx["db"]
+    if dimension not in ("lead", "customer", "salesperson"):
+        raise HTTPException(status_code=400, detail="dimension must be lead, customer, or salesperson")
+
+    # Build WHERE clause for contract_profit CTE
+    conditions = ["1=1"]
+    params: dict = {}
+    if date_from:
+        conditions.append("c.created_at >= :date_from")
+        params["date_from"] = parse_date(date_from)
+    if date_to:
+        conditions.append("c.created_at <= :date_to")
+        params["date_to"] = parse_date(date_to)
+    if salesperson_id:
+        conditions.append("c.sales_owner_id = :salesperson_id")
+        params["salesperson_id"] = salesperson_id
+    if status:
+        conditions.append("c.status = :status")
+        params["status"] = status
+
+    # Role-based: salesperson can only see own data
+    role = ctx.get("role", "")
+    if role not in ("platform_admin", "tenant_admin"):
+        conditions.append("c.sales_owner_id = :current_user")
+        params["current_user"] = ctx["sub"]
+
+    where = " AND ".join(conditions)
+
+    cte = f"""
+    WITH contract_profit AS (
+      SELECT c.id, c.lead_id, c.account_id, c.sales_owner_id, c.status,
+        COALESCE((SELECT SUM(r.amount) FROM crm_receivables r WHERE r.contract_id = c.id), 0) AS revenue,
+        COALESCE((SELECT SUM(p.amount) FROM crm_payables p WHERE p.contract_id = c.id), 0) AS cost
+      FROM crm_contracts c
+      WHERE {where}
+    )
+    """
+
+    if dimension == "lead":
+        query = cte + """
+        SELECT l.id, l.company_name AS name, l.status,
+          COALESCE(SUM(cp.revenue), 0) AS total_revenue, COALESCE(SUM(cp.cost), 0) AS total_cost,
+          COALESCE(SUM(cp.revenue), 0) - COALESCE(SUM(cp.cost), 0) AS gross_profit,
+          CASE WHEN SUM(cp.revenue) > 0 THEN ROUND((SUM(cp.revenue)-SUM(cp.cost))/SUM(cp.revenue)*100, 2) ELSE 0 END AS margin_pct,
+          COUNT(DISTINCT cp.id) AS contract_count
+        FROM contract_profit cp JOIN leads l ON l.id = cp.lead_id
+        GROUP BY l.id, l.company_name, l.status
+        ORDER BY total_revenue DESC
+        """
+    elif dimension == "customer":
+        query = cte + """
+        SELECT a.id, a.name, NULL AS status,
+          COALESCE(SUM(cp.revenue), 0) AS total_revenue, COALESCE(SUM(cp.cost), 0) AS total_cost,
+          COALESCE(SUM(cp.revenue), 0) - COALESCE(SUM(cp.cost), 0) AS gross_profit,
+          CASE WHEN SUM(cp.revenue) > 0 THEN ROUND((SUM(cp.revenue)-SUM(cp.cost))/SUM(cp.revenue)*100, 2) ELSE 0 END AS margin_pct,
+          COUNT(DISTINCT cp.id) AS contract_count
+        FROM contract_profit cp JOIN crm_accounts a ON a.id = cp.account_id
+        GROUP BY a.id, a.name
+        ORDER BY total_revenue DESC
+        """
+    else:  # salesperson
+        query = cte + """
+        SELECT u.id, u.display_name AS name, NULL AS status,
+          COALESCE(SUM(cp.revenue), 0) AS total_revenue, COALESCE(SUM(cp.cost), 0) AS total_cost,
+          COALESCE(SUM(cp.revenue), 0) - COALESCE(SUM(cp.cost), 0) AS gross_profit,
+          CASE WHEN SUM(cp.revenue) > 0 THEN ROUND((SUM(cp.revenue)-SUM(cp.cost))/SUM(cp.revenue)*100, 2) ELSE 0 END AS margin_pct,
+          COUNT(DISTINCT cp.id) AS contract_count
+        FROM contract_profit cp JOIN users u ON u.id = cp.sales_owner_id
+        GROUP BY u.id, u.display_name
+        ORDER BY total_revenue DESC
+        """
+
+    result = await db.execute(text(query), params)
+    rows = result.fetchall()
+    return [
+        {
+            "id": str(row[0]),
+            "name": row[1],
+            "status": row[2],
+            "total_revenue": float(row[3] or 0),
+            "total_cost": float(row[4] or 0),
+            "gross_profit": float(row[5] or 0),
+            "margin_pct": float(row[6] or 0),
+            "contract_count": int(row[7] or 0),
+        }
+        for row in rows
+    ]
+
+
 @router.get("/reports/pnl")
 async def get_pnl_report(start: Optional[str] = None, end: Optional[str] = None, ctx: dict = Depends(get_current_user_with_tenant)):
     db = ctx["db"]

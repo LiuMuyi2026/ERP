@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo, useCallback } from 'react';
 import { api } from '@/lib/api';
 import { useTranslations } from 'next-intl';
 import NotionTable, { Column } from '@/components/ui/NotionTable';
@@ -37,7 +37,15 @@ type PayablePayment = {
   created_by_name?: string; created_at?: string;
 };
 
-type TabKey = 'receivable' | 'payable';
+type TabKey = 'receivable' | 'payable' | 'profit';
+
+type ProfitRow = {
+  id: string; name: string; status?: string | null;
+  total_revenue: number; total_cost: number; gross_profit: number;
+  margin_pct: number; contract_count: number;
+};
+type ProfitDimension = 'lead' | 'customer' | 'salesperson';
+type ProfitSortKey = 'name' | 'total_revenue' | 'total_cost' | 'gross_profit' | 'margin_pct' | 'contract_count';
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
@@ -183,6 +191,7 @@ export default function AccountingPage() {
           {([
             { key: 'receivable' as const, label: tAccounting('tabReceivableMgmt') },
             { key: 'payable' as const, label: tAccounting('tabPayableMgmt') },
+            { key: 'profit' as const, label: tAccounting('profitAnalysis') },
           ]).map(({ key, label }) => (
             <button key={key} onClick={() => setTab(key)}
               className="px-4 py-1.5 rounded text-sm font-medium transition-colors"
@@ -211,6 +220,7 @@ export default function AccountingPage() {
             payables={payables} setPayables={setPayables}
           />
         )}
+        {tab === 'profit' && <ProfitAnalysisTab />}
       </div>
     </div>
   );
@@ -1150,6 +1160,275 @@ function PayableTab({
               </div>
             </form>
           </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Profit Analysis Tab ──────────────────────────────────────────────────────
+
+function getMarginColor(pct: number): { color: string; bg: string } {
+  if (pct >= 30) return { color: '#15803d', bg: '#dcfce7' };
+  if (pct >= 10) return { color: '#a16207', bg: '#fef9c3' };
+  if (pct >= 0) return { color: '#c2410c', bg: '#fff7ed' };
+  return { color: '#dc2626', bg: '#fef2f2' };
+}
+
+function ProfitAnalysisTab() {
+  const t = useTranslations('accounting');
+  const tCommon = useTranslations('common');
+
+  const [dimension, setDimension] = useState<ProfitDimension>('lead');
+  const [data, setData] = useState<ProfitRow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState('');
+  const [sortKey, setSortKey] = useState<ProfitSortKey>('total_revenue');
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo] = useState('');
+  const [filterSalesperson, setFilterSalesperson] = useState('');
+  const [filterStatus, setFilterStatus] = useState('');
+  const [viewMode, setViewMode] = useState<'table' | 'card'>('table');
+  const [salespersons, setSalespersons] = useState<{ id: string; name: string }[]>([]);
+
+  const fetchData = useCallback(async () => {
+    setLoading(true);
+    try {
+      const params = new URLSearchParams({ dimension });
+      if (dateFrom) params.set('date_from', dateFrom);
+      if (dateTo) params.set('date_to', dateTo);
+      if (filterSalesperson) params.set('salesperson_id', filterSalesperson);
+      if (filterStatus) params.set('status', filterStatus);
+      const result = await api.get(`/api/accounting/profit-analysis?${params}`);
+      setData(Array.isArray(result) ? result : []);
+    } catch { setData([]); }
+    finally { setLoading(false); }
+  }, [dimension, dateFrom, dateTo, filterSalesperson, filterStatus]);
+
+  useEffect(() => { fetchData(); }, [fetchData]);
+
+  // Load salesperson list for filter
+  useEffect(() => {
+    api.get('/api/workspace/users').then((u: any) => {
+      setSalespersons(Array.isArray(u) ? u.map((x: any) => ({ id: x.id, name: x.display_name || x.email })) : []);
+    }).catch(() => {});
+  }, []);
+
+  // Filtered & sorted data
+  const processed = useMemo(() => {
+    let rows = data;
+    if (search) {
+      const q = search.toLowerCase();
+      rows = rows.filter(r => r.name?.toLowerCase().includes(q));
+    }
+    rows = [...rows].sort((a, b) => {
+      const av = a[sortKey] ?? '';
+      const bv = b[sortKey] ?? '';
+      if (typeof av === 'number' && typeof bv === 'number') return sortDir === 'asc' ? av - bv : bv - av;
+      return sortDir === 'asc' ? String(av).localeCompare(String(bv)) : String(bv).localeCompare(String(av));
+    });
+    return rows;
+  }, [data, search, sortKey, sortDir]);
+
+  // KPI summaries
+  const kpi = useMemo(() => {
+    const totalRevenue = data.reduce((s, r) => s + r.total_revenue, 0);
+    const totalCost = data.reduce((s, r) => s + r.total_cost, 0);
+    const grossProfit = totalRevenue - totalCost;
+    const avgMargin = totalRevenue > 0 ? (grossProfit / totalRevenue) * 100 : 0;
+    return { totalRevenue, totalCost, grossProfit, avgMargin };
+  }, [data]);
+
+  const toggleSort = (key: ProfitSortKey) => {
+    if (sortKey === key) setSortDir(d => d === 'asc' ? 'desc' : 'asc');
+    else { setSortKey(key); setSortDir('desc'); }
+  };
+
+  const sortArrow = (key: ProfitSortKey) => sortKey === key ? (sortDir === 'asc' ? ' ↑' : ' ↓') : '';
+
+  return (
+    <div className="space-y-4">
+      {/* Dimension tabs */}
+      <div className="flex items-center gap-3">
+        <div className="flex gap-0.5 rounded-md p-0.5" style={{ background: 'var(--notion-active)' }}>
+          {([
+            { key: 'lead' as const, label: t('byLead') },
+            { key: 'customer' as const, label: t('byCustomer') },
+            { key: 'salesperson' as const, label: t('bySalesperson') },
+          ]).map(({ key, label }) => (
+            <button key={key} onClick={() => setDimension(key)}
+              className="px-3 py-1 rounded text-sm font-medium transition-colors"
+              style={{
+                background: dimension === key ? 'white' : 'transparent',
+                color: dimension === key ? 'var(--notion-text)' : 'var(--notion-text-muted)',
+                boxShadow: dimension === key ? '0 1px 3px rgba(0,0,0,0.08)' : 'none',
+              }}>
+              {label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* KPI cards */}
+      <div className="grid grid-cols-4 gap-3">
+        {[
+          { label: t('totalRevenue'), value: FMT(kpi.totalRevenue), color: '#16a34a', bg: '#f0fdf4' },
+          { label: t('totalCost'), value: FMT(kpi.totalCost), color: '#dc2626', bg: '#fef2f2' },
+          { label: t('grossProfit'), value: FMT(kpi.grossProfit), color: kpi.grossProfit >= 0 ? '#15803d' : '#dc2626', bg: kpi.grossProfit >= 0 ? '#dcfce7' : '#fef2f2' },
+          { label: t('avgMargin'), value: `${kpi.avgMargin.toFixed(1)}%`, color: kpi.avgMargin >= 30 ? '#15803d' : kpi.avgMargin >= 0 ? '#a16207' : '#dc2626', bg: kpi.avgMargin >= 30 ? '#dcfce7' : kpi.avgMargin >= 0 ? '#fef9c3' : '#fef2f2' },
+        ].map(({ label, value, color, bg }) => (
+          <div key={label} className="rounded-lg px-4 py-3" style={{ background: bg }}>
+            <p className="text-[10px] font-semibold uppercase tracking-wide mb-0.5" style={{ color }}>{label}</p>
+            <p className="text-lg font-bold" style={{ color }}>{value}</p>
+          </div>
+        ))}
+      </div>
+
+      {/* Toolbar: search, dates, filters, sort, view */}
+      <div className="flex items-center gap-2 flex-wrap">
+        <input
+          placeholder={t('searchByName')}
+          value={search} onChange={e => setSearch(e.target.value)}
+          className="px-3 py-1.5 rounded-md text-sm outline-none border w-48"
+          style={{ borderColor: 'var(--notion-border)', color: 'var(--notion-text)' }}
+        />
+        <input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)}
+          className="px-2 py-1.5 rounded-md text-sm outline-none border"
+          style={{ borderColor: 'var(--notion-border)', color: 'var(--notion-text)' }}
+          title={t('dateFrom')}
+        />
+        <input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)}
+          className="px-2 py-1.5 rounded-md text-sm outline-none border"
+          style={{ borderColor: 'var(--notion-border)', color: 'var(--notion-text)' }}
+          title={t('dateTo')}
+        />
+        {dimension !== 'salesperson' && (
+          <select value={filterSalesperson} onChange={e => setFilterSalesperson(e.target.value)}
+            className="px-2 py-1.5 rounded-md text-sm outline-none border"
+            style={{ borderColor: 'var(--notion-border)', color: 'var(--notion-text)' }}>
+            <option value="">{t('allSalespersons')}</option>
+            {salespersons.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+          </select>
+        )}
+        <select value={filterStatus} onChange={e => setFilterStatus(e.target.value)}
+          className="px-2 py-1.5 rounded-md text-sm outline-none border"
+          style={{ borderColor: 'var(--notion-border)', color: 'var(--notion-text)' }}>
+          <option value="">{t('allStatuses')}</option>
+          <option value="active">{t('statusActive') || 'Active'}</option>
+          <option value="completed">{t('statusCompleted') || 'Completed'}</option>
+          <option value="draft">{t('statusDraft') || 'Draft'}</option>
+        </select>
+        <div className="ml-auto flex gap-1">
+          {(['table', 'card'] as const).map(mode => (
+            <button key={mode} onClick={() => setViewMode(mode)}
+              className="px-2.5 py-1 rounded text-xs font-medium transition-colors"
+              style={{
+                background: viewMode === mode ? 'var(--notion-accent)' : 'transparent',
+                color: viewMode === mode ? 'white' : 'var(--notion-text-muted)',
+              }}>
+              {mode === 'table' ? t('viewTable') : t('viewCard')}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Content */}
+      {loading ? (
+        <div className="py-12 text-center text-sm" style={{ color: 'var(--notion-text-muted)' }}>{tCommon('loading')}</div>
+      ) : processed.length === 0 ? (
+        <div className="py-12 text-center text-sm" style={{ color: 'var(--notion-text-muted)' }}>{t('noData')}</div>
+      ) : viewMode === 'table' ? (
+        /* ── Table View ── */
+        <div className="rounded-lg border overflow-hidden" style={{ borderColor: 'var(--notion-border)' }}>
+          <table className="w-full text-sm">
+            <thead>
+              <tr style={{ background: 'var(--notion-active)' }}>
+                {[
+                  { key: 'name' as const, label: dimension === 'lead' ? t('byLead') : dimension === 'customer' ? t('byCustomer') : t('bySalesperson') },
+                  { key: 'total_revenue' as const, label: t('totalRevenue') },
+                  { key: 'total_cost' as const, label: t('totalCost') },
+                  { key: 'gross_profit' as const, label: t('grossProfit') },
+                  { key: 'margin_pct' as const, label: t('marginPct') },
+                  { key: 'contract_count' as const, label: t('contractCount') },
+                ].map(col => (
+                  <th key={col.key}
+                    onClick={() => toggleSort(col.key)}
+                    className="px-4 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wide cursor-pointer select-none"
+                    style={{ color: 'var(--notion-text-muted)' }}>
+                    {col.label}{sortArrow(col.key)}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {processed.map(row => {
+                const mc = getMarginColor(row.margin_pct);
+                return (
+                  <tr key={row.id} className="border-t hover:bg-[var(--notion-hover)]" style={{ borderColor: 'var(--notion-border)' }}>
+                    <td className="px-4 py-2.5 font-medium" style={{ color: 'var(--notion-text)' }}>
+                      {row.name || '—'}
+                      {dimension === 'lead' && row.status && (
+                        <span className={`ml-2 text-[10px] px-1.5 py-0.5 rounded-full ${STATUS_COLORS[row.status] || 'bg-gray-100 text-gray-600'}`}>{row.status}</span>
+                      )}
+                    </td>
+                    <td className="px-4 py-2.5" style={{ color: 'var(--notion-text)' }}>{FMT(row.total_revenue)}</td>
+                    <td className="px-4 py-2.5" style={{ color: 'var(--notion-text)' }}>{FMT(row.total_cost)}</td>
+                    <td className="px-4 py-2.5 font-semibold" style={{ color: row.gross_profit >= 0 ? '#15803d' : '#dc2626' }}>{FMT(row.gross_profit)}</td>
+                    <td className="px-4 py-2.5">
+                      <span className="text-xs px-2 py-0.5 rounded-full font-semibold" style={{ color: mc.color, background: mc.bg }}>
+                        {row.margin_pct.toFixed(1)}%
+                      </span>
+                    </td>
+                    <td className="px-4 py-2.5" style={{ color: 'var(--notion-text-muted)' }}>{row.contract_count}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      ) : (
+        /* ── Card View ── */
+        <div className="grid grid-cols-3 gap-3">
+          {processed.map(row => {
+            const mc = getMarginColor(row.margin_pct);
+            const barWidth = Math.min(Math.max(row.margin_pct, 0), 100);
+            return (
+              <div key={row.id} className="rounded-lg border p-4 space-y-2" style={{ borderColor: 'var(--notion-border)', background: 'var(--notion-card, white)' }}>
+                <div className="flex items-center justify-between">
+                  <span className="text-sm font-semibold truncate" style={{ color: 'var(--notion-text)' }}>{row.name || '—'}</span>
+                  <span className="text-xs px-2 py-0.5 rounded-full font-semibold shrink-0 ml-2" style={{ color: mc.color, background: mc.bg }}>
+                    {row.margin_pct.toFixed(1)}%
+                  </span>
+                </div>
+                {dimension === 'lead' && row.status && (
+                  <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${STATUS_COLORS[row.status] || 'bg-gray-100 text-gray-600'}`}>{row.status}</span>
+                )}
+                <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-[11px]">
+                  <div>
+                    <span style={{ color: 'var(--notion-text-muted)' }}>{t('totalRevenue')}</span>
+                    <p className="font-semibold" style={{ color: 'var(--notion-text)' }}>{FMT(row.total_revenue)}</p>
+                  </div>
+                  <div>
+                    <span style={{ color: 'var(--notion-text-muted)' }}>{t('totalCost')}</span>
+                    <p className="font-semibold" style={{ color: 'var(--notion-text)' }}>{FMT(row.total_cost)}</p>
+                  </div>
+                  <div>
+                    <span style={{ color: 'var(--notion-text-muted)' }}>{t('grossProfit')}</span>
+                    <p className="font-semibold" style={{ color: row.gross_profit >= 0 ? '#15803d' : '#dc2626' }}>{FMT(row.gross_profit)}</p>
+                  </div>
+                  <div>
+                    <span style={{ color: 'var(--notion-text-muted)' }}>{t('contractCount')}</span>
+                    <p className="font-semibold" style={{ color: 'var(--notion-text)' }}>{row.contract_count}</p>
+                  </div>
+                </div>
+                {/* Margin bar */}
+                <div className="w-full h-1.5 rounded-full overflow-hidden" style={{ background: 'var(--notion-active)' }}>
+                  <div className="h-full rounded-full transition-all duration-500" style={{ width: `${barWidth}%`, background: mc.color }} />
+                </div>
+              </div>
+            );
+          })}
         </div>
       )}
     </div>
