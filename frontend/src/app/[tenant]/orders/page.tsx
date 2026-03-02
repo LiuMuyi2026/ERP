@@ -127,6 +127,7 @@ export default function OrdersPage() {
   const soLabels = getSOStatusLabels(t);
 
   const [tab, setTab] = useState<'purchase' | 'sales'>('purchase');
+  const [viewMode, setViewMode] = useState<'table' | 'kanban'>('table');
   const [purchaseOrders, setPurchaseOrders] = useState<PurchaseOrder[]>([]);
   const [salesOrders, setSalesOrders] = useState<SalesOrder[]>([]);
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
@@ -244,6 +245,134 @@ export default function OrdersPage() {
 
   const panelOpen = panelMode !== 'none';
 
+  function renderPurchaseKanban() {
+    const statusOrder = ['draft', 'confirmed', 'fulfilled', 'closed'];
+    const byStatus: Record<string, PurchaseOrder[]> = {};
+    for (const s of statusOrder) byStatus[s] = [];
+    for (const po of filteredPO) {
+      (byStatus[po.status] ??= []).push(po);
+    }
+    return (
+      <div className="flex gap-3 overflow-x-auto pb-3" style={{ minHeight: 480 }}>
+        {statusOrder.map(status => {
+          const cards = byStatus[status] ?? [];
+          const style = PO_STATUS_STYLES[status] ?? { bg: '#f3f4f6', color: '#6b7280' };
+          return (
+            <div key={status} className="flex-shrink-0 flex flex-col rounded-xl overflow-hidden"
+              style={{ width: 260, border: '1px solid var(--notion-border)', background: 'var(--notion-hover)' }}>
+              <div className="flex items-center justify-between px-3 py-2.5" style={{ borderBottom: '1px solid var(--notion-border)', background: style.bg }}>
+                <span className="text-xs font-semibold" style={{ color: style.color }}>{poLabels[status] ?? status}</span>
+                <span className="text-xs font-bold px-1.5 py-0.5 rounded-full" style={{ background: style.color + '22', color: style.color }}>
+                  {cards.length}
+                </span>
+              </div>
+              <div className="flex-1 overflow-y-auto p-2 space-y-2">
+                {cards.map(po => (
+                  <div key={po.id}
+                    className="bg-white rounded-lg p-3 cursor-pointer shadow-sm transition-all"
+                    style={{ border: '1px solid var(--notion-border)' }}
+                    onMouseEnter={e => { e.currentTarget.style.boxShadow = '0 2px 8px rgba(0,0,0,0.10)'; }}
+                    onMouseLeave={e => { e.currentTarget.style.boxShadow = '0 1px 3px rgba(0,0,0,0.06)'; }}
+                    onClick={() => { setSelectedPO(po); setPanelMode('detail'); }}>
+                    <div className="flex items-center justify-between mb-1.5">
+                      <span className="text-xs font-bold font-mono" style={{ color: 'var(--notion-text)' }}>{po.po_number}</span>
+                      {po.currency && po.total != null && (
+                        <span className="text-xs font-semibold" style={{ color: '#c2410c' }}>
+                          {po.currency} {Number(po.total).toLocaleString()}
+                        </span>
+                      )}
+                    </div>
+                    {po.supplier_name && <p className="text-[11px] truncate mb-1" style={{ color: '#888' }}>{po.supplier_name}</p>}
+                    {po.product_name && <p className="text-[11px] truncate mb-1" style={{ color: '#aaa' }}>{po.product_name}</p>}
+                    <div className="flex items-center justify-between mt-2">
+                      {po.expected_date && (
+                        <span className="text-[10px]" style={{ color: '#9B9A97' }}>
+                          {new Date(po.expected_date).toLocaleDateString('zh-CN', { month: 'short', day: 'numeric' })}
+                        </span>
+                      )}
+                      <span className="text-[10px] px-1.5 py-0.5 rounded-full font-medium"
+                        style={{ background: style.bg, color: style.color }}>
+                        {poLabels[po.status] ?? po.status}
+                      </span>
+                    </div>
+                  </div>
+                ))}
+                {cards.length === 0 && (
+                  <p className="text-[11px] text-center py-4" style={{ color: '#ccc', fontStyle: 'italic' }}>{'暂无'}</p>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    );
+  }
+
+  function renderSalesKanban() {
+    const statusOrder = ['draft', 'active', 'fulfilled', 'closed', 'cancelled'];
+    const byStatus: Record<string, SalesOrder[]> = {};
+    for (const s of statusOrder) byStatus[s] = [];
+    for (const so of filteredSO) {
+      (byStatus[so.status] ??= []).push(so);
+    }
+    return (
+      <div className="flex gap-3 overflow-x-auto pb-3" style={{ minHeight: 480 }}>
+        {statusOrder.map(status => {
+          const cards = byStatus[status] ?? [];
+          const style = SO_STATUS_STYLES[status] ?? { bg: '#f3f4f6', color: '#6b7280' };
+          return (
+            <div key={status} className="flex-shrink-0 flex flex-col rounded-xl overflow-hidden"
+              style={{ width: 260, border: '1px solid var(--notion-border)', background: 'var(--notion-hover)' }}>
+              <div className="flex items-center justify-between px-3 py-2.5" style={{ borderBottom: '1px solid var(--notion-border)', background: style.bg }}>
+                <span className="text-xs font-semibold" style={{ color: style.color }}>{soLabels[status] ?? status}</span>
+                <span className="text-xs font-bold px-1.5 py-0.5 rounded-full" style={{ background: style.color + '22', color: style.color }}>
+                  {cards.length}
+                </span>
+              </div>
+              <div className="flex-1 overflow-y-auto p-2 space-y-2">
+                {cards.map(so => (
+                  <div key={so.id}
+                    className="bg-white rounded-lg p-3 cursor-pointer shadow-sm transition-all"
+                    style={{ border: '1px solid var(--notion-border)' }}
+                    onMouseEnter={e => { e.currentTarget.style.boxShadow = '0 2px 8px rgba(0,0,0,0.10)'; }}
+                    onMouseLeave={e => { e.currentTarget.style.boxShadow = '0 1px 3px rgba(0,0,0,0.06)'; }}>
+                    <div className="flex items-center justify-between mb-1.5">
+                      <span className="text-xs font-bold font-mono" style={{ color: 'var(--notion-text)' }}>{so.contract_no}</span>
+                      <span className="text-xs font-semibold" style={{ color: '#059669' }}>
+                        {so.currency} {Number(so.contract_amount).toLocaleString()}
+                      </span>
+                    </div>
+                    {so.account_name && <p className="text-[11px] truncate mb-1" style={{ color: '#888' }}>{so.account_name}</p>}
+                    <div className="flex items-center justify-between mt-2">
+                      {so.eta && (
+                        <span className="text-[10px]" style={{ color: '#9B9A97' }}>
+                          ETA: {new Date(so.eta).toLocaleDateString('zh-CN', { month: 'short', day: 'numeric' })}
+                        </span>
+                      )}
+                      {so.risk_level && (
+                        <span className="text-[10px] px-1.5 py-0.5 rounded-full font-medium"
+                          style={{ background: so.risk_level === 'high' ? '#fef2f2' : so.risk_level === 'medium' ? '#fef3c7' : '#f0fdf4', color: so.risk_level === 'high' ? '#b91c1c' : so.risk_level === 'medium' ? '#92400e' : '#15803d' }}>
+                          {so.risk_level}
+                        </span>
+                      )}
+                      <span className="text-[10px] px-1.5 py-0.5 rounded-full font-medium"
+                        style={{ background: style.bg, color: style.color }}>
+                        {soLabels[so.status] ?? so.status}
+                      </span>
+                    </div>
+                  </div>
+                ))}
+                {cards.length === 0 && (
+                  <p className="text-[11px] text-center py-4" style={{ color: '#ccc', fontStyle: 'italic' }}>{'暂无'}</p>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    );
+  }
+
   return (
     <div className="flex h-full" style={{ background: 'var(--notion-bg)', color: 'var(--notion-text)' }}>
       {/* ── Main content ── */}
@@ -305,6 +434,27 @@ export default function OrdersPage() {
                 {t('clearFilter')}
               </button>
             )}
+
+            {/* View mode toggle */}
+            <div className="flex items-center gap-0.5 p-0.5 rounded-lg ml-auto" style={{ background: 'var(--notion-active)' }}>
+              {([
+                { mode: 'table' as const, icon: '☰', label: '表格' },
+                { mode: 'kanban' as const, icon: '⊞', label: '看板' },
+              ]).map(item => {
+                const active = viewMode === item.mode;
+                return (
+                  <button key={item.mode} onClick={() => setViewMode(item.mode)}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all"
+                    style={{
+                      background: active ? 'white' : 'transparent',
+                      color: active ? 'var(--notion-text)' : 'var(--notion-text-muted)',
+                      boxShadow: active ? '0 1px 3px rgba(0,0,0,0.08)' : 'none',
+                    }}>
+                    <span style={{ fontSize: 14 }}>{item.icon}</span> {item.label}
+                  </button>
+                );
+              })}
+            </div>
           </div>
         </div>
 
@@ -314,6 +464,8 @@ export default function OrdersPage() {
             <div className="flex items-center justify-center h-48">
               <div className="w-6 h-6 rounded-full border-2 border-t-transparent animate-spin" style={{ borderColor: '#c2410c', borderTopColor: 'transparent' }} />
             </div>
+          ) : viewMode === 'kanban' ? (
+            tab === 'purchase' ? renderPurchaseKanban() : renderSalesKanban()
           ) : tab === 'purchase' ? (
             /* ── Purchase Orders Table ── */
             filteredPO.length === 0 ? (

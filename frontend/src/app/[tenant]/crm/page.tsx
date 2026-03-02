@@ -1632,7 +1632,8 @@ const GRADE_COLORS: Record<string, { bg: string; text: string }> = {
   S: { bg: '#f0fdf4', text: '#166534' },
 };
 
-type ViewMode = 'table' | 'kanban' | 'card' | 'list' | 'company';
+type ViewMode = 'table' | 'kanban' | 'card';
+type GroupBy = 'none' | 'funnel_stage' | 'company' | 'assigned_to' | 'source_channel' | 'grade';
 type SortOption = {
   key: string;
   label: string;
@@ -1696,6 +1697,9 @@ function LeadsTab({ leads, users, onCreateLead, defaultStatusFilter }: {
 
   // ── View & Sort ──
   const [viewMode, setViewMode]   = useState<ViewMode>('table');
+  const [groupBy, setGroupBy] = useState<GroupBy>('none');
+  const [showGroupByMenu, setShowGroupByMenu] = useState(false);
+  const groupByRef = useRef<HTMLDivElement>(null);
   const [sortKey, setSortKey]     = useState('newest');
   const [showSortMenu, setShowSortMenu] = useState(false);
   const sortMenuRef = useRef<HTMLDivElement>(null);
@@ -1726,6 +1730,7 @@ function LeadsTab({ leads, users, onCreateLead, defaultStatusFilter }: {
     function handler(e: MouseEvent) {
       if (sortMenuRef.current && !sortMenuRef.current.contains(e.target as Node)) setShowSortMenu(false);
       if (filterPanelRef.current && !filterPanelRef.current.contains(e.target as Node)) setShowFilterPanel(false);
+      if (groupByRef.current && !groupByRef.current.contains(e.target as Node)) setShowGroupByMenu(false);
     }
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
@@ -1911,77 +1916,124 @@ function LeadsTab({ leads, users, onCreateLead, defaultStatusFilter }: {
   }
 
   function renderKanban() {
-    const byStage: Record<string, Lead[]> = {};
-    for (const s of FUNNEL_STAGES_RESOLVED) byStage[s.key] = [];
-    for (const l of filtered) {
-      const key = STATUS_TO_FUNNEL[l.status] ?? l.status;
-      (byStage[key] ??= []).push(l);
+    // For kanban, default to funnel_stage if groupBy is 'none'
+    const kanbanGroupBy = groupBy === 'none' ? 'funnel_stage' : groupBy;
+
+    if (kanbanGroupBy === 'funnel_stage') {
+      // Original funnel stage kanban
+      const byStage: Record<string, Lead[]> = {};
+      for (const s of FUNNEL_STAGES_RESOLVED) byStage[s.key] = [];
+      for (const l of filtered) {
+        const key = STATUS_TO_FUNNEL[l.status] ?? l.status;
+        (byStage[key] ??= []).push(l);
+      }
+      return (
+        <div className="flex gap-3 overflow-x-auto pb-3" style={{ minHeight: 480 }}>
+          {FUNNEL_STAGES_RESOLVED.map(stage => {
+            const cards = byStage[stage.key] ?? [];
+            return (
+              <div key={stage.key} className="flex-shrink-0 flex flex-col rounded-xl overflow-hidden"
+                style={{ width: 220, border: '1px solid var(--notion-border)', background: 'var(--notion-hover)' }}>
+                <div className="flex items-center justify-between px-3 py-2.5" style={{ borderBottom: '1px solid var(--notion-border)', background: stage.bg }}>
+                  <div className="flex items-center gap-1.5">
+                    <HandIcon name={stage.icon} size={14} style={{ color: stage.color }} />
+                    <span className="text-xs font-semibold" style={{ color: stage.color }}>{stage.label}</span>
+                  </div>
+                  <span className="text-xs font-bold px-1.5 py-0.5 rounded-full" style={{ background: stage.color + '22', color: stage.color }}>
+                    {cards.length}
+                  </span>
+                </div>
+                <div className="flex-1 overflow-y-auto p-2 space-y-2">
+                  {cards.map(lead => renderKanbanCard(lead, stage.color))}
+                  {cards.length === 0 && (
+                    <p className="text-[11px] text-center py-4" style={{ color: '#ccc', fontStyle: 'italic' }}>{tCrm('kanbanEmpty')}</p>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      );
     }
+
+    // Generic kanban grouping
+    const groups: Record<string, Lead[]> = {};
+    for (const l of filtered) {
+      let key: string;
+      switch (kanbanGroupBy) {
+        case 'company': key = l.company?.trim() || '未分类'; break;
+        case 'assigned_to': key = userMap[l.assigned_to ?? ''] || userMap[l.created_by ?? ''] || '未分配'; break;
+        case 'source_channel': key = l.custom_fields?.source_channel || '未知来源'; break;
+        case 'grade': key = l.custom_fields?.lead_grade || l.custom_fields?.customer_grade || '未评级'; break;
+        default: key = '其他'; break;
+      }
+      (groups[key] ??= []).push(l);
+    }
+    const sortedGroups = Object.entries(groups).sort((a, b) => b[1].length - a[1].length);
+    const colors = ['#7c3aed', '#0284c7', '#c2410c', '#15803d', '#d97706', '#059669', '#dc2626', '#4338ca'];
+
     return (
       <div className="flex gap-3 overflow-x-auto pb-3" style={{ minHeight: 480 }}>
-        {FUNNEL_STAGES_RESOLVED.map(stage => {
-          const cards = byStage[stage.key] ?? [];
+        {sortedGroups.map(([groupName, leads], idx) => {
+          const color = colors[idx % colors.length];
           return (
-            <div key={stage.key} className="flex-shrink-0 flex flex-col rounded-xl overflow-hidden"
+            <div key={groupName} className="flex-shrink-0 flex flex-col rounded-xl overflow-hidden"
               style={{ width: 220, border: '1px solid var(--notion-border)', background: 'var(--notion-hover)' }}>
-              {/* Column header */}
-              <div className="flex items-center justify-between px-3 py-2.5" style={{ borderBottom: '1px solid var(--notion-border)', background: stage.bg }}>
-                <div className="flex items-center gap-1.5">
-                  <HandIcon name={stage.icon} size={14} style={{ color: stage.color }} />
-                  <span className="text-xs font-semibold" style={{ color: stage.color }}>{stage.label}</span>
-                </div>
-                <span className="text-xs font-bold px-1.5 py-0.5 rounded-full" style={{ background: stage.color + '22', color: stage.color }}>
-                  {cards.length}
+              <div className="flex items-center justify-between px-3 py-2.5" style={{ borderBottom: '1px solid var(--notion-border)', background: color + '11' }}>
+                <span className="text-xs font-semibold truncate" style={{ color }}>{groupName}</span>
+                <span className="text-xs font-bold px-1.5 py-0.5 rounded-full" style={{ background: color + '22', color }}>
+                  {leads.length}
                 </span>
               </div>
-              {/* Cards */}
               <div className="flex-1 overflow-y-auto p-2 space-y-2">
-                {cards.map(lead => {
-                  const grade = lead.custom_fields?.lead_grade as string | undefined;
-                  const gs = grade ? GRADE_COLORS[grade] : null;
-                  const active7d = (() => {
-                    const ts = lead.updated_at || lead.last_contacted_at;
-                    return ts && Date.now() - new Date(ts).getTime() < 7 * 24 * 60 * 60 * 1000;
-                  })();
-                  return (
-                    <div key={lead.id}
-                      className="bg-white rounded-lg p-3 cursor-pointer shadow-sm transition-all group/card"
-                      style={{ border: '1px solid var(--notion-border)' }}
-                      onMouseEnter={e => { e.currentTarget.style.boxShadow = '0 2px 8px rgba(0,0,0,0.10)'; }}
-                      onMouseLeave={e => { e.currentTarget.style.boxShadow = '0 1px 3px rgba(0,0,0,0.06)'; }}
-                      onClick={() => router.push(`/${params.tenant}/crm/customer-360/${lead.id}`)}>
-                      <div className="flex items-start justify-between gap-1 mb-1">
-                        <div className="flex items-center gap-1 flex-1 min-w-0">
-                          {active7d && <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ background: '#10b981' }} />}
-                          <span className="text-xs font-semibold leading-snug truncate" style={{ color: '#1a1a1a' }}>{lead.full_name}</span>
-                        </div>
-                        {gs && <span className="w-5 h-5 flex-shrink-0 flex items-center justify-center rounded-full text-[10px] font-bold" style={{ background: gs.bg, color: gs.text }}>{grade}</span>}
-                      </div>
-                      {lead.company && <p className="text-[11px] truncate mb-1.5" style={{ color: '#888' }}>{lead.company}</p>}
-                      <div className="flex items-center justify-between mt-1">
-                        {lead.custom_fields?.source_channel && (
-                          <span className="inline-flex text-[10px] px-1.5 py-0.5 rounded" style={{ background: '#f0f0f0', color: '#666' }}>
-                            {lead.custom_fields.source_channel}
-                          </span>
-                        )}
-                        <button
-                          onClick={e => { e.stopPropagation(); router.push(`/${params.tenant}/crm/customer-360/${lead.id}?tab=workflow`); }}
-                          className="ml-auto opacity-0 group-hover/card:opacity-100 transition-all text-[10px] px-2 py-0.5 rounded-md font-semibold text-white"
-                          style={{ background: stage.color }}
-                          title={tCrm('enterWorkflowFull')}>
-                          {tCrm('enterWorkflow')}
-                        </button>
-                      </div>
-                    </div>
-                  );
-                })}
-                {cards.length === 0 && (
+                {leads.map(lead => renderKanbanCard(lead, color))}
+                {leads.length === 0 && (
                   <p className="text-[11px] text-center py-4" style={{ color: '#ccc', fontStyle: 'italic' }}>{tCrm('kanbanEmpty')}</p>
                 )}
               </div>
             </div>
           );
         })}
+      </div>
+    );
+  }
+
+  function renderKanbanCard(lead: Lead, accentColor: string) {
+    const grade = lead.custom_fields?.lead_grade as string | undefined;
+    const gs = grade ? GRADE_COLORS[grade] : null;
+    const active7d = (() => {
+      const ts = lead.updated_at || lead.last_contacted_at;
+      return ts && Date.now() - new Date(ts).getTime() < 7 * 24 * 60 * 60 * 1000;
+    })();
+    return (
+      <div key={lead.id}
+        className="bg-white rounded-lg p-3 cursor-pointer shadow-sm transition-all group/card"
+        style={{ border: '1px solid var(--notion-border)' }}
+        onMouseEnter={e => { e.currentTarget.style.boxShadow = '0 2px 8px rgba(0,0,0,0.10)'; }}
+        onMouseLeave={e => { e.currentTarget.style.boxShadow = '0 1px 3px rgba(0,0,0,0.06)'; }}
+        onClick={() => router.push(`/${params.tenant}/crm/customer-360/${lead.id}`)}>
+        <div className="flex items-start justify-between gap-1 mb-1">
+          <div className="flex items-center gap-1 flex-1 min-w-0">
+            {active7d && <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ background: '#10b981' }} />}
+            <span className="text-xs font-semibold leading-snug truncate" style={{ color: '#1a1a1a' }}>{lead.full_name}</span>
+          </div>
+          {gs && <span className="w-5 h-5 flex-shrink-0 flex items-center justify-center rounded-full text-[10px] font-bold" style={{ background: gs.bg, color: gs.text }}>{grade}</span>}
+        </div>
+        {lead.company && <p className="text-[11px] truncate mb-1.5" style={{ color: '#888' }}>{lead.company}</p>}
+        <div className="flex items-center justify-between mt-1">
+          {lead.custom_fields?.source_channel && (
+            <span className="inline-flex text-[10px] px-1.5 py-0.5 rounded" style={{ background: '#f0f0f0', color: '#666' }}>
+              {lead.custom_fields.source_channel}
+            </span>
+          )}
+          <button
+            onClick={e => { e.stopPropagation(); router.push(`/${params.tenant}/crm/customer-360/${lead.id}?tab=workflow`); }}
+            className="ml-auto opacity-0 group-hover/card:opacity-100 transition-all text-[10px] px-2 py-0.5 rounded-md font-semibold text-white"
+            style={{ background: accentColor }}
+            title={tCrm('enterWorkflowFull')}>
+            {tCrm('enterWorkflow')}
+          </button>
+        </div>
       </div>
     );
   }
@@ -2046,134 +2098,150 @@ function LeadsTab({ leads, users, onCreateLead, defaultStatusFilter }: {
     );
   }
 
-  function renderList() {
+  // ── GroupBy helpers ──
+  const GROUP_BY_OPTIONS: { key: GroupBy; label: string }[] = [
+    { key: 'none', label: '不分组' },
+    { key: 'funnel_stage', label: '按阶段' },
+    { key: 'company', label: '按公司' },
+    { key: 'assigned_to', label: '按负责人' },
+    { key: 'source_channel', label: '按来源' },
+    { key: 'grade', label: '按等级' },
+  ];
+
+  function getGroupKey(lead: Lead): string {
+    switch (groupBy) {
+      case 'funnel_stage': return STATUS_TO_FUNNEL[lead.status] ?? lead.status;
+      case 'company': return lead.company?.trim() || '未分类';
+      case 'assigned_to': return userMap[lead.assigned_to ?? ''] || userMap[lead.created_by ?? ''] || '未分配';
+      case 'source_channel': return lead.custom_fields?.source_channel || '未知来源';
+      case 'grade': return lead.custom_fields?.lead_grade || lead.custom_fields?.customer_grade || '未评级';
+      default: return '';
+    }
+  }
+
+  function getGroupLabel(key: string): string {
+    if (groupBy === 'funnel_stage') {
+      return FUNNEL_STAGES_RESOLVED.find(s => s.key === key)?.label ?? key;
+    }
+    return key;
+  }
+
+  function getGroupedData(): [string, Lead[]][] {
+    if (groupBy === 'none') return [];
+    const groups: Record<string, Lead[]> = {};
+    for (const lead of filtered) {
+      const key = getGroupKey(lead);
+      if (!groups[key]) groups[key] = [];
+      groups[key].push(lead);
+    }
+    return Object.entries(groups).sort((a, b) => {
+      if (a[0] === '未分类' || a[0] === '未分配' || a[0] === '未知来源' || a[0] === '未评级') return 1;
+      if (b[0] === '未分类' || b[0] === '未分配' || b[0] === '未知来源' || b[0] === '未评级') return -1;
+      return b[1].length - a[1].length;
+    });
+  }
+
+  function renderGroupedTable() {
+    const groups = getGroupedData();
+    if (groups.length === 0) return renderTable();
     return (
-      <div className="space-y-1">
-        {filtered.length === 0 && (
-          <div className="py-12 text-center text-sm" style={{ color: '#9B9A97' }}>
-            {hasFilters ? tCrm('noMatchingLeads') : tCrm('noLeads')}
-          </div>
-        )}
-        {filtered.map(lead => {
-          const grade = lead.custom_fields?.lead_grade as string | undefined;
-          const gs = grade ? GRADE_COLORS[grade] : null;
-          const statusLabel = LEAD_STATUS_OPTIONS.find(o => o.value === lead.status)?.label ?? lead.status;
-          const statusCls = LEAD_STATUS_COLORS[lead.status] ?? 'bg-gray-100 text-gray-500';
-          const creatorName = userMap[lead.created_by ?? ''] ?? userMap[lead.assigned_to ?? ''] ?? '—';
-          const channel = lead.custom_fields?.source_channel as string | undefined;
-          const funnelStageItem = FUNNEL_STAGES_RESOLVED.find(s => s.key === (STATUS_TO_FUNNEL[lead.status] ?? lead.status));
-          return (
-            <div key={lead.id}
-              className="flex items-center gap-3 px-4 py-2.5 rounded-lg cursor-pointer transition-all group"
-              style={{ background: 'var(--notion-card, white)', border: '1px solid var(--notion-border)' }}
-              onMouseEnter={e => { e.currentTarget.style.background = 'var(--notion-hover)'; }}
-              onMouseLeave={e => { e.currentTarget.style.background = 'white'; }}
-              onClick={() => router.push(`/${params.tenant}/crm/customer-360/${lead.id}`)}>
-              {/* Stage icon */}
-              <HandIcon name={funnelStageItem?.icon ?? 'clipboard'} size={16} className="flex-shrink-0" />
-              {/* Name + company */}
-              <div className="flex-1 min-w-0 flex items-center gap-3">
-                <span className="text-sm font-medium flex-shrink-0" style={{ color: '#7c3aed', minWidth: 80 }}>{lead.full_name}</span>
-                {lead.company && <span className="text-xs truncate" style={{ color: '#888' }}>{lead.company}</span>}
-              </div>
-              {/* Meta */}
-              <div className="flex items-center gap-3 flex-shrink-0">
-                <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${statusCls}`}>{statusLabel}</span>
-                {gs && <span className="text-xs font-bold w-5 h-5 flex items-center justify-center rounded-full" style={{ background: gs.bg, color: gs.text }}>{grade}</span>}
-                {channel && <span className="text-xs hidden sm:block" style={{ color: '#aaa' }}>{channel}</span>}
-                <span className="text-xs hidden md:block" style={{ color: '#ccc', minWidth: 48 }}>{creatorName}</span>
-                {/* Enter button */}
-                <button
-                  onClick={e => { e.stopPropagation(); router.push(`/${params.tenant}/crm/customer-360/${lead.id}?tab=workflow`); }}
-                  className="opacity-0 group-hover:opacity-100 transition-all text-[11px] px-2.5 py-1 rounded-lg font-semibold text-white whitespace-nowrap"
-                  style={{ background: funnelStageItem?.color ?? '#7c3aed' }}>
-                  {tCrm('enterWorkflowArrow')}
-                </button>
-              </div>
+      <div className="space-y-3">
+        {groups.map(([groupName, groupLeads]) => (
+          <details key={groupName} open className="rounded-xl overflow-hidden"
+            style={{ border: '1px solid var(--notion-border)', background: 'var(--notion-card, white)' }}>
+            <summary className="flex items-center gap-3 px-4 py-3 cursor-pointer select-none"
+              style={{ background: 'var(--notion-hover)' }}>
+              <span className="text-sm font-bold flex-1" style={{ color: 'var(--notion-text)' }}>
+                {getGroupLabel(groupName)}
+              </span>
+              <span className="text-[10px] px-2 py-0.5 rounded-full font-bold" style={{ background: '#ede9fe', color: '#7c3aed' }}>
+                {groupLeads.length}
+              </span>
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#9B9A97" strokeWidth="2" className="flex-shrink-0 transition-transform">
+                <polyline points="6 9 12 15 18 9"/>
+              </svg>
+            </summary>
+            <div className="divide-y" style={{ borderColor: 'var(--notion-border)' }}>
+              {groupLeads.map(lead => {
+                const grade = lead.custom_fields?.lead_grade as string | undefined;
+                const gs = grade ? GRADE_COLORS[grade] : null;
+                const statusLabel = LEAD_STATUS_OPTIONS.find(o => o.value === lead.status)?.label ?? lead.status;
+                const statusCls = LEAD_STATUS_COLORS[lead.status] ?? 'bg-gray-100 text-gray-500';
+                const funnelStageItem = FUNNEL_STAGES_RESOLVED.find(s => s.key === (STATUS_TO_FUNNEL[lead.status] ?? lead.status));
+                return (
+                  <div key={lead.id} className="flex items-center gap-3 px-4 py-2.5 transition-colors cursor-pointer"
+                    onClick={() => router.push(`/${params.tenant}/crm/customer-360/${lead.id}`)}
+                    onMouseEnter={e => (e.currentTarget.style.background = 'var(--notion-hover)')}
+                    onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}>
+                    <span className="text-sm font-medium flex-shrink-0" style={{ color: '#7c3aed', minWidth: 80 }}>{lead.full_name}</span>
+                    {lead.company && <span className="text-xs truncate" style={{ color: '#888' }}>{lead.company}</span>}
+                    <span className="flex-1" />
+                    {funnelStageItem && <HandIcon name={funnelStageItem.icon} size={12} />}
+                    <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${statusCls}`}>{statusLabel}</span>
+                    {gs && <span className="w-5 h-5 flex items-center justify-center rounded-full text-[10px] font-bold flex-shrink-0" style={{ background: gs.bg, color: gs.text }}>{grade}</span>}
+                    <button
+                      onClick={e => { e.stopPropagation(); router.push(`/${params.tenant}/crm/customer-360/${lead.id}`); }}
+                      className="text-[11px] font-semibold px-2.5 py-1 rounded-lg"
+                      style={{ color: '#7c3aed', background: '#ede9fe' }}>
+                      详情
+                    </button>
+                  </div>
+                );
+              })}
             </div>
-          );
-        })}
+          </details>
+        ))}
       </div>
     );
   }
 
-  function renderCompanyView() {
-    // Group leads by company
-    const groups: Record<string, Lead[]> = {};
-    for (const lead of filtered) {
-      const key = lead.company?.trim() || '未分类';
-      if (!groups[key]) groups[key] = [];
-      groups[key].push(lead);
-    }
-    const sortedGroups = Object.entries(groups).sort((a, b) => {
-      if (a[0] === '未分类') return 1;
-      if (b[0] === '未分类') return -1;
-      return b[1].length - a[1].length;
-    });
-
-    if (sortedGroups.length === 0) return (
-      <div className="py-12 text-center text-sm" style={{ color: '#9B9A97' }}>
-        {hasFilters ? tCrm('noMatchingLeads') : tCrm('noLeads')}
-      </div>
-    );
-
+  function renderGroupedCards() {
+    const groups = getGroupedData();
+    if (groups.length === 0) return renderCards();
     return (
-      <div className="space-y-3">
-        {sortedGroups.map(([companyName, companyLeads]) => {
-          const bestGrade = (['S','A','B','C','D'] as const).find(g =>
-            companyLeads.some(l => l.custom_fields?.lead_grade === g || l.custom_fields?.customer_grade === g)
-          );
-          return (
-            <details key={companyName} open className="rounded-xl overflow-hidden group/company"
-              style={{ border: '1px solid var(--notion-border)', background: 'var(--notion-card, white)' }}>
-              <summary className="flex items-center gap-3 px-4 py-3 cursor-pointer select-none"
-                style={{ background: 'var(--notion-hover)' }}>
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#7c3aed" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="flex-shrink-0">
-                  <rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V4a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v3"/>
-                </svg>
-                <span className="text-sm font-bold flex-1" style={{ color: companyName === '未分类' ? '#9B9A97' : 'var(--notion-text)' }}>
-                  {companyName}
-                </span>
-                <span className="text-[10px] px-2 py-0.5 rounded-full font-bold" style={{ background: '#ede9fe', color: '#7c3aed' }}>
-                  {companyLeads.length} 条线索
-                </span>
-                {bestGrade && (
-                  <span className="text-[10px] px-1.5 py-0.5 rounded-full font-bold"
-                    style={{ background: GRADE_COLORS[bestGrade]?.bg ?? '#f3f4f6', color: GRADE_COLORS[bestGrade]?.text ?? '#374151' }}>
-                    最高 {bestGrade}
-                  </span>
-                )}
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#9B9A97" strokeWidth="2" className="flex-shrink-0 transition-transform group-open/company:rotate-180">
-                  <polyline points="6 9 12 15 18 9"/>
-                </svg>
-              </summary>
-              <div className="divide-y" style={{ borderColor: 'var(--notion-border)' }}>
-                {companyLeads.map(lead => {
-                  const grade = lead.custom_fields?.lead_grade as string | undefined;
-                  const gs = grade ? GRADE_COLORS[grade] : null;
-                  const statusLabel = LEAD_STATUS_OPTIONS.find(o => o.value === lead.status)?.label ?? lead.status;
-                  const statusCls = LEAD_STATUS_COLORS[lead.status] ?? 'bg-gray-100 text-gray-500';
-                  return (
-                    <div key={lead.id} className="flex items-center gap-3 px-4 py-2.5 transition-colors"
-                      onMouseEnter={e => (e.currentTarget.style.background = 'var(--notion-hover)')}
-                      onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}>
-                      <span className="text-sm font-medium flex-shrink-0" style={{ color: '#7c3aed', minWidth: 80 }}>{lead.full_name}</span>
-                      <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${statusCls}`}>{statusLabel}</span>
-                      {gs && <span className="w-5 h-5 flex items-center justify-center rounded-full text-[10px] font-bold flex-shrink-0" style={{ background: gs.bg, color: gs.text }}>{grade}</span>}
-                      <span className="flex-1" />
-                      <button
-                        onClick={() => router.push(`/${params.tenant}/crm/customer-360/${lead.id}`)}
-                        className="text-[11px] font-semibold px-2.5 py-1 rounded-lg"
-                        style={{ color: '#7c3aed', background: '#ede9fe' }}>
-                        详情
-                      </button>
+      <div className="space-y-6">
+        {groups.map(([groupName, groupLeads]) => (
+          <div key={groupName}>
+            <div className="flex items-center gap-2 mb-3">
+              <span className="text-sm font-bold" style={{ color: 'var(--notion-text)' }}>{getGroupLabel(groupName)}</span>
+              <span className="text-[10px] px-2 py-0.5 rounded-full font-bold" style={{ background: '#ede9fe', color: '#7c3aed' }}>{groupLeads.length}</span>
+            </div>
+            <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))' }}>
+              {groupLeads.map(lead => {
+                const grade = lead.custom_fields?.lead_grade as string | undefined;
+                const gs = grade ? GRADE_COLORS[grade] : null;
+                const statusLabel = LEAD_STATUS_OPTIONS.find(o => o.value === lead.status)?.label ?? lead.status;
+                const statusCls = LEAD_STATUS_COLORS[lead.status] ?? 'bg-gray-100 text-gray-500';
+                const stage = FUNNEL_STAGES_RESOLVED.find(s => s.key === (STATUS_TO_FUNNEL[lead.status] ?? lead.status));
+                return (
+                  <div key={lead.id}
+                    className="bg-white rounded-xl overflow-hidden cursor-pointer transition-all"
+                    style={{ border: '1px solid var(--notion-border)' }}
+                    onMouseEnter={e => { e.currentTarget.style.boxShadow = '0 4px 16px rgba(0,0,0,0.10)'; e.currentTarget.style.transform = 'translateY(-1px)'; }}
+                    onMouseLeave={e => { e.currentTarget.style.boxShadow = 'none'; e.currentTarget.style.transform = 'none'; }}
+                    onClick={() => router.push(`/${params.tenant}/crm/customer-360/${lead.id}`)}>
+                    <div style={{ height: 4, background: stage?.color ?? '#e5e7eb' }} />
+                    <div className="p-4">
+                      <div className="flex items-start justify-between mb-2">
+                        <div className="w-9 h-9 rounded-full flex items-center justify-center font-bold text-sm flex-shrink-0"
+                          style={{ background: stage ? stage.color + '22' : '#f0f0f0', color: stage?.color ?? '#888' }}>
+                          {lead.full_name?.[0]?.toUpperCase()}
+                        </div>
+                        {gs && <span className="w-6 h-6 flex items-center justify-center rounded-full text-xs font-bold" style={{ background: gs.bg, color: gs.text }}>{grade}</span>}
+                      </div>
+                      <p className="font-semibold text-sm mb-0.5" style={{ color: '#1a1a1a' }}>{lead.full_name}</p>
+                      {lead.company && <p className="text-xs mb-2 truncate" style={{ color: '#888' }}>{lead.company}</p>}
+                      <div className="flex items-center gap-1">
+                        {stage && <HandIcon name={stage.icon} size={12} />}
+                        <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${statusCls}`}>{statusLabel}</span>
+                      </div>
                     </div>
-                  );
-                })}
-              </div>
-            </details>
-          );
-        })}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        ))}
       </div>
     );
   }
@@ -2344,25 +2412,61 @@ function LeadsTab({ leads, users, onCreateLead, defaultStatusFilter }: {
           )}
         </div>
 
+        {/* GroupBy selector */}
+        <div className="relative" ref={groupByRef}>
+          <button
+            onClick={() => setShowGroupByMenu(v => !v)}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border transition-all"
+            style={{
+              borderColor: groupBy !== 'none' ? '#7c3aed' : 'var(--notion-border)',
+              color: groupBy !== 'none' ? '#7c3aed' : '#555',
+              background: groupBy !== 'none' ? '#f5f3ff' : 'var(--notion-card, white)',
+            }}>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/>
+            </svg>
+            {GROUP_BY_OPTIONS.find(o => o.key === groupBy)?.label ?? '分组'}
+            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <polyline points="6 9 12 15 18 9"/>
+            </svg>
+          </button>
+          {showGroupByMenu && (
+            <div className="absolute top-full left-0 mt-2 z-50 bg-white rounded-xl shadow-xl py-1.5 overflow-hidden"
+              style={{ minWidth: 150, border: '1px solid var(--notion-border)' }}>
+              {GROUP_BY_OPTIONS.map(o => (
+                <button key={o.key} onClick={() => { setGroupBy(o.key); setShowGroupByMenu(false); }}
+                  className="w-full text-left px-3 py-2 text-xs transition-colors flex items-center justify-between"
+                  style={{ background: groupBy === o.key ? '#f5f3ff' : 'transparent', color: groupBy === o.key ? '#7c3aed' : '#333' }}
+                  onMouseEnter={e => { if (groupBy !== o.key) e.currentTarget.style.background = 'var(--notion-hover)'; }}
+                  onMouseLeave={e => { if (groupBy !== o.key) e.currentTarget.style.background = 'transparent'; }}>
+                  {o.label}
+                  {groupBy === o.key && <HandIcon name="checkmark" size={11} />}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+
         {/* View mode toggle */}
-        <div className="flex gap-0.5 rounded-lg p-0.5" style={{ background: '#F0EFec', marginLeft: 4 }}>
+        <div className="flex items-center gap-0.5 p-0.5 rounded-lg" style={{ background: '#F0EFec', marginLeft: 4 }}>
           {([
-            ['table',   '☰', tCrm('tableMode')],
-            ['kanban',  '⊞', tCrm('kanbanMode')],
-            ['card',    '▦', tCrm('cardMode')],
-            ['list',    '≡', tCrm('listMode')],
-            ['company', '🏢', '公司视图'],
-          ] as [ViewMode, string, string][]).map(([mode, icon, tip]) => (
-            <button key={mode} onClick={() => setViewMode(mode)} title={tip}
-              className="px-2.5 py-1 rounded-md text-sm font-medium transition-all"
-              style={{
-                background: viewMode === mode ? 'white' : 'transparent',
-                color: viewMode === mode ? '#1a1a1a' : '#9B9A97',
-                boxShadow: viewMode === mode ? '0 1px 3px rgba(0,0,0,0.08)' : 'none',
-              }}>
-              {icon}
-            </button>
-          ))}
+            ['table',  '☰', tCrm('tableMode')],
+            ['kanban', '⊞', tCrm('kanbanMode')],
+            ['card',   '▦', tCrm('cardMode')],
+          ] as [ViewMode, string, string][]).map(([mode, icon, label]) => {
+            const active = viewMode === mode;
+            return (
+              <button key={mode} onClick={() => setViewMode(mode)}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all"
+                style={{
+                  background: active ? 'white' : 'transparent',
+                  color: active ? 'var(--notion-text)' : 'var(--notion-text-muted)',
+                  boxShadow: active ? '0 1px 3px rgba(0,0,0,0.08)' : 'none',
+                }}>
+                <span style={{ fontSize: 14 }}>{icon}</span> {label}
+              </button>
+            );
+          })}
         </div>
 
         {/* Clear filters shortcut */}
@@ -2398,11 +2502,9 @@ function LeadsTab({ leads, users, onCreateLead, defaultStatusFilter }: {
       )}
 
       {/* ── Content by view mode ── */}
-      {viewMode === 'table'   && renderTable()}
+      {viewMode === 'table'   && (groupBy !== 'none' ? renderGroupedTable() : renderTable())}
       {viewMode === 'kanban'  && renderKanban()}
-      {viewMode === 'card'    && renderCards()}
-      {viewMode === 'list'    && renderList()}
-      {viewMode === 'company' && renderCompanyView()}
+      {viewMode === 'card'    && (groupBy !== 'none' ? renderGroupedCards() : renderCards())}
     </div>
   );
 }

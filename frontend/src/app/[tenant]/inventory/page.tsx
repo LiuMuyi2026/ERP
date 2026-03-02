@@ -430,6 +430,10 @@ export default function InventoryPage() {
   const [scLoading, setScLoading] = useState(false);
   const [scError, setScError] = useState(false);
   const [search, setSearch] = useState('');
+  const [productViewMode, setProductViewMode] = useState<'table' | 'card'>('table');
+  const [supplierViewMode, setSupplierViewMode] = useState<'table' | 'card'>('table');
+  const [productGroupBy, setProductGroupBy] = useState<'none' | 'category' | 'stock_status'>('none');
+  const [supplierGroupBy, setSupplierGroupBy] = useState<'none' | 'rating' | 'supplier_type'>('none');
   const [showLowStock, setShowLowStock] = useState(false);
   const [showCreate, setShowCreate] = useState(false);
   const [showAdjust, setShowAdjust] = useState<string | null>(null);
@@ -952,6 +956,26 @@ export default function InventoryPage() {
                 {tInventory('newProduct')}
               </button>
             </div>
+            {/* Product View Toggle */}
+            <div className="flex items-center gap-0.5 p-0.5 rounded-lg" style={{ background: 'var(--notion-active)' }}>
+              {([
+                { mode: 'table' as const, icon: '☰', label: '表格' },
+                { mode: 'card' as const, icon: '▦', label: '卡片' },
+              ]).map(item => {
+                const active = productViewMode === item.mode;
+                return (
+                  <button key={item.mode} onClick={() => setProductViewMode(item.mode)}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all"
+                    style={{
+                      background: active ? 'white' : 'transparent',
+                      color: active ? 'var(--notion-text)' : 'var(--notion-text-muted)',
+                      boxShadow: active ? '0 1px 3px rgba(0,0,0,0.08)' : 'none',
+                    }}>
+                    <span style={{ fontSize: 14 }}>{item.icon}</span> {item.label}
+                  </button>
+                );
+              })}
+            </div>
           </>
         )}
         {tab === 'inventory' && inventorySubTab === 'warehouses' && (
@@ -1016,6 +1040,26 @@ export default function InventoryPage() {
                 {tInventory('newSupplier')}
               </button>
             </div>
+            {/* Supplier View Toggle */}
+            <div className="flex items-center gap-0.5 p-0.5 rounded-lg" style={{ background: 'var(--notion-active)' }}>
+              {([
+                { mode: 'table' as const, icon: '☰', label: '列表' },
+                { mode: 'card' as const, icon: '▦', label: '卡片' },
+              ]).map(item => {
+                const active = supplierViewMode === item.mode;
+                return (
+                  <button key={item.mode} onClick={() => setSupplierViewMode(item.mode)}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all"
+                    style={{
+                      background: active ? 'white' : 'transparent',
+                      color: active ? 'var(--notion-text)' : 'var(--notion-text-muted)',
+                      boxShadow: active ? '0 1px 3px rgba(0,0,0,0.08)' : 'none',
+                    }}>
+                    <span style={{ fontSize: 14 }}>{item.icon}</span> {item.label}
+                  </button>
+                );
+              })}
+            </div>
           </>
         )}
         {tab === 'procurement' && procurementSubTab === 'sc_inquiries' && (
@@ -1060,25 +1104,79 @@ export default function InventoryPage() {
       {/* Content */}
       <div className={(tab === 'procurement' && procurementSubTab === 'purchase_orders') ? 'flex-1 flex overflow-hidden' : 'flex-1 overflow-auto px-8 py-4'}>
         {tab === 'inventory' && inventorySubTab === 'products' && (
-          <NotionTable
-            columns={productCols}
-            data={filteredProducts}
-            onRowClick={setSelectedProduct}
-            onCreate={() => setShowCreate(true)}
-            createLabel={tInventory('createProductLabel')}
-            emptyMessage={search || showLowStock ? tInventory('emptyFiltered') : tInventory('emptyProducts')}
-            rowActions={row => (
-              <button
-                onClick={e => { e.stopPropagation(); setShowAdjust(row.id); }}
-                className="px-2 py-1 rounded text-xs transition-colors"
-                style={{ color: 'var(--notion-text-muted)', background: 'var(--notion-active)' }}
-                onMouseEnter={e => (e.currentTarget.style.background = 'var(--notion-hover)')}
-                onMouseLeave={e => (e.currentTarget.style.background = 'var(--notion-active)')}
-              >
-                {tInventory('adjust')}
-              </button>
-            )}
-          />
+          productViewMode === 'card' ? (
+            filteredProducts.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-20 text-sm" style={{ color: 'var(--notion-text-muted)' }}>
+                <p className="mb-3"><HandIcon name="package" size={32} /></p>
+                <p>{search || showLowStock ? tInventory('emptyFiltered') : tInventory('emptyProducts')}</p>
+              </div>
+            ) : (
+              <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))' }}>
+                {filteredProducts.map(p => {
+                  const isLow = p.current_stock <= p.reorder_point && p.reorder_point > 0;
+                  const stockPct = p.reorder_point > 0 ? Math.min(100, (p.current_stock / (p.reorder_point * 3)) * 100) : 100;
+                  const stockColor = isLow ? '#ef4444' : stockPct > 60 ? '#10b981' : '#f59e0b';
+                  return (
+                    <div key={p.id}
+                      className="rounded-xl overflow-hidden cursor-pointer transition-all"
+                      style={{ border: '1px solid var(--notion-border)', background: 'var(--notion-card, white)' }}
+                      onMouseEnter={e => { e.currentTarget.style.boxShadow = '0 4px 16px rgba(0,0,0,0.10)'; e.currentTarget.style.transform = 'translateY(-1px)'; }}
+                      onMouseLeave={e => { e.currentTarget.style.boxShadow = 'none'; e.currentTarget.style.transform = 'none'; }}
+                      onClick={() => setSelectedProduct(p)}>
+                      <div style={{ height: 4, background: stockColor }} />
+                      <div className="p-4">
+                        <div className="flex items-start justify-between mb-2">
+                          <span className="text-[10px] font-mono px-2 py-0.5 rounded" style={{ background: 'var(--notion-hover)', color: 'var(--notion-text-muted)' }}>{p.sku}</span>
+                          {p.category && <span className="text-[10px] px-2 py-0.5 rounded-full" style={{ background: '#ede9fe', color: '#7c3aed' }}>{p.category}</span>}
+                        </div>
+                        <p className="font-semibold text-sm mb-3" style={{ color: 'var(--notion-text)' }}>{p.name}</p>
+                        {/* Stock level bar */}
+                        <div className="mb-2">
+                          <div className="flex justify-between text-[10px] mb-1">
+                            <span style={{ color: 'var(--notion-text-muted)' }}>{tInventory('colStock')}</span>
+                            <span style={{ color: stockColor, fontWeight: 600 }}>{p.current_stock} {p.unit}</span>
+                          </div>
+                          <div style={{ height: 6, borderRadius: 99, background: '#e5e7eb', overflow: 'hidden' }}>
+                            <div style={{ height: '100%', width: `${stockPct}%`, background: stockColor, borderRadius: 99, transition: 'width 0.5s ease' }} />
+                          </div>
+                          {isLow && (
+                            <div className="flex items-center gap-1 mt-1">
+                              <HandIcon name="warning" size={10} />
+                              <span className="text-[10px] font-medium" style={{ color: '#ef4444' }}>{tInventory('lowStockOnly')}</span>
+                            </div>
+                          )}
+                        </div>
+                        <div className="flex items-center justify-between text-xs" style={{ color: 'var(--notion-text-muted)' }}>
+                          <span>{tInventory('colCost')}: ${Number(p.cost_price || 0).toFixed(2)}</span>
+                          <span>{tInventory('colPrice')}: ${Number(p.sell_price || 0).toFixed(2)}</span>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )
+          ) : (
+            <NotionTable
+              columns={productCols}
+              data={filteredProducts}
+              onRowClick={setSelectedProduct}
+              onCreate={() => setShowCreate(true)}
+              createLabel={tInventory('createProductLabel')}
+              emptyMessage={search || showLowStock ? tInventory('emptyFiltered') : tInventory('emptyProducts')}
+              rowActions={row => (
+                <button
+                  onClick={e => { e.stopPropagation(); setShowAdjust(row.id); }}
+                  className="px-2 py-1 rounded text-xs transition-colors"
+                  style={{ color: 'var(--notion-text-muted)', background: 'var(--notion-active)' }}
+                  onMouseEnter={e => (e.currentTarget.style.background = 'var(--notion-hover)')}
+                  onMouseLeave={e => (e.currentTarget.style.background = 'var(--notion-active)')}
+                >
+                  {tInventory('adjust')}
+                </button>
+              )}
+            />
+          )
         )}
         {tab === 'inventory' && inventorySubTab === 'warehouses' && (
           <div>
@@ -1549,79 +1647,135 @@ export default function InventoryPage() {
 
         {/* Suppliers tab */}
         {tab === 'procurement' && procurementSubTab === 'suppliers' && (
-          <div>
-            {filteredSuppliers.length === 0 ? (
+          supplierViewMode === 'card' ? (
+            filteredSuppliers.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-20 text-sm" style={{ color: 'var(--notion-text-muted)' }}>
                 <p className="mb-3"><HandIcon name="factory" size={32} /></p>
                 <p>{supplierSearch ? tInventory('supplierNoMatch') : tInventory('supplierEmptyHint')}</p>
               </div>
             ) : (
-              <div className="space-y-2">
+              <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))' }}>
                 {filteredSuppliers.map(sup => {
                   const rc = RATING_COLORS[sup.rating] ?? { bg: '#f3f4f6', color: '#6b7280' };
                   return (
-                    <div
-                      key={sup.id}
-                      className="flex items-center gap-4 px-4 py-3 rounded-lg border cursor-pointer group transition-all"
-                      style={{ borderColor: 'var(--notion-border)', background: 'var(--notion-card, white)' }}
-                      onMouseEnter={e => { e.currentTarget.style.boxShadow = '0 2px 8px rgba(0,0,0,0.08)'; e.currentTarget.style.borderColor = '#d1d5db'; }}
-                      onMouseLeave={e => { e.currentTarget.style.boxShadow = 'none'; e.currentTarget.style.borderColor = 'var(--notion-border)'; }}
-                      onClick={() => openSupplier(sup)}
-                    >
-                      {/* Avatar */}
-                      <div className="w-10 h-10 rounded-full flex items-center justify-center text-base font-bold flex-shrink-0"
-                        style={{ background: rc.bg, color: rc.color }}>
-                        {sup.name?.[0]?.toUpperCase() || '?'}
-                      </div>
-                      {/* Info */}
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 mb-0.5">
-                          <span className="font-medium text-sm truncate" style={{ color: 'var(--notion-text)' }}>{sup.name}</span>
+                    <div key={sup.id}
+                      className="rounded-xl overflow-hidden cursor-pointer transition-all"
+                      style={{ border: '1px solid var(--notion-border)', background: 'var(--notion-card, white)' }}
+                      onMouseEnter={e => { e.currentTarget.style.boxShadow = '0 4px 16px rgba(0,0,0,0.10)'; e.currentTarget.style.transform = 'translateY(-1px)'; }}
+                      onMouseLeave={e => { e.currentTarget.style.boxShadow = 'none'; e.currentTarget.style.transform = 'none'; }}
+                      onClick={() => openSupplier(sup)}>
+                      <div className="p-4">
+                        <div className="flex items-start gap-3 mb-3">
+                          <div className="w-12 h-12 rounded-full flex items-center justify-center text-lg font-bold flex-shrink-0"
+                            style={{ background: rc.bg, color: rc.color }}>
+                            {sup.name?.[0]?.toUpperCase() || '?'}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="font-semibold text-sm truncate" style={{ color: 'var(--notion-text)' }}>{sup.name}</p>
+                            {sup.company_info && <p className="text-xs truncate" style={{ color: 'var(--notion-text-muted)' }}>{sup.company_info}</p>}
+                          </div>
                           {sup.rating && (
-                            <span className="px-1.5 py-0.5 rounded text-xs font-bold flex-shrink-0" style={{ background: rc.bg, color: rc.color }}>
-                              {sup.rating} {tInventory('supplierRated')}
+                            <span className="text-lg font-bold px-2 py-0.5 rounded-lg flex-shrink-0"
+                              style={{ background: rc.bg, color: rc.color }}>
+                              {sup.rating}
                             </span>
                           )}
+                        </div>
+                        <div className="flex items-center gap-2 flex-wrap">
                           {sup.supplier_type && (
-                            <span className="px-1.5 py-0.5 rounded text-xs flex-shrink-0" style={{ background: '#eff6ff', color: '#1d4ed8' }}>
+                            <span className="text-[10px] px-2 py-0.5 rounded-full" style={{ background: '#eff6ff', color: '#1d4ed8' }}>
                               {sup.supplier_type}
                             </span>
                           )}
-                        </div>
-                        <div className="flex items-center gap-4 text-xs" style={{ color: 'var(--notion-text-muted)' }}>
-                          {sup.contact_person && <span className="inline-flex items-center gap-1"><HandIcon name="person" size={12} /> {sup.contact_person}</span>}
-                          {sup.contact_info && <span className="inline-flex items-center gap-1"><HandIcon name="phone" size={12} /> {sup.contact_info}</span>}
-                          {sup.company_info && <span className="truncate max-w-xs inline-flex items-center gap-1"><HandIcon name="building" size={12} /> {sup.company_info}</span>}
+                          {sup.contact_person && (
+                            <span className="text-[10px] flex items-center gap-1" style={{ color: 'var(--notion-text-muted)' }}>
+                              <HandIcon name="person" size={10} /> {sup.contact_person}
+                            </span>
+                          )}
+                          {sup.contact_info && (
+                            <span className="text-[10px] flex items-center gap-1" style={{ color: 'var(--notion-text-muted)' }}>
+                              <HandIcon name="phone" size={10} /> {sup.contact_info}
+                            </span>
+                          )}
                         </div>
                       </div>
-                      {/* Actions */}
-                      <div className="hidden group-hover:flex items-center gap-1 flex-shrink-0">
-                        <button
-                          onClick={e => { e.stopPropagation(); setEditingSupplier({ ...sup }); }}
-                          className="px-2 py-1 rounded text-xs transition-colors"
-                          style={{ color: 'var(--notion-text-muted)', background: 'var(--notion-active)' }}
-                          onMouseEnter={e => (e.currentTarget.style.background = 'var(--notion-hover)')}
-                          onMouseLeave={e => (e.currentTarget.style.background = 'var(--notion-active)')}
-                        >
-                          {tCustomer360('editBtn')}
-                        </button>
-                        <button
-                          onClick={e => { e.stopPropagation(); deleteSupplier(sup.id); }}
-                          className="px-2 py-1 rounded text-xs transition-colors"
-                          style={{ color: '#ef4444', background: '#fef2f2' }}
-                          onMouseEnter={e => (e.currentTarget.style.background = '#fee2e2')}
-                          onMouseLeave={e => (e.currentTarget.style.background = '#fef2f2')}
-                        >
-                          {tCommon('delete')}
-                        </button>
-                      </div>
-                      <span className="text-xs flex-shrink-0" style={{ color: 'var(--notion-text-muted)' }}>{tInventory('supplierViewQuotations')}</span>
                     </div>
                   );
                 })}
               </div>
-            )}
-          </div>
+            )
+          ) : (
+            <div>
+              {filteredSuppliers.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-20 text-sm" style={{ color: 'var(--notion-text-muted)' }}>
+                  <p className="mb-3"><HandIcon name="factory" size={32} /></p>
+                  <p>{supplierSearch ? tInventory('supplierNoMatch') : tInventory('supplierEmptyHint')}</p>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {filteredSuppliers.map(sup => {
+                    const rc = RATING_COLORS[sup.rating] ?? { bg: '#f3f4f6', color: '#6b7280' };
+                    return (
+                      <div
+                        key={sup.id}
+                        className="flex items-center gap-4 px-4 py-3 rounded-lg border cursor-pointer group transition-all"
+                        style={{ borderColor: 'var(--notion-border)', background: 'var(--notion-card, white)' }}
+                        onMouseEnter={e => { e.currentTarget.style.boxShadow = '0 2px 8px rgba(0,0,0,0.08)'; e.currentTarget.style.borderColor = '#d1d5db'; }}
+                        onMouseLeave={e => { e.currentTarget.style.boxShadow = 'none'; e.currentTarget.style.borderColor = 'var(--notion-border)'; }}
+                        onClick={() => openSupplier(sup)}
+                      >
+                        <div className="w-10 h-10 rounded-full flex items-center justify-center text-base font-bold flex-shrink-0"
+                          style={{ background: rc.bg, color: rc.color }}>
+                          {sup.name?.[0]?.toUpperCase() || '?'}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 mb-0.5">
+                            <span className="font-medium text-sm truncate" style={{ color: 'var(--notion-text)' }}>{sup.name}</span>
+                            {sup.rating && (
+                              <span className="px-1.5 py-0.5 rounded text-xs font-bold flex-shrink-0" style={{ background: rc.bg, color: rc.color }}>
+                                {sup.rating} {tInventory('supplierRated')}
+                              </span>
+                            )}
+                            {sup.supplier_type && (
+                              <span className="px-1.5 py-0.5 rounded text-xs flex-shrink-0" style={{ background: '#eff6ff', color: '#1d4ed8' }}>
+                                {sup.supplier_type}
+                              </span>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-4 text-xs" style={{ color: 'var(--notion-text-muted)' }}>
+                            {sup.contact_person && <span className="inline-flex items-center gap-1"><HandIcon name="person" size={12} /> {sup.contact_person}</span>}
+                            {sup.contact_info && <span className="inline-flex items-center gap-1"><HandIcon name="phone" size={12} /> {sup.contact_info}</span>}
+                            {sup.company_info && <span className="truncate max-w-xs inline-flex items-center gap-1"><HandIcon name="building" size={12} /> {sup.company_info}</span>}
+                          </div>
+                        </div>
+                        <div className="hidden group-hover:flex items-center gap-1 flex-shrink-0">
+                          <button
+                            onClick={e => { e.stopPropagation(); setEditingSupplier({ ...sup }); }}
+                            className="px-2 py-1 rounded text-xs transition-colors"
+                            style={{ color: 'var(--notion-text-muted)', background: 'var(--notion-active)' }}
+                            onMouseEnter={e => (e.currentTarget.style.background = 'var(--notion-hover)')}
+                            onMouseLeave={e => (e.currentTarget.style.background = 'var(--notion-active)')}
+                          >
+                            {tCustomer360('editBtn')}
+                          </button>
+                          <button
+                            onClick={e => { e.stopPropagation(); deleteSupplier(sup.id); }}
+                            className="px-2 py-1 rounded text-xs transition-colors"
+                            style={{ color: '#ef4444', background: '#fef2f2' }}
+                            onMouseEnter={e => (e.currentTarget.style.background = '#fee2e2')}
+                            onMouseLeave={e => (e.currentTarget.style.background = '#fef2f2')}
+                          >
+                            {tCommon('delete')}
+                          </button>
+                        </div>
+                        <span className="text-xs flex-shrink-0" style={{ color: 'var(--notion-text-muted)' }}>{tInventory('supplierViewQuotations')}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )
         )}
       </div>
 

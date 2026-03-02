@@ -278,6 +278,8 @@ export default function HRPage() {
   const [loading, setLoading] = useState(true);
   const [positions, setPositions] = useState<any[]>([]);
   const [tab, setTab] = useState<'employees' | 'leave' | 'tasks' | 'conversations'>('employees');
+  const [employeeViewMode, setEmployeeViewMode] = useState<'table' | 'card'>('table');
+  const [employeeGroupBy, setEmployeeGroupBy] = useState<'none' | 'department' | 'employment_type'>('none');
   const [showCreate, setShowCreate] = useState(false);
   const [form, setForm] = useState({ full_name: '', email: '', title: '', position_id: '', department_id: '', employment_type: 'full_time', start_date: '' });
   const [leaveForm, setLeaveForm] = useState({ employee_id: '', leave_type: 'annual', start_date: '', end_date: '', days: '', reason: '' });
@@ -698,6 +700,34 @@ export default function HRPage() {
         <div className="ml-auto">
           {tab === 'employees' && (
             <div className="flex items-center gap-2">
+              {/* GroupBy selector */}
+              <select value={employeeGroupBy} onChange={e => setEmployeeGroupBy(e.target.value as any)}
+                className="px-3 py-1.5 rounded-md text-xs outline-none"
+                style={{ border: `1px solid ${employeeGroupBy !== 'none' ? '#7c3aed' : 'var(--notion-border)'}`, color: employeeGroupBy !== 'none' ? '#7c3aed' : 'var(--notion-text)', background: employeeGroupBy !== 'none' ? '#f5f3ff' : 'white', cursor: 'pointer' }}>
+                <option value="none">不分组</option>
+                <option value="department">按部门</option>
+                <option value="employment_type">按用工类型</option>
+              </select>
+              {/* View mode toggle */}
+              <div className="flex items-center gap-0.5 p-0.5 rounded-lg" style={{ background: 'var(--notion-active)' }}>
+                {([
+                  { mode: 'table' as const, icon: '\u2630', label: '表格' },
+                  { mode: 'card' as const, icon: '\u25A6', label: '卡片' },
+                ] as const).map(item => {
+                  const active = employeeViewMode === item.mode;
+                  return (
+                    <button key={item.mode} onClick={() => setEmployeeViewMode(item.mode)}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all"
+                      style={{
+                        background: active ? 'white' : 'transparent',
+                        color: active ? 'var(--notion-text)' : 'var(--notion-text-muted)',
+                        boxShadow: active ? '0 1px 3px rgba(0,0,0,0.08)' : 'none',
+                      }}>
+                      <span style={{ fontSize: 14 }}>{item.icon}</span> {item.label}
+                    </button>
+                  );
+                })}
+              </div>
               <button onClick={() => setShowCreateDept(true)}
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-opacity"
                 style={{ background: 'var(--notion-hover)', color: 'var(--notion-text)' }}
@@ -733,8 +763,103 @@ export default function HRPage() {
       <div className="flex-1 overflow-auto px-8 py-4">
         {tab === 'employees' && (
           <div className="space-y-8">
-            <NotionTable columns={empCols} data={employees} onRowClick={setSelectedEmployee}
-              emptyMessage={tHr('emptyEmployees')} />
+            {employeeViewMode === 'card' ? (
+              employees.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-20 text-sm" style={{ color: 'var(--notion-text-muted)' }}>
+                  <p className="mb-3"><HandIcon name="person" size={32} /></p>
+                  <p>{tHr('emptyEmployees')}</p>
+                </div>
+              ) : (() => {
+                const STATUS_COLORS: Record<string, { bg: string; color: string }> = {
+                  active: { bg: '#d1fae5', color: '#065f46' },
+                  inactive: { bg: '#f3f4f6', color: '#6b7280' },
+                  probation: { bg: '#fef3c7', color: '#92400e' },
+                  terminated: { bg: '#fef2f2', color: '#991b1b' },
+                };
+
+                function renderEmployeeCards(emps: typeof employees) {
+                  return (
+                    <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))' }}>
+                      {emps.map((emp: any) => {
+                        const sc = STATUS_COLORS[emp.status] ?? STATUS_COLORS.active;
+                        return (
+                          <div key={emp.id}
+                            className="rounded-xl overflow-hidden cursor-pointer transition-all"
+                            style={{ border: '1px solid var(--notion-border)', background: 'var(--notion-card, white)' }}
+                            onMouseEnter={e => { e.currentTarget.style.boxShadow = '0 4px 16px rgba(0,0,0,0.10)'; e.currentTarget.style.transform = 'translateY(-1px)'; }}
+                            onMouseLeave={e => { e.currentTarget.style.boxShadow = 'none'; e.currentTarget.style.transform = 'none'; }}
+                            onClick={() => setSelectedEmployee(emp)}>
+                            <div className="p-4">
+                              <div className="flex items-start gap-3 mb-3">
+                                <div className="w-11 h-11 rounded-full flex items-center justify-center text-base font-bold flex-shrink-0"
+                                  style={{ background: '#ede9fe', color: '#7c3aed' }}>
+                                  {emp.full_name?.[0]?.toUpperCase() || '?'}
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                  <p className="font-semibold text-sm truncate" style={{ color: 'var(--notion-text)' }}>{emp.full_name}</p>
+                                  <p className="text-xs truncate" style={{ color: 'var(--notion-text-muted)' }}>{emp.position_name || emp.position || emp.email}</p>
+                                </div>
+                                <span className="w-2.5 h-2.5 rounded-full flex-shrink-0 mt-1" style={{ background: sc.color }} title={emp.status} />
+                              </div>
+                              <div className="flex items-center gap-2 flex-wrap">
+                                {emp.employment_type && (
+                                  <span className="text-[10px] px-2 py-0.5 rounded-full" style={{ background: '#ede9fe', color: '#7c3aed' }}>
+                                    {String(emp.employment_type).replace('_', ' ')}
+                                  </span>
+                                )}
+                                <span className="text-[10px] px-2 py-0.5 rounded-full" style={{ background: sc.bg, color: sc.color }}>
+                                  {emp.status}
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  );
+                }
+
+                if (employeeGroupBy === 'none') {
+                  return renderEmployeeCards(employees);
+                }
+
+                // Group employees
+                const groups: Record<string, typeof employees> = {};
+                for (const emp of employees) {
+                  const key = employeeGroupBy === 'department'
+                    ? ((emp as any).department_name || '未分配')
+                    : ((emp as any).employment_type ? String((emp as any).employment_type).replace('_', ' ') : '未分类');
+                  (groups[key] ??= []).push(emp);
+                }
+                const sortedGroups = Object.entries(groups).sort((a, b) => b[1].length - a[1].length);
+
+                return (
+                  <div className="space-y-4">
+                    {sortedGroups.map(([groupName, groupEmps]) => (
+                      <details key={groupName} open className="rounded-xl overflow-hidden"
+                        style={{ border: '1px solid var(--notion-border)', background: 'var(--notion-card, white)' }}>
+                        <summary className="flex items-center gap-3 px-4 py-3 cursor-pointer select-none"
+                          style={{ background: 'var(--notion-hover)' }}>
+                          <span className="text-sm font-bold flex-1" style={{ color: 'var(--notion-text)' }}>{groupName}</span>
+                          <span className="text-[10px] px-2 py-0.5 rounded-full font-bold" style={{ background: '#ede9fe', color: '#7c3aed' }}>
+                            {groupEmps.length}
+                          </span>
+                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#9B9A97" strokeWidth="2" className="flex-shrink-0">
+                            <polyline points="6 9 12 15 18 9"/>
+                          </svg>
+                        </summary>
+                        <div className="p-3">
+                          {renderEmployeeCards(groupEmps)}
+                        </div>
+                      </details>
+                    ))}
+                  </div>
+                );
+              })()
+            ) : (
+              <NotionTable columns={empCols} data={employees} onRowClick={setSelectedEmployee}
+                emptyMessage={tHr('emptyEmployees')} />
+            )}
             <div>
               <div className="flex items-center justify-between mb-3">
                 <h3 className="text-sm font-semibold" style={{ color: 'var(--notion-text-muted)' }}>{tHr('tabDepartments')}</h3>

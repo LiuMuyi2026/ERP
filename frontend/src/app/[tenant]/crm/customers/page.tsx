@@ -834,7 +834,7 @@ function CustomersTab() {
 
   // ── View mode ──
   const [viewMode, setViewMode] = useState<'table' | 'kanban' | 'map'>('table');
-  const [kanbanGroupBy, setKanbanGroupBy] = useState<'stage' | 'customer_grade' | 'customer_type' | 'country'>('stage');
+  const [groupBy, setGroupBy] = useState<'stage' | 'customer_grade' | 'customer_type' | 'country'>('stage');
 
   // ── New filters ──
   const [fCountry, setFCountry] = useState<string[]>([]);
@@ -999,42 +999,42 @@ function CustomersTab() {
             )}
           </div>
 
-          {/* Kanban group-by selector */}
-          {viewMode === 'kanban' && (
-            <select value={kanbanGroupBy} onChange={e => setKanbanGroupBy(e.target.value as any)}
-              style={{ padding: '7px 10px', borderRadius: 8, border: '1px solid var(--notion-border)', fontSize: 12, background: 'var(--notion-card, white)', color: 'var(--notion-text)', cursor: 'pointer' }}>
-              <option value="stage">按阶段</option>
-              <option value="customer_grade">按等级</option>
-              <option value="customer_type">按类型</option>
-              <option value="country">按国家</option>
-            </select>
-          )}
+          {/* GroupBy selector */}
+          <select value={groupBy} onChange={e => setGroupBy(e.target.value as any)}
+            style={{ padding: '7px 10px', borderRadius: 8, border: `1px solid ${groupBy !== 'stage' ? '#7c3aed' : 'var(--notion-border)'}`, fontSize: 12, background: groupBy !== 'stage' ? '#f5f3ff' : 'var(--notion-card, white)', color: groupBy !== 'stage' ? '#7c3aed' : 'var(--notion-text)', cursor: 'pointer' }}>
+            <option value="stage">按阶段</option>
+            <option value="customer_grade">按等级</option>
+            <option value="customer_type">按类型</option>
+            <option value="country">按国家</option>
+          </select>
         </div>
       </div>
 
-      {/* View Tab Bar */}
-      <div style={{ display: 'flex', borderBottom: '2px solid var(--notion-border)', background: 'var(--notion-card, white)' }}>
-        {([
-          { mode: 'table' as const, icon: '☰', label: '表格视图' },
-          { mode: 'kanban' as const, icon: '⊞', label: '看板视图' },
-          { mode: 'map' as const, icon: '🗺', label: '客户地图' },
-        ]).map(tab => {
-          const active = viewMode === tab.mode;
-          return (
-            <button key={tab.mode} onClick={() => setViewMode(tab.mode)}
-              style={{
-                flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
-                padding: '12px 0', fontSize: 13, fontWeight: active ? 700 : 500, cursor: 'pointer',
-                border: 'none', borderBottom: active ? '3px solid #7c3aed' : '3px solid transparent',
-                background: 'transparent', marginBottom: -2,
-                color: active ? '#7c3aed' : 'var(--notion-text-muted)',
-                transition: 'all 0.15s ease',
-              }}>
-              <span style={{ fontSize: 16 }}>{tab.icon}</span>
-              {tab.label}
-            </button>
-          );
-        })}
+      {/* View Mode Pill Switcher */}
+      <div style={{ display: 'flex', justifyContent: 'flex-end', padding: '8px 32px', borderBottom: '1px solid var(--notion-border)', background: 'var(--notion-card, white)' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 2, padding: 2, borderRadius: 8, background: 'var(--notion-active)' }}>
+          {([
+            { mode: 'table' as const, icon: '☰', label: '表格' },
+            { mode: 'kanban' as const, icon: '⊞', label: '看板' },
+            { mode: 'map' as const, icon: '🗺', label: '地图' },
+          ]).map(item => {
+            const active = viewMode === item.mode;
+            return (
+              <button key={item.mode} onClick={() => setViewMode(item.mode)}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 6,
+                  padding: '6px 12px', borderRadius: 6, fontSize: 12, fontWeight: 500, cursor: 'pointer',
+                  border: 'none',
+                  background: active ? 'white' : 'transparent',
+                  color: active ? 'var(--notion-text)' : 'var(--notion-text-muted)',
+                  boxShadow: active ? '0 1px 3px rgba(0,0,0,0.08)' : 'none',
+                  transition: 'all 0.15s ease',
+                }}>
+                <span style={{ fontSize: 14 }}>{item.icon}</span> {item.label}
+              </button>
+            );
+          })}
+        </div>
       </div>
 
       {/* Active filter chips */}
@@ -1429,25 +1429,25 @@ function CustomersTab() {
 
     // Dynamic country groups from countryStats
     let groups: { key: string; label: string; color: string; bg: string }[];
-    if (kanbanGroupBy === 'country') {
+    if (groupBy === 'country') {
       const palette = ['#0284c7', '#7c3aed', '#059669', '#c2410c', '#dc2626', '#f59e0b', '#4338ca', '#10b981'];
       const bgPalette = ['#e0f2fe', '#ede9fe', '#d1fae5', '#fff7ed', '#fef2f2', '#fef3c7', '#e0e7ff', '#d1fae5'];
       groups = countryStats.map((cs, i) => ({ key: cs.country, label: cs.country, color: palette[i % palette.length], bg: bgPalette[i % bgPalette.length] }));
       groups.push({ key: '_unknown', label: '未知', color: '#9B9A97', bg: '#f5f5f5' });
     } else {
-      groups = KANBAN_GROUPS[kanbanGroupBy] || KANBAN_GROUPS.stage;
+      groups = KANBAN_GROUPS[groupBy] || KANBAN_GROUPS.stage;
     }
     const grouped: Record<string, Customer[]> = {};
     for (const g of groups) grouped[g.key] = [];
 
     for (const c of customers) {
       let key: string;
-      if (kanbanGroupBy === 'stage') {
+      if (groupBy === 'stage') {
         key = groups.some(g => g.key === c.status) ? c.status : '_other';
-      } else if (kanbanGroupBy === 'customer_grade') {
+      } else if (groupBy === 'customer_grade') {
         const grade = c.custom_fields?.customer_grade as string | undefined;
         key = grade && groups.some(g => g.key === grade) ? grade : '_unrated';
-      } else if (kanbanGroupBy === 'country') {
+      } else if (groupBy === 'country') {
         const country = c.country || cf(c, 'country') || '';
         key = country && groups.some(g => g.key === country) ? country : '_unknown';
       } else {
