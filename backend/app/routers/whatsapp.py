@@ -1266,9 +1266,11 @@ async def _handle_messages_upsert(db: AsyncSession, instance: str, data: dict):
         push_name = msg_data.get("pushName", "")
         timestamp = msg_data.get("messageTimestamp")
         if timestamp and isinstance(timestamp, (int, float)):
-            ts = datetime.fromtimestamp(timestamp, tz=timezone.utc).isoformat()
+            ts = datetime.fromtimestamp(timestamp, tz=timezone.utc)
+        elif timestamp and isinstance(timestamp, str) and timestamp.isdigit():
+            ts = datetime.fromtimestamp(int(timestamp), tz=timezone.utc)
         else:
-            ts = _now_iso()
+            ts = datetime.now(timezone.utc)
 
         is_group = remote_jid.endswith("@g.us")
         is_history = msg_data.get("messageStubType") is not None
