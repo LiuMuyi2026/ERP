@@ -53,13 +53,49 @@ function normalizeWorkflowStages(rawStages: any[], t: any): WorkflowStage[] {
   }));
 }
 
+type WaContact = {
+  id: string; wa_account_id: string; wa_jid: string;
+  phone_number?: string; display_name?: string; push_name?: string;
+  profile_pic_url?: string; is_group?: boolean;
+  last_message_at?: string; unread_count?: number;
+};
+type WaMessage = {
+  id: string; wa_contact_id: string; direction: string;
+  message_type: string; content?: string; media_url?: string;
+  media_mime_type?: string; status?: string; timestamp: string;
+  reply_to_message_id?: string; is_deleted?: boolean; is_edited?: boolean;
+  metadata?: any;
+};
+type UnifiedCommRecord = {
+  id: string; source: 'interaction' | 'wa_message';
+  channel: string; direction: string; content: string;
+  timestamp: string; created_by_name?: string;
+  message_type?: string; media_url?: string; status?: string;
+};
 type Lead360Data = {
   lead: Record<string, any>;
   interactions: Interaction[];
   contracts: Contract360[];
   audit_logs: AuditLog[];
   related_leads: RelatedLead[];
+  wa_contact: WaContact | null;
+  wa_messages: WaMessage[];
 };
+
+function mergeCommRecords(interactions: Interaction[], waMessages: WaMessage[]): UnifiedCommRecord[] {
+  const fromInteractions: UnifiedCommRecord[] = interactions.map(i => ({
+    id: i.id, source: 'interaction' as const, channel: i.type, direction: i.direction,
+    content: i.content, timestamp: i.created_at, created_by_name: i.created_by_name,
+  }));
+  const fromWa: UnifiedCommRecord[] = waMessages.map(m => ({
+    id: m.id, source: 'wa_message' as const, channel: 'whatsapp', direction: m.direction,
+    content: m.content || '', timestamp: m.timestamp,
+    message_type: m.message_type, media_url: m.media_url, status: m.status,
+  }));
+  return [...fromInteractions, ...fromWa].sort(
+    (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+  );
+}
 type CompanyResearch = {
   summary: string; industry: string; size: string;
   products: string[];
@@ -250,8 +286,10 @@ function InteractionCard({ i, expanded, onToggle }: {
   );
 }
 
-// ── Inline Compose ───────────────────────────────────────────────────────────
-function ComposeBox({ leadId, onSaved }: { leadId: string; onSaved: () => void }) {
+// ── Unified Compose Box ──────────────────────────────────────────────────────
+function UnifiedComposeBox({ leadId, lead, waContact, onSaved }: {
+  leadId: string; lead: Record<string, any>; waContact: WaContact | null; onSaved: () => void;
+}) {
   const t = useTranslations('customer360');
   const CH = getCH(t);
   const [open, setOpen] = useState(false);
@@ -261,17 +299,53 @@ function ComposeBox({ leadId, onSaved }: { leadId: string; onSaved: () => void }
   const [saving, setSaving] = useState(false);
   const ref = useRef<HTMLTextAreaElement>(null);
 
+  // Email-specific fields
+  const [emailSubject, setEmailSubject] = useState('');
+  const [emailTo, setEmailTo] = useState(lead.email || '');
+
+  const isEmailMode = type === 'email' && dir === 'outbound';
+  const isWhatsAppMode = type === 'whatsapp' && dir === 'outbound';
+  const hasEmail = !!(lead.email);
+  const hasWa = !!waContact;
+
   useEffect(() => { if (open) ref.current?.focus(); }, [open, type]);
 
   async function submit() {
     if (!text.trim()) return;
     setSaving(true);
     try {
-      await api.post(`/api/crm/leads/${leadId}/interactions`, { type, direction: dir, content: text });
-      setText(''); setOpen(false); onSaved();
+      if (isWhatsAppMode && waContact) {
+        // Send real WhatsApp message
+        await api.post(`/api/whatsapp/conversations/${waContact.id}/send`, {
+          content: text.trim(), message_type: 'text',
+        });
+      } else if (isEmailMode && hasEmail) {
+        // Send real email
+        await api.post(`/api/crm/leads/${leadId}/send-email`, {
+          to_email: emailTo || lead.email,
+          subject: emailSubject || '(No Subject)',
+          body: text.trim(),
+        });
+      } else {
+        // Log as interaction
+        await api.post(`/api/crm/leads/${leadId}/interactions`, {
+          type, direction: dir, content: text,
+        });
+      }
+      setText(''); setEmailSubject(''); setOpen(false); onSaved();
     } catch (e: any) { alert(e.message); }
     finally { setSaving(false); }
   }
+
+  function getSendLabel() {
+    if (saving) return t('composeSaving');
+    if (isWhatsAppMode) return waContact ? t('sendWhatsApp') : t('noWaLinked');
+    if (isEmailMode) return hasEmail ? t('sendEmail') : t('noEmail');
+    return t('composeSave');
+  }
+  const canSend = text.trim() && !saving &&
+    !(isWhatsAppMode && !waContact) &&
+    !(isEmailMode && !hasEmail);
 
   return (
     <div className="rounded-2xl overflow-hidden" style={{
@@ -299,17 +373,23 @@ function ComposeBox({ leadId, onSaved }: { leadId: string; onSaved: () => void }
         <>
           <div className="px-4 py-3 flex items-center gap-2 flex-wrap"
             style={{ borderBottom: '1px solid var(--notion-border)', background: 'var(--notion-hover)' }}>
-            {Object.entries(CH).map(([chKey, cfg]) => (
-              <button key={chKey} onClick={() => setType(chKey)}
-                className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium transition-all"
-                style={{
-                  background: type === chKey ? cfg.color : cfg.bg,
-                  color: type === chKey ? 'white' : cfg.color,
-                  transform: type === chKey ? 'scale(1.05)' : 'none',
-                }}>
-                <HandIcon name={cfg.icon} size={14} /> {cfg.label}
-              </button>
-            ))}
+            {Object.entries(CH).map(([chKey, cfg]) => {
+              const disabled = (chKey === 'whatsapp' && !waContact) || (chKey === 'email' && !hasEmail);
+              return (
+                <button key={chKey} onClick={() => !disabled && setType(chKey)}
+                  className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium transition-all"
+                  title={chKey === 'whatsapp' && !waContact ? t('noWaLinked') : chKey === 'email' && !hasEmail ? t('noEmail') : ''}
+                  style={{
+                    background: type === chKey ? cfg.color : cfg.bg,
+                    color: type === chKey ? 'white' : cfg.color,
+                    transform: type === chKey ? 'scale(1.05)' : 'none',
+                    opacity: disabled ? 0.4 : 1,
+                    cursor: disabled ? 'not-allowed' : 'pointer',
+                  }}>
+                  <HandIcon name={cfg.icon} size={14} /> {cfg.label}
+                </button>
+              );
+            })}
             <div className="ml-auto flex gap-1.5">
               {(['outbound', 'inbound'] as const).map(d => (
                 <button key={d} onClick={() => setDir(d)}
@@ -324,24 +404,42 @@ function ComposeBox({ leadId, onSaved }: { leadId: string; onSaved: () => void }
               ))}
             </div>
           </div>
+
+          {/* Email-specific fields */}
+          {isEmailMode && (
+            <div className="px-4 py-2 space-y-2" style={{ borderBottom: '1px solid var(--notion-border)' }}>
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-medium w-12 flex-shrink-0" style={{ color: '#9B9A97' }}>To:</span>
+                <input value={emailTo} onChange={e => setEmailTo(e.target.value)}
+                  className="flex-1 text-xs outline-none px-2 py-1 rounded" style={{ border: '1px solid var(--notion-border)', color: 'var(--notion-text)' }} />
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-medium w-12 flex-shrink-0" style={{ color: '#9B9A97' }}>{t('emailSubject')}:</span>
+                <input value={emailSubject} onChange={e => setEmailSubject(e.target.value)}
+                  className="flex-1 text-xs outline-none px-2 py-1 rounded" style={{ border: '1px solid var(--notion-border)', color: 'var(--notion-text)' }}
+                  placeholder={t('emailSubject')} />
+              </div>
+            </div>
+          )}
+
           <textarea ref={ref} value={text} onChange={e => setText(e.target.value)}
             onKeyDown={e => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) submit(); }}
             rows={4} className="w-full px-4 py-3.5 text-sm outline-none resize-none"
             style={{ color: 'var(--notion-text)' }}
-            placeholder={t('composePlaceholder', { label: CH[type]?.label || '' })} />
+            placeholder={isEmailMode ? t('emailBody') : isWhatsAppMode ? t('sendWhatsApp') + '...' : t('composePlaceholder', { label: CH[type]?.label || '' })} />
           <div className="flex items-center justify-between px-4 py-2.5"
             style={{ borderTop: '1px solid var(--notion-border)', background: 'var(--notion-hover)' }}>
             <span className="text-[10px]" style={{ color: '#9B9A97' }}>
               {text.length > 0 ? t('composeCharCount', { n: text.length }) : t('composeSubmitHint')}
             </span>
             <div className="flex gap-2">
-              <button onClick={() => { setOpen(false); setText(''); }}
+              <button onClick={() => { setOpen(false); setText(''); setEmailSubject(''); }}
                 className="px-3 py-1.5 rounded-lg text-xs"
                 style={{ color: '#9B9A97', border: '1px solid var(--notion-border)' }}>{t('composeCancel')}</button>
-              <button onClick={submit} disabled={!text.trim() || saving}
+              <button onClick={submit} disabled={!canSend}
                 className="px-4 py-1.5 rounded-lg text-xs font-semibold text-white"
-                style={{ background: '#7c3aed', opacity: !text.trim() || saving ? 0.4 : 1 }}>
-                {saving ? t('composeSaving') : t('composeSave')}
+                style={{ background: (isWhatsAppMode ? '#15803d' : isEmailMode ? '#1d4ed8' : '#7c3aed'), opacity: !canSend ? 0.4 : 1 }}>
+                {getSendLabel()}
               </button>
             </div>
           </div>
@@ -351,42 +449,132 @@ function ComposeBox({ leadId, onSaved }: { leadId: string; onSaved: () => void }
   );
 }
 
+// ── Unified Comm Card ────────────────────────────────────────────────────────
+function UnifiedCommCard({ r, expanded, onToggle }: {
+  r: UnifiedCommRecord; expanded: boolean; onToggle: () => void;
+}) {
+  const t = useTranslations('customer360');
+  const CH = getCH(t);
+  const cfg = CH[r.channel] ?? CH.note;
+  const isWa = r.source === 'wa_message';
+  const isLong = r.content.length > 180;
+  const preview = isLong && !expanded ? r.content.slice(0, 180) + '...' : r.content;
+
+  const statusIcon = isWa && r.status ? (
+    r.status === 'read' ? '\u2713\u2713' : r.status === 'delivered' ? '\u2713\u2713' : r.status === 'sent' ? '\u2713' : ''
+  ) : null;
+
+  return (
+    <div onClick={onToggle} className="rounded-xl overflow-hidden cursor-pointer"
+      style={{
+        background: 'var(--notion-card, white)',
+        borderLeft: `4px solid ${cfg.border}`,
+        boxShadow: expanded
+          ? '0 4px 16px rgba(0,0,0,0.10), 0 0 0 1px rgba(0,0,0,0.06)'
+          : '0 1px 4px rgba(0,0,0,0.06), 0 0 0 1px rgba(0,0,0,0.04)',
+        transition: 'box-shadow 0.15s',
+      }}>
+      <div className="px-4 py-3">
+        <div className="flex flex-col gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-xs font-semibold" style={{ color: cfg.color }}>{cfg.label}</span>
+            {isWa && (
+              <span className="text-[9px] px-1.5 py-0.5 rounded-full font-medium"
+                style={{ background: '#f0fdf4', color: '#15803d' }}>
+                {r.message_type !== 'text' ? r.message_type : ''}
+              </span>
+            )}
+            {!isWa && (
+              <span className="text-[9px] px-1.5 py-0.5 rounded-full font-medium"
+                style={{ background: 'var(--notion-hover)', color: '#9B9A97' }}>
+                {t('sourceLog')}
+              </span>
+            )}
+            <span className="text-[10px]" style={{ color: '#9B9A97' }}>
+              {r.direction === 'inbound' ? `\u2199 ${t('dirInbound')}` : `\u2197 ${t('dirOutbound')}`} · {relTime(r.timestamp, t)}
+            </span>
+            {statusIcon && (
+              <span className="text-[10px] ml-1" style={{ color: r.status === 'read' ? '#1d4ed8' : '#9B9A97' }}>
+                {statusIcon}
+              </span>
+            )}
+          </div>
+          {r.media_url && r.message_type && ['image', 'video'].includes(r.message_type) && (
+            <div className="rounded-lg overflow-hidden" style={{ maxWidth: 200 }}>
+              {r.message_type === 'image' ? (
+                <img src={r.media_url} alt="" className="w-full h-auto rounded-lg" style={{ maxHeight: 120, objectFit: 'cover' }} />
+              ) : (
+                <div className="flex items-center gap-2 px-3 py-2 rounded-lg" style={{ background: cfg.bg }}>
+                  <HandIcon name="play" size={14} />
+                  <span className="text-xs" style={{ color: cfg.color }}>Video</span>
+                </div>
+              )}
+            </div>
+          )}
+          <p className="text-xs leading-relaxed whitespace-pre-wrap" style={{ color: 'var(--notion-text)' }}>
+            {preview}
+          </p>
+          <div className="text-[10px] text-[#9B9A97]">
+            {r.created_by_name ? `${r.created_by_name} · ` : ''}{absTime(r.timestamp)}
+          </div>
+          {isLong && (
+            <div className="flex items-center gap-2 pt-2" style={{ borderTop: '1px solid var(--notion-border)' }}>
+              <span className="text-[10px] text-[#9B9A97]">{expanded ? 'Collapse' : 'Expand'}</span>
+              <span className="text-[10px] text-[#D0CFC9]">
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"
+                  style={{ transform: expanded ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }}>
+                  <polyline points="6 9 12 15 18 9" />
+                </svg>
+              </span>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Comms Tab ─────────────────────────────────────────────────────────────────
-function CommsTab({ leadId, interactions, onRefresh }: {
-  leadId: string; interactions: Interaction[]; onRefresh: () => void;
+function CommsTab({ leadId, lead, interactions, waContact, waMessages, onRefresh }: {
+  leadId: string; lead: Record<string, any>; interactions: Interaction[];
+  waContact: WaContact | null; waMessages: WaMessage[]; onRefresh: () => void;
 }) {
   const t = useTranslations('customer360');
   const CH = getCH(t);
   const [view, setView] = useState<'timeline' | 'channel' | 'list'>('timeline');
   const [filterCh, setFilterCh] = useState('all');
+  const [filterSource, setFilterSource] = useState<'all' | 'actual' | 'log'>('all');
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
-  const filtered = filterCh === 'all' ? interactions : interactions.filter(i => i.type === filterCh);
+  const allRecords = mergeCommRecords(interactions, waMessages);
+  let filtered = filterCh === 'all' ? allRecords : allRecords.filter(r => r.channel === filterCh);
+  if (filterSource === 'actual') filtered = filtered.filter(r => r.source === 'wa_message');
+  if (filterSource === 'log') filtered = filtered.filter(r => r.source === 'interaction');
 
-  const grouped: [string, Interaction[]][] = [];
+  const grouped: [string, UnifiedCommRecord[]][] = [];
   if (view === 'timeline') {
-    const map = new Map<string, Interaction[]>();
-    for (const i of filtered) {
-      const k = dateGroupKey(i.created_at, t);
+    const map = new Map<string, UnifiedCommRecord[]>();
+    for (const r of filtered) {
+      const k = dateGroupKey(r.timestamp, t);
       if (!map.has(k)) map.set(k, []);
-      map.get(k)!.push(i);
+      map.get(k)!.push(r);
     }
     grouped.push(...Array.from(map.entries()));
   }
 
-  const byChannel: [string, Interaction[]][] = [];
+  const byChannel: [string, UnifiedCommRecord[]][] = [];
   if (view === 'channel') {
-    const map = new Map<string, Interaction[]>();
-    for (const i of interactions) {
-      if (!map.has(i.type)) map.set(i.type, []);
-      map.get(i.type)!.push(i);
+    const map = new Map<string, UnifiedCommRecord[]>();
+    for (const r of filtered) {
+      if (!map.has(r.channel)) map.set(r.channel, []);
+      map.get(r.channel)!.push(r);
     }
     byChannel.push(...Array.from(map.entries()));
   }
 
   return (
     <div className="space-y-4">
-      <ComposeBox leadId={leadId} onSaved={onRefresh} />
+      <UnifiedComposeBox leadId={leadId} lead={lead} waContact={waContact} onSaved={onRefresh} />
 
       <div className="flex items-center gap-3 flex-wrap">
         <div className="flex rounded-xl overflow-hidden" style={{ border: '1px solid var(--notion-border)' }}>
@@ -402,6 +590,20 @@ function CommsTab({ leadId, interactions, onRefresh }: {
           ))}
         </div>
 
+        {/* Source filter */}
+        <div className="flex rounded-xl overflow-hidden" style={{ border: '1px solid var(--notion-border)' }}>
+          {([['all', t('sourceAll')], ['actual', t('sourceActual')], ['log', t('sourceLog')]] as const).map(([v, label]) => (
+            <button key={v} onClick={() => setFilterSource(v)}
+              className="px-2.5 py-1.5 text-[11px] font-medium"
+              style={{
+                background: filterSource === v ? '#374151' : 'white',
+                color: filterSource === v ? 'white' : '#9B9A97',
+              }}>
+              {label}
+            </button>
+          ))}
+        </div>
+
         <div className="flex items-center gap-1.5 flex-wrap">
           <button onClick={() => setFilterCh('all')}
             className="px-2.5 py-1 rounded-full text-[11px] font-medium"
@@ -410,10 +612,10 @@ function CommsTab({ leadId, interactions, onRefresh }: {
               color: filterCh === 'all' ? 'white' : '#374151',
               boxShadow: '0 1px 3px rgba(0,0,0,0.08), 0 0 0 1px rgba(0,0,0,0.05)',
             }}>
-            {t('filterAll', { n: interactions.length })}
+            {t('filterAll', { n: allRecords.length })}
           </button>
-          {Object.entries(CH).filter(([k]) => interactions.some(i => i.type === k)).map(([k, cfg]) => {
-            const cnt = interactions.filter(i => i.type === k).length;
+          {Object.entries(CH).filter(([k]) => allRecords.some(r => r.channel === k)).map(([k, cfg]) => {
+            const cnt = allRecords.filter(r => r.channel === k).length;
             return (
               <button key={k} onClick={() => setFilterCh(k)}
                 className="px-2.5 py-1 rounded-full text-[11px] font-medium"
@@ -445,9 +647,9 @@ function CommsTab({ leadId, interactions, onRefresh }: {
             <div className="flex-1 h-px" style={{ background: 'var(--notion-border)' }} />
           </div>
           <div className="space-y-2">
-            {items.map(i => (
-              <InteractionCard key={i.id} i={i} expanded={expandedId === i.id}
-                onToggle={() => setExpandedId(expandedId === i.id ? null : i.id)} />
+            {items.map(r => (
+              <UnifiedCommCard key={r.id} r={r} expanded={expandedId === r.id}
+                onToggle={() => setExpandedId(expandedId === r.id ? null : r.id)} />
             ))}
           </div>
         </div>
@@ -466,20 +668,25 @@ function CommsTab({ leadId, interactions, onRefresh }: {
               </span>
             </div>
             <div className="divide-y" style={{ borderColor: 'var(--notion-border)' }}>
-              {items.map(i => (
-                <div key={i.id} className="px-4 py-3">
+              {items.map(r => (
+                <div key={r.id} className="px-4 py-3">
                   <div className="flex items-center gap-2 mb-1">
                     <span className="text-[10px] px-1.5 py-0.5 rounded-full font-medium"
                       style={{
-                        background: i.direction === 'inbound' ? '#f0fdf4' : '#eff6ff',
-                        color: i.direction === 'inbound' ? '#15803d' : '#1d4ed8',
+                        background: r.direction === 'inbound' ? '#f0fdf4' : '#eff6ff',
+                        color: r.direction === 'inbound' ? '#15803d' : '#1d4ed8',
                       }}>
-                      {i.direction === 'inbound' ? `↙ ${t('dirInbound')}` : `↗ ${t('dirOutbound')}`}
+                      {r.direction === 'inbound' ? `\u2199 ${t('dirInbound')}` : `\u2197 ${t('dirOutbound')}`}
                     </span>
-                    <span className="text-[10px] ml-auto" style={{ color: '#9B9A97' }}>{relTime(i.created_at, t)}</span>
+                    {r.source === 'wa_message' && r.status && (
+                      <span className="text-[9px]" style={{ color: r.status === 'read' ? '#1d4ed8' : '#9B9A97' }}>
+                        {r.status === 'read' ? '\u2713\u2713' : r.status === 'delivered' ? '\u2713\u2713' : '\u2713'}
+                      </span>
+                    )}
+                    <span className="text-[10px] ml-auto" style={{ color: '#9B9A97' }}>{relTime(r.timestamp, t)}</span>
                   </div>
                   <p className="text-xs leading-relaxed" style={{ color: 'var(--notion-text)' }}>
-                    {i.content.length > 200 ? i.content.slice(0, 200) + '…' : i.content}
+                    {r.content.length > 200 ? r.content.slice(0, 200) + '...' : r.content}
                   </p>
                 </div>
               ))}
@@ -500,32 +707,35 @@ function CommsTab({ leadId, interactions, onRefresh }: {
               </tr>
             </thead>
             <tbody>
-              {filtered.map((i, idx) => {
-                const cfg = CH[i.type] ?? CH.note;
+              {filtered.map((r, idx) => {
+                const cfg = CH[r.channel] ?? CH.note;
                 return (
-                  <tr key={i.id} style={{ borderBottom: idx < filtered.length - 1 ? '1px solid var(--notion-border)' : 'none' }}
+                  <tr key={r.id} style={{ borderBottom: idx < filtered.length - 1 ? '1px solid var(--notion-border)' : 'none' }}
                     className="hover:bg-[var(--notion-hover)] transition-colors">
                     <td className="px-4 py-2.5">
                       <span className="flex items-center gap-1.5">
                         <span><HandIcon name={cfg.icon} size={14} /></span>
                         <span style={{ color: cfg.color }}>{cfg.label}</span>
+                        {r.source === 'interaction' && (
+                          <span className="text-[9px] px-1 rounded" style={{ background: 'var(--notion-hover)', color: '#9B9A97' }}>{t('sourceLog')}</span>
+                        )}
                       </span>
                     </td>
                     <td className="px-4 py-2.5">
                       <span className="px-1.5 py-0.5 rounded-full font-medium"
                         style={{
-                          background: i.direction === 'inbound' ? '#f0fdf4' : '#eff6ff',
-                          color: i.direction === 'inbound' ? '#15803d' : '#1d4ed8',
+                          background: r.direction === 'inbound' ? '#f0fdf4' : '#eff6ff',
+                          color: r.direction === 'inbound' ? '#15803d' : '#1d4ed8',
                         }}>
-                        {i.direction === 'inbound' ? t('dirInbound') : t('dirOutbound')}
+                        {r.direction === 'inbound' ? t('dirInbound') : t('dirOutbound')}
                       </span>
                     </td>
                     <td className="px-4 py-2.5 max-w-xs truncate" style={{ color: 'var(--notion-text)' }}>
-                      {i.content.slice(0, 80)}{i.content.length > 80 ? '…' : ''}
+                      {r.content.slice(0, 80)}{r.content.length > 80 ? '...' : ''}
                     </td>
-                    <td className="px-4 py-2.5" style={{ color: '#9B9A97' }}>{i.created_by_name || '—'}</td>
-                    <td className="px-4 py-2.5" style={{ color: '#9B9A97' }} title={absTime(i.created_at)}>
-                      {relTime(i.created_at, t)}
+                    <td className="px-4 py-2.5" style={{ color: '#9B9A97' }}>{r.created_by_name || '\u2014'}</td>
+                    <td className="px-4 py-2.5" style={{ color: '#9B9A97' }} title={absTime(r.timestamp)}>
+                      {relTime(r.timestamp, t)}
                     </td>
                   </tr>
                 );
@@ -1108,11 +1318,12 @@ function BusinessTab({
 }
 
 // ── Timeline Tab ────────────────────────────────────────────────────────────────
-function TimelineTab({ interactions, contracts, auditLogs, lead }: {
+function TimelineTab({ interactions, contracts, auditLogs, lead, waMessages }: {
   interactions: Interaction[];
   contracts: Contract360[];
   auditLogs: AuditLog[];
   lead: Record<string, any>;
+  waMessages?: WaMessage[];
 }) {
   const t = useTranslations('customer360');
   const CH = getCH(t);
@@ -1123,6 +1334,7 @@ function TimelineTab({ interactions, contracts, auditLogs, lead }: {
     ...interactions.map(i => ({ id: i.id, ts: i.created_at, kind: 'interaction', data: i })),
     ...contracts.map(c => ({ id: `c-${c.id}`, ts: c.created_at, kind: 'contract', data: c })),
     ...auditLogs.map(al => ({ id: al.id, ts: al.created_at, kind: 'audit', data: al })),
+    ...(waMessages ?? []).map(m => ({ id: `wa-${m.id}`, ts: m.timestamp, kind: 'wa_message', data: m })),
   ].sort((a, b) => new Date(b.ts).getTime() - new Date(a.ts).getTime());
 
   const grouped = new Map<string, TLItem[]>();
@@ -1215,6 +1427,28 @@ function TimelineTab({ interactions, contracts, auditLogs, lead }: {
               </div>
             );
           }
+              if (item.kind === 'wa_message') {
+                const m: WaMessage = item.data;
+                const waCfg = CH.whatsapp;
+                return (
+                  <div key={item.id} className="rounded-xl px-4 py-3"
+                    style={{ background: 'var(--notion-card, white)', borderLeft: `4px solid ${waCfg.border}`, boxShadow: '0 1px 4px rgba(0,0,0,0.06)' }}>
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className="text-xs font-semibold" style={{ color: waCfg.color }}>{waCfg.label}</span>
+                      {m.message_type !== 'text' && (
+                        <span className="text-[9px] px-1.5 py-0.5 rounded-full" style={{ background: '#f0fdf4', color: '#15803d' }}>{m.message_type}</span>
+                      )}
+                      <span className="text-[10px] text-[#9B9A97] ml-auto">
+                        {m.direction === 'inbound' ? `\u2199 ${t('dirInbound')}` : `\u2197 ${t('dirOutbound')}`} · {relTime(m.timestamp, t)}
+                      </span>
+                    </div>
+                    <p className="text-xs leading-relaxed mb-1" style={{ color: 'var(--notion-text)' }}>
+                      {(m.content || '').slice(0, 100)}{(m.content || '').length > 100 ? '...' : ''}
+                    </p>
+                    <p className="text-[10px] text-[#9B9A97]">{absTime(m.timestamp)}</p>
+                  </div>
+                );
+              }
               return null;
             })}
           </div>
@@ -1301,7 +1535,7 @@ export default function Customer360Page() {
   const [data, setData] = useState<Lead360Data | null>(null);
   const [loading, setLoading] = useState(true);
   const tabParam = searchParams.get('tab') as 'comms' | 'profile' | 'business' | 'timeline' | 'workflow' | null;
-  const [tab, setTab] = useState<'comms' | 'profile' | 'business' | 'timeline' | 'workflow' | 'whatsapp'>(tabParam || 'workflow');
+  const [tab, setTab] = useState<'comms' | 'profile' | 'business' | 'timeline' | 'workflow'>(tabParam || 'workflow');
   const [advancing, setAdvancing] = useState(false);
   const [showColdModal, setShowColdModal] = useState(false);
   const [changingStage, setChangingStage] = useState(false);
@@ -1391,13 +1625,13 @@ export default function Customer360Page() {
   };
   const canAdvance = NEXT_STAGE_MAP[lead.status] && !isCold;
 
+  const allCommsCount = interactions.length + (data.wa_messages?.length || 0);
   const TABS = [
     { key: 'workflow', label: t('tabWorkflow'), badge: 0, icon: 'gear' },
-    { key: 'comms',    label: t('tabComms'),    badge: interactions.length },
+    { key: 'comms',    label: t('tabComms'),    badge: allCommsCount },
     { key: 'profile',  label: t('tabProfile'),  badge: 0 },
     { key: 'business', label: t('tabBusiness'), badge: contracts.length },
     { key: 'timeline', label: t('tabTimeline'), badge: 0 },
-    { key: 'whatsapp', label: 'WhatsApp', badge: 0, icon: 'chat-bubble' },
   ] as const;
 
   return (
@@ -1774,7 +2008,8 @@ export default function Customer360Page() {
             <WorkflowTab leadId={id} isCold={isCold} onMarkCold={() => setShowColdModal(true)} />
           )}
           {tab === 'comms' && (
-            <CommsTab leadId={id} interactions={interactions} onRefresh={load} />
+            <CommsTab leadId={id} lead={lead} interactions={interactions}
+              waContact={data.wa_contact} waMessages={data.wa_messages ?? []} onRefresh={load} />
           )}
           {tab === 'profile' && (
             <ProfileTab leadId={id} lead={lead} onRefresh={load} />
@@ -1783,12 +2018,7 @@ export default function Customer360Page() {
             <BusinessTab contracts={contracts} currentLead={lead} relatedLeads={data.related_leads ?? []} tenantSlug={tenant} />
           )}
           {tab === 'timeline' && (
-            <TimelineTab interactions={interactions} contracts={contracts} auditLogs={audit_logs} lead={lead} />
-          )}
-          {tab === 'whatsapp' && (
-            <div className="rounded-xl border overflow-hidden" style={{ borderColor: 'var(--notion-border)', height: 500 }}>
-              <WhatsAppChatPanel leadId={id} contactName={lead.full_name} />
-            </div>
+            <TimelineTab interactions={interactions} contracts={contracts} auditLogs={audit_logs} lead={lead} waMessages={data.wa_messages ?? []} />
           )}
 
           <div className="h-12" />

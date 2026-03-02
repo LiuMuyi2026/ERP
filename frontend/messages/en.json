@@ -2117,7 +2117,10 @@
     "shiftEnterNewline": "Shift+Enter for new line",
     "selectContact": "Select a contact from the left",
     "justNow": "Just now",
-    "send": "Send"
+    "send": "Send",
+    "tabInternal": "Internal",
+    "noWhatsApp": "No WhatsApp conversations",
+    "selectWaChat": "Select a WhatsApp conversation"
   },
   "ai": {
     "assistant": "AI Assistant",

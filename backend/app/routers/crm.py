@@ -1743,12 +1743,44 @@ async def customer_360(lead_id: str, ctx: dict = Depends(get_current_user_with_t
     lead_dict["customer_score"] = _calc_understanding_score(lead_dict)
     lead_dict["score_label"] = _score_label(lead_dict["customer_score"])
 
+    # WhatsApp contact & messages linked to this lead
+    wa_contact_row = await db.execute(
+        text("""
+            SELECT c.id, c.wa_account_id, c.wa_jid, c.phone_number,
+                   c.display_name, c.push_name, c.profile_pic_url,
+                   c.is_group, c.last_message_at, c.unread_count
+            FROM whatsapp_contacts c
+            WHERE c.lead_id = :lead_id
+            LIMIT 1
+        """),
+        {"lead_id": lead_id},
+    )
+    wa_contact = wa_contact_row.fetchone()
+    wa_contact_dict = dict(wa_contact._mapping) if wa_contact else None
+    wa_messages: list = []
+    if wa_contact:
+        wa_msg_q = await db.execute(
+            text("""
+                SELECT id, wa_contact_id, direction, message_type, content,
+                       media_url, media_mime_type, status, timestamp,
+                       reply_to_message_id, is_deleted, is_edited, metadata
+                FROM whatsapp_messages
+                WHERE wa_contact_id = :cid AND is_deleted = FALSE
+                ORDER BY timestamp DESC
+                LIMIT 200
+            """),
+            {"cid": str(wa_contact.id)},
+        )
+        wa_messages = [dict(r._mapping) for r in wa_msg_q.fetchall()]
+
     return {
         "lead": lead_dict,
         "interactions": interactions,
         "contracts": contracts,
         "audit_logs": audit_logs,
         "related_leads": related_leads,
+        "wa_contact": wa_contact_dict,
+        "wa_messages": wa_messages,
     }
 
 
@@ -2788,3 +2820,188 @@ async def check_file_access(file_id: str, ctx: dict = Depends(get_current_user_w
     if not r:
         return {"can_view": False, "can_download": False}
     return {"can_view": r[0], "can_download": r[1]}
+
+
+# ---------------------------------------------------------------------------
+# Unified Communications
+# ---------------------------------------------------------------------------
+
+@router.get("/communications")
+async def list_communications(
+    lead_id: Optional[str] = None,
+    channel: Optional[str] = None,
+    direction: Optional[str] = None,
+    search: Optional[str] = None,
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
+    sort_by: str = "time_desc",
+    page: int = 1,
+    page_size: int = 50,
+    ctx: dict = Depends(get_current_user_with_tenant),
+):
+    """Unified message list: interactions + whatsapp_messages."""
+    db = ctx["db"]
+    offset = (page - 1) * page_size
+
+    # Build WHERE clauses applied to both halves of the UNION
+    where_outer: list[str] = []
+    params: dict = {"lim": page_size, "off": offset}
+
+    if lead_id:
+        where_outer.append("lead_id = :lead_id")
+        params["lead_id"] = lead_id
+    if channel:
+        where_outer.append("channel = :channel")
+        params["channel"] = channel
+    if direction:
+        where_outer.append("direction = :direction")
+        params["direction"] = direction
+    if search:
+        where_outer.append("content ILIKE :search")
+        params["search"] = f"%{search}%"
+    if date_from:
+        where_outer.append("timestamp >= :date_from")
+        params["date_from"] = date_from
+    if date_to:
+        where_outer.append("timestamp <= :date_to")
+        params["date_to"] = date_to
+
+    where_sql = (" AND ".join(where_outer)) if where_outer else "TRUE"
+    order = "timestamp DESC" if sort_by != "time_asc" else "timestamp ASC"
+
+    union_sql = f"""
+        WITH unified AS (
+            SELECT
+                i.id::text           AS id,
+                'interaction'        AS source,
+                i.type               AS channel,
+                i.direction,
+                COALESCE(i.content,'') AS content,
+                i.created_at         AS timestamp,
+                u.full_name          AS created_by_name,
+                i.lead_id::text,
+                l.full_name          AS lead_name,
+                l.company            AS lead_company,
+                NULL                 AS message_type,
+                NULL                 AS media_url,
+                NULL                 AS status
+            FROM interactions i
+            LEFT JOIN users u ON u.id = i.created_by
+            LEFT JOIN leads l ON l.id = i.lead_id
+
+            UNION ALL
+
+            SELECT
+                m.id::text           AS id,
+                'whatsapp_message'   AS source,
+                'whatsapp'           AS channel,
+                m.direction,
+                COALESCE(m.content,'') AS content,
+                m.timestamp,
+                NULL                 AS created_by_name,
+                c.lead_id::text,
+                l.full_name          AS lead_name,
+                l.company            AS lead_company,
+                m.message_type,
+                m.media_url,
+                m.status
+            FROM whatsapp_messages m
+            JOIN whatsapp_contacts c ON c.id = m.wa_contact_id
+            LEFT JOIN leads l ON l.id = c.lead_id
+            WHERE m.is_deleted = FALSE
+        )
+        SELECT * FROM unified
+        WHERE {where_sql}
+        ORDER BY {order}
+        LIMIT :lim OFFSET :off
+    """
+
+    count_sql = f"""
+        WITH unified AS (
+            SELECT i.id, 'interaction' AS source, i.type AS channel, i.direction,
+                   COALESCE(i.content,'') AS content, i.created_at AS timestamp,
+                   i.lead_id
+            FROM interactions i
+
+            UNION ALL
+
+            SELECT m.id, 'whatsapp_message' AS source, 'whatsapp' AS channel, m.direction,
+                   COALESCE(m.content,'') AS content, m.timestamp,
+                   c.lead_id
+            FROM whatsapp_messages m
+            JOIN whatsapp_contacts c ON c.id = m.wa_contact_id
+            WHERE m.is_deleted = FALSE
+        )
+        SELECT COUNT(*) FROM unified WHERE {where_sql}
+    """
+
+    rows = await db.execute(text(union_sql), params)
+    items = [dict(r._mapping) for r in rows.fetchall()]
+
+    count_params = {k: v for k, v in params.items() if k not in ("lim", "off")}
+    total_row = await db.execute(text(count_sql), count_params)
+    total = total_row.scalar() or 0
+
+    return {"items": items, "total": total, "page": page, "page_size": page_size}
+
+
+# ---------------------------------------------------------------------------
+# Send Email from CRM
+# ---------------------------------------------------------------------------
+
+class SendEmailBody(BaseModel):
+    to_email: str
+    subject: str
+    body: str
+    html_body: Optional[str] = None
+
+
+@router.post("/leads/{lead_id}/send-email")
+async def send_lead_email(
+    lead_id: str, body: SendEmailBody, ctx: dict = Depends(get_current_user_with_tenant)
+):
+    db = ctx["db"]
+
+    # Verify lead exists
+    lead_row = await db.execute(
+        text("SELECT id, full_name, email FROM leads WHERE id = :id"),
+        {"id": lead_id},
+    )
+    lead = lead_row.fetchone()
+    if not lead:
+        raise HTTPException(status_code=404, detail="Lead not found")
+
+    # Send via SMTP
+    from app.services.mailer import build_smtp_config, send_email as smtp_send
+
+    config = build_smtp_config()
+    ok, result = await smtp_send(config, body.to_email, body.subject, body.body, body.html_body)
+    if not ok:
+        raise HTTPException(status_code=502, detail=f"Email send failed: {result}")
+
+    # Record as interaction
+    interaction_id = str(uuid.uuid4())
+    await db.execute(
+        text("""
+            INSERT INTO interactions (id, lead_id, type, direction, content, metadata, created_by)
+            VALUES (:id, :lead_id, 'email', 'outbound', :content,
+                    CAST(:metadata AS jsonb), :created_by)
+        """),
+        {
+            "id": interaction_id,
+            "lead_id": lead_id,
+            "content": body.body,
+            "metadata": json.dumps({
+                "subject": body.subject,
+                "to_email": body.to_email,
+            }),
+            "created_by": ctx["sub"],
+        },
+    )
+    await db.execute(
+        text("UPDATE leads SET last_contacted_at = NOW() WHERE id = :id"),
+        {"id": lead_id},
+    )
+    await db.commit()
+
+    return {"ok": True, "interaction_id": interaction_id}

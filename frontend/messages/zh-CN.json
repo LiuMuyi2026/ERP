@@ -2425,7 +2425,10 @@
     "shiftEnterNewline": "Shift+Enter 换行",
     "selectContact": "从左侧选择联系人",
     "justNow": "刚刚",
-    "send": "发送"
+    "send": "发送",
+    "tabInternal": "站内信",
+    "noWhatsApp": "暂无 WhatsApp 会话",
+    "selectWaChat": "选择 WhatsApp 会话"
   },
   "ai": {
     "assistant": "AI 助手",

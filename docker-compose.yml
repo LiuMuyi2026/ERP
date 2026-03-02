@@ -36,6 +36,8 @@ services:
       - N8N_API_URL=http://n8n:5678
       - N8N_API_KEY=${N8N_API_KEY:-}
       - GEMINI_API_KEY=${GEMINI_API_KEY:-}
+      - WA_BRIDGE_URL=http://wa-bridge:3100
+      - WA_BRIDGE_SECRET=${WA_BRIDGE_SECRET:-}
     ports:
       - "8000:8000"
     depends_on:
@@ -91,6 +93,25 @@ services:
     volumes:
       - n8n_data:/home/node/.n8n
 
+  wa-bridge:
+    build:
+      context: ./whatsapp-bridge
+      dockerfile: ../docker/bridge.Dockerfile
+    container_name: nexus_wa_bridge
+    environment:
+      - PORT=3100
+      - BRIDGE_SECRET=${WA_BRIDGE_SECRET:-}
+      - BACKEND_URL=http://backend:8000
+      - SESSION_DIR=/app/data/wa-sessions
+      - LOG_LEVEL=info
+    ports:
+      - "3100:3100"
+    depends_on:
+      - backend
+    volumes:
+      - wa_sessions:/app/data/wa-sessions
+
 volumes:
   postgres_data:
   n8n_data:
+  wa_sessions:
