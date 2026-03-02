@@ -36,7 +36,7 @@ class Settings(BaseSettings):
     whisper_model: str = "base"
     whisper_language: str = "zh"
 
-    cors_origins: str = "http://localhost:3000,http://localhost:3001,http://localhost:3002"
+    cors_origins: str = "http://localhost:3000,http://localhost:3001,http://localhost:3002,https://nexus-frontend-5thy.onrender.com"
     app_base_url: str = "http://localhost:3000"
 
     email_enabled: bool = False

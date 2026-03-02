@@ -45,9 +45,9 @@ services:
       - key: N8N_API_KEY
         value: ""
       - key: CORS_ORIGINS
-        value: "http://localhost:3000"
+        value: "http://localhost:3000,https://nexus-frontend-5thy.onrender.com"
       - key: APP_BASE_URL
-        value: "http://localhost:3000"
+        value: "https://nexus-frontend-5thy.onrender.com"
       - key: WA_BRIDGE_URL
         sync: false
       - key: WA_BRIDGE_SECRET
