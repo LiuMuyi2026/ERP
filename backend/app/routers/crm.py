@@ -2112,6 +2112,11 @@ async def list_customers(
     customer_type: str = "",
     assigned_to: str = "",
     source: str = "",
+    country: str = "",
+    contract_count_min: int = -1,
+    contract_count_max: int = -1,
+    score_min: int = -1,
+    score_max: int = -1,
     sort_by: str = "updated_at",
     sort_dir: str = "desc",
     ctx: dict = Depends(get_current_user_with_tenant),
@@ -2172,6 +2177,22 @@ async def list_customers(
         for i, v in enumerate(vals):
             params[f"src_{i}"] = v
 
+    if country:
+        vals = [v.strip() for v in country.split(",") if v.strip()]
+        placeholders = ", ".join(f":co_{i}" for i in range(len(vals)))
+        where_parts.append(f"COALESCE(NULLIF(l.country,''), l.custom_fields->>'country', '') IN ({placeholders})")
+        for i, v in enumerate(vals):
+            params[f"co_{i}"] = v
+
+    # contract_count filter — applied via HAVING on the subquery would be complex,
+    # so we filter with a subquery condition
+    if contract_count_min >= 0:
+        where_parts.append("COALESCE(c.contract_count, 0) >= :cc_min")
+        params["cc_min"] = contract_count_min
+    if contract_count_max >= 0:
+        where_parts.append("COALESCE(c.contract_count, 0) <= :cc_max")
+        params["cc_max"] = contract_count_max
+
     where_sql = " AND ".join(where_parts)
 
     # ── Sorting ──
@@ -2195,7 +2216,11 @@ async def list_customers(
     rows = await db.execute(
         text(f"""
             SELECT
-                l.*,
+                l.id, l.full_name, l.company, l.title, l.email, l.phone, l.whatsapp,
+                COALESCE(NULLIF(l.country, ''), l.custom_fields->>'country', '') AS country,
+                l.source, l.status, l.ai_summary, l.custom_fields,
+                l.assigned_to, l.created_at, l.updated_at,
+                l.last_contacted_at, l.duplicate_of, l.is_cold,
                 COALESCE(c.contract_count, 0)   AS contract_count,
                 COALESCE(c.total_value, 0)       AS total_contract_value,
                 COALESCE(c.last_contract_date, NULL) AS last_contract_date,
@@ -2224,6 +2249,12 @@ async def list_customers(
         d["score_label"] = _score_label(d["customer_score"])
         customers.append(d)
 
+    # Python-side score filtering (score is computed in Python, not SQL)
+    if score_min >= 0:
+        customers = [c for c in customers if c["customer_score"] >= score_min]
+    if score_max >= 0:
+        customers = [c for c in customers if c["customer_score"] <= score_max]
+
     # Python-side sort for computed columns
     if sort_by == "customer_score":
         customers.sort(key=lambda x: x.get("customer_score", 0), reverse=(direction == "DESC"))
@@ -2245,13 +2276,40 @@ async def list_customers(
     return {"customers": customers, "total": total}
 
 
+@router.get("/customers/countries")
+async def customer_countries(ctx: dict = Depends(get_current_user_with_tenant)):
+    """Return country distribution of all active customers [{country, count}]."""
+    db = ctx["db"]
+    rows = await db.execute(text("""
+        SELECT COALESCE(NULLIF(l.country, ''), l.custom_fields->>'country', '') AS country,
+               COUNT(*) AS count
+        FROM leads l
+        LEFT JOIN (
+            SELECT lead_id, COUNT(*) AS contract_count
+            FROM crm_contracts GROUP BY lead_id
+        ) c ON c.lead_id = l.id
+        WHERE (l.status IN ('converted','payment','fulfillment','booking','procuring','quoted','negotiating')
+               OR c.contract_count > 0)
+          AND l.duplicate_of IS NULL
+          AND (l.is_cold IS NULL OR l.is_cold = FALSE)
+        GROUP BY 1
+        HAVING COALESCE(NULLIF(l.country, ''), l.custom_fields->>'country', '') != ''
+        ORDER BY count DESC
+    """))
+    return [{"country": r.country, "count": r.count} for r in rows.fetchall()]
+
+
 @router.get("/customers/{lead_id}")
 async def get_customer(lead_id: str, ctx: dict = Depends(get_current_user_with_tenant)):
     """Get single customer detail with understanding score."""
     db = ctx["db"]
     row = await db.execute(
         text("""
-            SELECT l.*,
+            SELECT l.id, l.full_name, l.company, l.title, l.email, l.phone, l.whatsapp,
+                   COALESCE(NULLIF(l.country, ''), l.custom_fields->>'country', '') AS country,
+                   l.source, l.status, l.ai_summary, l.custom_fields,
+                   l.assigned_to, l.created_at, l.updated_at,
+                   l.last_contacted_at, l.duplicate_of, l.is_cold,
                    COALESCE(c.contract_count, 0) AS contract_count,
                    COALESCE(c.total_value, 0)    AS total_contract_value,
                    u.full_name AS assigned_name

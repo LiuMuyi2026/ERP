@@ -833,8 +833,17 @@ function CustomersTab() {
   const filterRef = useRef<HTMLDivElement>(null);
 
   // ── View mode ──
-  const [viewMode, setViewMode] = useState<'table' | 'kanban'>('table');
-  const [kanbanGroupBy, setKanbanGroupBy] = useState<'stage' | 'customer_grade' | 'customer_type'>('stage');
+  const [viewMode, setViewMode] = useState<'table' | 'kanban' | 'map'>('table');
+  const [kanbanGroupBy, setKanbanGroupBy] = useState<'stage' | 'customer_grade' | 'customer_type' | 'country'>('stage');
+
+  // ── New filters ──
+  const [fCountry, setFCountry] = useState<string[]>([]);
+  const [fContractCount, setFContractCount] = useState<string>('');
+  const [fScoreRange, setFScoreRange] = useState<string>('');
+
+  // ── Country stats for map ──
+  const [countryStats, setCountryStats] = useState<{country: string; count: number}[]>([]);
+  const [mapSelectedCountry, setMapSelectedCountry] = useState<string>('');
 
   // ── Sorting ──
   type SortKey = 'full_name' | 'company' | 'customer_score' | 'contract_count' | 'total_contract_value' | 'status' | 'updated_at' | 'customer_grade' | 'customer_type';
@@ -850,7 +859,7 @@ function CustomersTab() {
     }
   }
 
-  const activeFilterCount = fStatus.length + fGrade.length + fCustomerType.length + fAssignedTo.length + fSource.length;
+  const activeFilterCount = fStatus.length + fGrade.length + fCustomerType.length + fAssignedTo.length + fSource.length + fCountry.length + (fContractCount ? 1 : 0) + (fScoreRange ? 1 : 0);
 
   // Load users for assigned_to filter
   useEffect(() => {
@@ -860,6 +869,11 @@ function CustomersTab() {
         setUsers((data.users || data || []).map((u: any) => ({ id: String(u.id), full_name: u.full_name })));
       } catch {}
     })();
+  }, []);
+
+  // Load country stats for map
+  useEffect(() => {
+    api.get('/api/crm/customers/countries').then(setCountryStats).catch(() => {});
   }, []);
 
   // Close filter panel on outside click
@@ -884,12 +898,25 @@ function CustomersTab() {
       if (fCustomerType.length) params.set('customer_type', fCustomerType.join(','));
       if (fAssignedTo.length) params.set('assigned_to', fAssignedTo.join(','));
       if (fSource.length) params.set('source', fSource.join(','));
+      if (fCountry.length) params.set('country', fCountry.join(','));
+      if (fContractCount) {
+        if (fContractCount === 'none') { params.set('contract_count_min', '0'); params.set('contract_count_max', '0'); }
+        else if (fContractCount === '1-2') { params.set('contract_count_min', '1'); params.set('contract_count_max', '2'); }
+        else if (fContractCount === '3-5') { params.set('contract_count_min', '3'); params.set('contract_count_max', '5'); }
+        else if (fContractCount === '6+') { params.set('contract_count_min', '6'); }
+      }
+      if (fScoreRange) {
+        if (fScoreRange === 'low') { params.set('score_min', '0'); params.set('score_max', '39'); }
+        else if (fScoreRange === 'medium') { params.set('score_min', '40'); params.set('score_max', '59'); }
+        else if (fScoreRange === 'high') { params.set('score_min', '60'); params.set('score_max', '79'); }
+        else if (fScoreRange === 'expert') { params.set('score_min', '80'); params.set('score_max', '100'); }
+      }
       const data = await api.get(`/api/crm/customers?${params}`);
       setCustomers(data.customers || []);
       setTotal(data.total || 0);
     } catch {}
     finally { setLoading(false); }
-  }, [fStatus, fGrade, fCustomerType, fAssignedTo, fSource, sortBy, sortDir]);
+  }, [fStatus, fGrade, fCustomerType, fAssignedTo, fSource, fCountry, fContractCount, fScoreRange, sortBy, sortDir]);
 
   useEffect(() => {
     const timer = setTimeout(() => load(search), 300);
@@ -898,24 +925,26 @@ function CustomersTab() {
 
   const convertedCount = customers.filter(c => c.contract_count > 0 || c.status === 'converted').length;
   const totalContractValue = customers.reduce((s, c) => s + (Number(c.total_contract_value) || 0), 0);
-  const distinctCountries = new Set(customers.map(c => c.country).filter(Boolean)).size;
+  const avgScore = customers.length > 0 ? Math.round(customers.reduce((s, c) => s + c.customer_score, 0) / customers.length) : 0;
+
+  // Helper: get country from lead (column or custom_fields)
+  const cf = (c: Customer, key: string) => c.custom_fields?.[key] || '';
 
   return (
     <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-      {/* Stats */}
+      {/* Stats + Search + Filter */}
       <div style={{ padding: '16px 32px', display: 'flex', gap: 16, borderBottom: '1px solid var(--notion-border)' }}>
         {[
-          { label: '客户总数', value: total, color: '#4338ca', bg: '#e0e7ff' },
-          { label: '成交客户', value: convertedCount, color: '#059669', bg: '#d1fae5' },
-          { label: '合同总额', value: totalContractValue > 0 ? `$${totalContractValue.toLocaleString()}` : '$0', color: '#7c3aed', bg: '#ede9fe' },
-          { label: '覆盖国家/地区', value: distinctCountries, color: '#0284c7', bg: '#e0f2fe' },
+          { label: '客户总数', value: total, color: '#4338ca', bg: '#e0e7ff', suffix: '' },
+          { label: '成交客户', value: convertedCount, color: '#059669', bg: '#d1fae5', suffix: '' },
+          { label: '合同总额', value: totalContractValue > 0 ? `$${totalContractValue.toLocaleString()}` : '$0', color: '#7c3aed', bg: '#ede9fe', suffix: '' },
+          { label: '平均了解度', value: avgScore, color: '#f59e0b', bg: '#fef3c7', suffix: '%' },
         ].map((s, i) => (
           <div key={i} style={{ padding: '10px 18px', borderRadius: 10, background: s.bg, border: `1px solid ${s.color}22`, minWidth: 100 }}>
             <div style={{ fontSize: 11, color: s.color, fontWeight: 500, marginBottom: 4 }}>{s.label}</div>
-            <div style={{ fontSize: 22, fontWeight: 800, color: s.color }}>{s.value}</div>
+            <div style={{ fontSize: 22, fontWeight: 800, color: s.color }}>{s.value}{s.suffix}</div>
           </div>
         ))}
-        {/* Search + Filter + View Toggle */}
         <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 8 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 14px', borderRadius: 8, border: '1px solid var(--notion-border)', background: 'var(--notion-card, white)', maxWidth: 260, width: '100%' }}>
             <span style={{ color: 'var(--notion-text-muted)', display: 'flex', alignItems: 'center' }}><HandIcon name="magnifier" size={14} /></span>
@@ -938,11 +967,11 @@ function CustomersTab() {
             </button>
             {/* Filter panel */}
             {showFilterPanel && (
-              <div style={{ position: 'absolute', top: '100%', right: 0, marginTop: 6, width: 360, padding: 16, borderRadius: 12, background: 'var(--notion-card, white)', border: '1px solid var(--notion-border)', boxShadow: '0 8px 24px rgba(0,0,0,0.12)', zIndex: 100 }}>
+              <div style={{ position: 'absolute', top: '100%', right: 0, marginTop: 6, width: 380, maxHeight: '70vh', overflowY: 'auto', padding: 16, borderRadius: 12, background: 'var(--notion-card, white)', border: '1px solid var(--notion-border)', boxShadow: '0 8px 24px rgba(0,0,0,0.12)', zIndex: 100 }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
                   <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--notion-text)' }}>筛选条件</span>
                   {activeFilterCount > 0 && (
-                    <button onClick={() => { setFStatus([]); setFGrade([]); setFCustomerType([]); setFAssignedTo([]); setFSource([]); }}
+                    <button onClick={() => { setFStatus([]); setFGrade([]); setFCustomerType([]); setFAssignedTo([]); setFSource([]); setFCountry([]); setFContractCount(''); setFScoreRange(''); }}
                       style={{ fontSize: 11, color: '#ef4444', background: 'none', border: 'none', cursor: 'pointer' }}>清除全部</button>
                   )}
                 </div>
@@ -951,20 +980,23 @@ function CustomersTab() {
                 <FilterSection title="客户类型" options={FILTER_TYPES.map(t => ({ key: t, label: t }))} selected={fCustomerType} onToggle={k => toggleFilter(fCustomerType, setFCustomerType, k)} />
                 <FilterSection title="负责人" options={users.map(u => ({ key: u.id, label: u.full_name }))} selected={fAssignedTo} onToggle={k => toggleFilter(fAssignedTo, setFAssignedTo, k)} />
                 <FilterSection title="来源" options={FILTER_SOURCES.map(s => ({ key: s, label: s }))} selected={fSource} onToggle={k => toggleFilter(fSource, setFSource, k)} />
+                {countryStats.length > 0 && (
+                  <FilterSection title="国家/地区" options={countryStats.slice(0, 12).map(c => ({ key: c.country, label: `${c.country} (${c.count})` }))} selected={fCountry} onToggle={k => toggleFilter(fCountry, setFCountry, k)} />
+                )}
+                <FilterSection title="合同数量" options={[
+                  { key: 'none', label: '无合同' },
+                  { key: '1-2', label: '1-2 份' },
+                  { key: '3-5', label: '3-5 份' },
+                  { key: '6+', label: '6 份以上' },
+                ]} selected={fContractCount ? [fContractCount] : []} onToggle={k => setFContractCount(prev => prev === k ? '' : k)} />
+                <FilterSection title="了解度" options={[
+                  { key: 'low', label: '了解不足 (<40)' },
+                  { key: 'medium', label: '初步了解 (40-59)' },
+                  { key: 'high', label: '较为了解 (60-79)' },
+                  { key: 'expert', label: '深度了解 (≥80)' },
+                ]} selected={fScoreRange ? [fScoreRange] : []} onToggle={k => setFScoreRange(prev => prev === k ? '' : k)} />
               </div>
             )}
-          </div>
-
-          {/* View toggle */}
-          <div style={{ display: 'flex', borderRadius: 8, border: '1px solid var(--notion-border)', overflow: 'hidden' }}>
-            {([['table', '☰', '表格'], ['kanban', '⊞', '看板']] as const).map(([mode, icon, label]) => (
-              <button key={mode} onClick={() => setViewMode(mode)}
-                title={label}
-                style={{ padding: '7px 10px', fontSize: 14, cursor: 'pointer', border: 'none',
-                  background: viewMode === mode ? '#ede9fe' : 'var(--notion-card, white)',
-                  color: viewMode === mode ? '#7c3aed' : 'var(--notion-text-muted)',
-                }}>{icon}</button>
-            ))}
           </div>
 
           {/* Kanban group-by selector */}
@@ -974,9 +1006,35 @@ function CustomersTab() {
               <option value="stage">按阶段</option>
               <option value="customer_grade">按等级</option>
               <option value="customer_type">按类型</option>
+              <option value="country">按国家</option>
             </select>
           )}
         </div>
+      </div>
+
+      {/* View Tab Bar */}
+      <div style={{ display: 'flex', borderBottom: '2px solid var(--notion-border)', background: 'var(--notion-card, white)' }}>
+        {([
+          { mode: 'table' as const, icon: '☰', label: '表格视图' },
+          { mode: 'kanban' as const, icon: '⊞', label: '看板视图' },
+          { mode: 'map' as const, icon: '🗺', label: '客户地图' },
+        ]).map(tab => {
+          const active = viewMode === tab.mode;
+          return (
+            <button key={tab.mode} onClick={() => setViewMode(tab.mode)}
+              style={{
+                flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+                padding: '12px 0', fontSize: 13, fontWeight: active ? 700 : 500, cursor: 'pointer',
+                border: 'none', borderBottom: active ? '3px solid #7c3aed' : '3px solid transparent',
+                background: 'transparent', marginBottom: -2,
+                color: active ? '#7c3aed' : 'var(--notion-text-muted)',
+                transition: 'all 0.15s ease',
+              }}>
+              <span style={{ fontSize: 16 }}>{tab.icon}</span>
+              {tab.label}
+            </button>
+          );
+        })}
       </div>
 
       {/* Active filter chips */}
@@ -999,6 +1057,15 @@ function CustomersTab() {
           {fSource.map(s => (
             <span key={`src-${s}`} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '3px 10px', borderRadius: 99, fontSize: 11, background: '#f0f9ff', color: '#0c4a6e', border: '1px solid #bae6fd' }}>来源: {s} <button onClick={() => setFSource(prev => prev.filter(x => x !== s))} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#0c4a6e', fontSize: 12, padding: 0 }}>✕</button></span>
           ))}
+          {fCountry.map(c => (
+            <span key={`co-${c}`} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '3px 10px', borderRadius: 99, fontSize: 11, background: '#e0f2fe', color: '#0369a1', border: '1px solid #7dd3fc' }}>国家: {c} <button onClick={() => setFCountry(prev => prev.filter(x => x !== c))} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#0369a1', fontSize: 12, padding: 0 }}>✕</button></span>
+          ))}
+          {fContractCount && (
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '3px 10px', borderRadius: 99, fontSize: 11, background: '#dcfce7', color: '#166534', border: '1px solid #86efac' }}>合同: {fContractCount === 'none' ? '无合同' : fContractCount === '6+' ? '6份以上' : fContractCount + '份'} <button onClick={() => setFContractCount('')} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#166534', fontSize: 12, padding: 0 }}>✕</button></span>
+          )}
+          {fScoreRange && (
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '3px 10px', borderRadius: 99, fontSize: 11, background: '#fef3c7', color: '#92400e', border: '1px solid #fde68a' }}>了解度: {{ low: '了解不足', medium: '初步了解', high: '较为了解', expert: '深度了解' }[fScoreRange]} <button onClick={() => setFScoreRange('')} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#92400e', fontSize: 12, padding: 0 }}>✕</button></span>
+          )}
         </div>
       )}
 
@@ -1012,7 +1079,7 @@ function CustomersTab() {
             <div style={{ fontSize: 16, fontWeight: 600, marginBottom: 8 }}>暂无客户数据</div>
             <div style={{ fontSize: 13, color: 'var(--notion-text-muted)' }}>{search ? '没有找到匹配的客户' : '从线索管理中转化线索后，客户将出现在这里'}</div>
           </div>
-        ) : viewMode === 'kanban' ? renderKanban() : (
+        ) : viewMode === 'map' ? renderMap() : viewMode === 'kanban' ? renderKanban() : (
           <table style={{ width: '100%', borderCollapse: 'collapse', marginTop: 16 }}>
             <thead>
               <tr style={{ borderBottom: '2px solid var(--notion-border)' }}>
@@ -1107,6 +1174,229 @@ function CustomersTab() {
     </div>
   );
 
+  // ── Map Rendering ────────────────────────────────────────────────────────────
+  function renderMap() {
+    // Simplified SVG paths for major trade countries (Natural Earth inspired, simplified)
+    const COUNTRY_PATHS: Record<string, { name_zh: string; d: string }> = {
+      'China': { name_zh: '中国', d: 'M680 190 L720 180 740 200 760 195 770 210 755 230 740 240 720 260 700 270 680 260 660 240 650 220 655 200Z' },
+      'United States': { name_zh: '美国', d: 'M100 180 L160 170 200 175 240 180 260 190 250 210 230 220 200 225 160 220 120 215 100 210 90 195Z' },
+      'USA': { name_zh: '美国', d: 'M100 180 L160 170 200 175 240 180 260 190 250 210 230 220 200 225 160 220 120 215 100 210 90 195Z' },
+      'India': { name_zh: '印度', d: 'M640 240 L660 235 680 250 685 275 670 300 655 310 640 295 635 270 630 255Z' },
+      'Turkey': { name_zh: '土耳其', d: 'M545 195 L580 190 600 195 590 210 570 215 545 210 540 200Z' },
+      'Türkiye': { name_zh: '土耳其', d: 'M545 195 L580 190 600 195 590 210 570 215 545 210 540 200Z' },
+      'Vietnam': { name_zh: '越南', d: 'M720 260 L730 255 735 275 725 295 715 290 710 270Z' },
+      'Brazil': { name_zh: '巴西', d: 'M250 310 L290 290 320 300 330 330 320 360 290 370 260 360 240 340Z' },
+      'Russia': { name_zh: '俄罗斯', d: 'M540 100 L600 90 680 95 750 100 800 110 790 140 750 155 700 160 640 155 580 150 550 135 535 120Z' },
+      'Germany': { name_zh: '德国', d: 'M495 165 L510 160 515 175 510 190 495 188 490 175Z' },
+      'Japan': { name_zh: '日本', d: 'M790 195 L800 185 805 200 800 215 790 210Z' },
+      'South Korea': { name_zh: '韩国', d: 'M770 200 L780 195 782 210 775 215 768 210Z' },
+      'Korea': { name_zh: '韩国', d: 'M770 200 L780 195 782 210 775 215 768 210Z' },
+      'United Kingdom': { name_zh: '英国', d: 'M470 155 L478 148 482 162 476 170 468 165Z' },
+      'UK': { name_zh: '英国', d: 'M470 155 L478 148 482 162 476 170 468 165Z' },
+      'France': { name_zh: '法国', d: 'M478 175 L498 170 502 185 495 198 480 195 475 185Z' },
+      'Italy': { name_zh: '意大利', d: 'M505 190 L515 185 518 205 510 220 502 210 500 195Z' },
+      'Spain': { name_zh: '西班牙', d: 'M455 200 L480 195 485 210 475 220 455 218 448 210Z' },
+      'Mexico': { name_zh: '墨西哥', d: 'M120 240 L160 230 180 245 170 265 150 270 125 260Z' },
+      'Canada': { name_zh: '加拿大', d: 'M100 120 L180 110 260 115 280 130 260 155 200 160 140 158 100 155 85 140Z' },
+      'Australia': { name_zh: '澳大利亚', d: 'M740 360 L790 345 810 370 800 400 770 410 740 395 730 375Z' },
+      'Indonesia': { name_zh: '印度尼西亚', d: 'M720 310 L750 305 775 315 760 330 735 325 720 318Z' },
+      'Thailand': { name_zh: '泰国', d: 'M710 260 L720 255 718 280 710 290 705 275Z' },
+      'Saudi Arabia': { name_zh: '沙特阿拉伯', d: 'M580 240 L610 230 625 245 615 265 590 270 575 258Z' },
+      'UAE': { name_zh: '阿联酋', d: 'M620 255 L635 250 638 262 630 268 618 263Z' },
+      'Egypt': { name_zh: '埃及', d: 'M540 235 L560 230 565 250 555 265 538 260 535 245Z' },
+      'Nigeria': { name_zh: '尼日利亚', d: 'M485 290 L505 285 510 305 498 315 482 308 480 295Z' },
+      'South Africa': { name_zh: '南非', d: 'M520 380 L545 370 555 390 545 410 525 412 515 395Z' },
+      'Pakistan': { name_zh: '巴基斯坦', d: 'M630 220 L650 215 660 235 645 250 630 245 625 230Z' },
+      'Bangladesh': { name_zh: '孟加拉', d: 'M670 250 L685 245 688 260 680 268 668 262Z' },
+      'Poland': { name_zh: '波兰', d: 'M515 158 L535 154 538 168 530 178 515 175 512 165Z' },
+      'Netherlands': { name_zh: '荷兰', d: 'M490 160 L500 157 502 167 496 172 488 168Z' },
+      'Argentina': { name_zh: '阿根廷', d: 'M260 370 L280 360 285 400 275 430 260 425 250 395Z' },
+      'Colombia': { name_zh: '哥伦比亚', d: 'M220 280 L245 275 255 295 240 310 225 305 218 290Z' },
+      'Malaysia': { name_zh: '马来西亚', d: 'M725 300 L742 296 745 308 738 314 722 310Z' },
+      'Philippines': { name_zh: '菲律宾', d: 'M765 270 L775 265 778 285 770 295 762 285Z' },
+      'Singapore': { name_zh: '新加坡', d: 'M730 310 L735 308 736 314 732 316 728 313Z' },
+      'Iran': { name_zh: '伊朗', d: 'M600 210 L625 205 635 220 625 235 605 240 595 225Z' },
+      'Iraq': { name_zh: '伊拉克', d: 'M580 210 L600 205 605 225 595 235 578 230 575 218Z' },
+      'Chile': { name_zh: '智利', d: 'M245 370 L255 365 258 430 250 445 242 430 240 390Z' },
+      'Peru': { name_zh: '秘鲁', d: 'M215 310 L240 305 245 340 235 355 215 350 210 325Z' },
+    };
+
+    // Build country → count lookup
+    const countryCountMap: Record<string, number> = {};
+    for (const cs of countryStats) countryCountMap[cs.country] = cs.count;
+
+    // Color scale
+    const getColor = (count: number) => {
+      if (count <= 0) return '#f1f5f9';
+      if (count <= 2) return '#bfdbfe';
+      if (count <= 5) return '#60a5fa';
+      return '#2563eb';
+    };
+
+    // Find matching country in COUNTRY_PATHS
+    const findPathKey = (countryName: string): string | null => {
+      if (COUNTRY_PATHS[countryName]) return countryName;
+      // Fuzzy match
+      const lower = countryName.toLowerCase();
+      for (const key of Object.keys(COUNTRY_PATHS)) {
+        if (key.toLowerCase() === lower) return key;
+        if (COUNTRY_PATHS[key].name_zh === countryName) return key;
+      }
+      return null;
+    };
+
+    // Customers for selected country
+    const mapCustomers = mapSelectedCountry
+      ? customers.filter(c => {
+          const cn = c.country || cf(c, 'country') || '';
+          return cn === mapSelectedCountry;
+        })
+      : [];
+
+    return (
+      <div style={{ marginTop: 16 }}>
+        <div style={{ display: 'flex', gap: 24, minHeight: 400 }}>
+          {/* SVG Map */}
+          <div style={{ flex: 3, position: 'relative', borderRadius: 12, border: '1px solid var(--notion-border)', background: '#f8fafc', padding: 16, overflow: 'hidden' }}>
+            <svg viewBox="50 70 800 380" style={{ width: '100%', height: '100%', minHeight: 350 }}>
+              {/* Render all country paths */}
+              {Object.entries(COUNTRY_PATHS).map(([name, { d }]) => {
+                // Avoid duplicate rendering for aliases
+                const aliases: Record<string, string> = { 'USA': 'United States', 'UK': 'United Kingdom', 'Korea': 'South Korea', 'Türkiye': 'Turkey' };
+                if (aliases[name]) return null;
+                const count = countryCountMap[name] || 0;
+                // Also check aliases that point to this name
+                const allAliases = Object.entries(aliases).filter(([, v]) => v === name).map(([k]) => k);
+                const totalCount = count + allAliases.reduce((s, a) => s + (countryCountMap[a] || 0), 0);
+                // Also check Chinese name
+                const zhCount = countryCountMap[COUNTRY_PATHS[name].name_zh] || 0;
+                const finalCount = totalCount + zhCount;
+                const isSelected = mapSelectedCountry === name || mapSelectedCountry === COUNTRY_PATHS[name].name_zh || allAliases.includes(mapSelectedCountry);
+                return (
+                  <path
+                    key={name}
+                    d={d}
+                    fill={isSelected ? '#7c3aed' : getColor(finalCount)}
+                    stroke={isSelected ? '#5b21b6' : '#94a3b8'}
+                    strokeWidth={isSelected ? 2 : 0.5}
+                    style={{ cursor: finalCount > 0 ? 'pointer' : 'default', transition: 'fill 0.2s' }}
+                    onClick={() => {
+                      if (finalCount > 0) {
+                        const clickName = countryCountMap[name] ? name : countryCountMap[COUNTRY_PATHS[name].name_zh] ? COUNTRY_PATHS[name].name_zh : allAliases.find(a => countryCountMap[a]) || name;
+                        setMapSelectedCountry(prev => prev === clickName ? '' : clickName);
+                      }
+                    }}
+                  >
+                    <title>{COUNTRY_PATHS[name].name_zh} — {finalCount} 位客户</title>
+                  </path>
+                );
+              })}
+            </svg>
+            {/* Legend */}
+            <div style={{ position: 'absolute', bottom: 12, left: 16, display: 'flex', gap: 12, fontSize: 10, color: 'var(--notion-text-muted)' }}>
+              {[{ c: '#f1f5f9', l: '0' }, { c: '#bfdbfe', l: '1-2' }, { c: '#60a5fa', l: '3-5' }, { c: '#2563eb', l: '6+' }].map(x => (
+                <span key={x.l} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                  <span style={{ width: 12, height: 12, borderRadius: 3, background: x.c, border: '1px solid #cbd5e1' }} />
+                  {x.l}
+                </span>
+              ))}
+            </div>
+          </div>
+
+          {/* Country list sidebar */}
+          <div style={{ flex: 1, minWidth: 180, maxHeight: 450, overflowY: 'auto', borderRadius: 12, border: '1px solid var(--notion-border)', background: 'var(--notion-card, white)' }}>
+            <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--notion-border)', fontSize: 12, fontWeight: 700, color: 'var(--notion-text)' }}>
+              国家分布 ({countryStats.length})
+            </div>
+            {countryStats.map(cs => {
+              const isActive = mapSelectedCountry === cs.country;
+              return (
+                <div key={cs.country}
+                  onClick={() => setMapSelectedCountry(prev => prev === cs.country ? '' : cs.country)}
+                  style={{
+                    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                    padding: '10px 16px', cursor: 'pointer',
+                    background: isActive ? '#ede9fe' : 'transparent',
+                    borderLeft: isActive ? '3px solid #7c3aed' : '3px solid transparent',
+                    transition: 'all 0.15s',
+                  }}
+                  onMouseEnter={e => { if (!isActive) e.currentTarget.style.background = 'var(--notion-hover)'; }}
+                  onMouseLeave={e => { if (!isActive) e.currentTarget.style.background = 'transparent'; }}
+                >
+                  <span style={{ fontSize: 13, fontWeight: isActive ? 600 : 400, color: isActive ? '#7c3aed' : 'var(--notion-text)' }}>{cs.country}</span>
+                  <span style={{ fontSize: 12, fontWeight: 700, padding: '2px 8px', borderRadius: 99,
+                    background: isActive ? '#7c3aed' : '#f1f5f9',
+                    color: isActive ? 'white' : 'var(--notion-text-muted)',
+                  }}>{cs.count}</span>
+                </div>
+              );
+            })}
+            {countryStats.length === 0 && (
+              <div style={{ padding: 24, textAlign: 'center', fontSize: 12, color: 'var(--notion-text-muted)' }}>暂无国家数据</div>
+            )}
+          </div>
+        </div>
+
+        {/* Selected country customer list */}
+        {mapSelectedCountry && (
+          <div style={{ marginTop: 16, borderRadius: 12, border: '1px solid var(--notion-border)', background: 'var(--notion-card, white)', overflow: 'hidden' }}>
+            <div style={{ padding: '12px 20px', borderBottom: '1px solid var(--notion-border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--notion-text)' }}>
+                {mapSelectedCountry} 的客户 ({mapCustomers.length})
+              </span>
+              <button onClick={() => { setFCountry([mapSelectedCountry]); setViewMode('table'); }}
+                style={{ fontSize: 11, padding: '4px 12px', borderRadius: 6, border: '1px solid #7c3aed', background: '#ede9fe', color: '#7c3aed', cursor: 'pointer', fontWeight: 500 }}>
+                在表格中筛选
+              </button>
+            </div>
+            {mapCustomers.length === 0 ? (
+              <div style={{ padding: 24, textAlign: 'center', fontSize: 12, color: 'var(--notion-text-muted)' }}>该国暂无客户数据（可能客户已加载在其他页）</div>
+            ) : (
+              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                <thead>
+                  <tr style={{ borderBottom: '1px solid var(--notion-border)' }}>
+                    {['客户名称', '公司', '了解度', '状态', '合同'].map(h => (
+                      <th key={h} style={{ padding: '8px 16px', textAlign: 'left', fontSize: 11, fontWeight: 600, color: 'var(--notion-text-muted)' }}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {mapCustomers.map(c => (
+                    <tr key={c.id} onClick={() => setSelected(c)} style={{ borderBottom: '1px solid var(--notion-border)', cursor: 'pointer' }}
+                      onMouseEnter={e => (e.currentTarget.style.background = 'var(--notion-hover)')}
+                      onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}>
+                      <td style={{ padding: '10px 16px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                          <div style={{ width: 28, height: 28, borderRadius: 8, background: '#ede9fe', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 700, color: '#7c3aed', flexShrink: 0 }}>{c.full_name.charAt(0)}</div>
+                          <span style={{ fontSize: 13, fontWeight: 600 }}>{c.full_name}</span>
+                        </div>
+                      </td>
+                      <td style={{ padding: '10px 16px', fontSize: 13 }}>{c.company || '—'}</td>
+                      <td style={{ padding: '10px 16px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                          <div style={{ width: 60, height: 5, borderRadius: 99, background: '#e5e7eb', overflow: 'hidden' }}>
+                            <div style={{ height: '100%', width: `${c.customer_score}%`, borderRadius: 99, background: c.customer_score >= 80 ? '#10b981' : c.customer_score >= 60 ? '#f59e0b' : c.customer_score >= 40 ? '#3b82f6' : '#ef4444' }} />
+                          </div>
+                          <span style={{ fontSize: 11, fontWeight: 600 }}>{c.customer_score}%</span>
+                        </div>
+                      </td>
+                      <td style={{ padding: '10px 16px' }}>
+                        <span style={{ fontSize: 11, padding: '3px 8px', borderRadius: 99, background: '#ede9fe', color: '#6d28d9' }}>{c.status}</span>
+                      </td>
+                      <td style={{ padding: '10px 16px', fontSize: 13, fontWeight: 600, color: c.contract_count > 0 ? '#059669' : 'var(--notion-text-muted)' }}>
+                        {c.contract_count > 0 ? `${c.contract_count} 份` : '—'}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+        )}
+      </div>
+    );
+  }
+
   // ── Kanban Rendering ──────────────────────────────────────────────────────────
   function renderKanban() {
     const KANBAN_GROUPS: Record<string, { key: string; label: string; color: string; bg: string }[]> = {
@@ -1137,7 +1427,16 @@ function CustomersTab() {
       ],
     };
 
-    const groups = KANBAN_GROUPS[kanbanGroupBy] || KANBAN_GROUPS.stage;
+    // Dynamic country groups from countryStats
+    let groups: { key: string; label: string; color: string; bg: string }[];
+    if (kanbanGroupBy === 'country') {
+      const palette = ['#0284c7', '#7c3aed', '#059669', '#c2410c', '#dc2626', '#f59e0b', '#4338ca', '#10b981'];
+      const bgPalette = ['#e0f2fe', '#ede9fe', '#d1fae5', '#fff7ed', '#fef2f2', '#fef3c7', '#e0e7ff', '#d1fae5'];
+      groups = countryStats.map((cs, i) => ({ key: cs.country, label: cs.country, color: palette[i % palette.length], bg: bgPalette[i % bgPalette.length] }));
+      groups.push({ key: '_unknown', label: '未知', color: '#9B9A97', bg: '#f5f5f5' });
+    } else {
+      groups = KANBAN_GROUPS[kanbanGroupBy] || KANBAN_GROUPS.stage;
+    }
     const grouped: Record<string, Customer[]> = {};
     for (const g of groups) grouped[g.key] = [];
 
@@ -1148,6 +1447,9 @@ function CustomersTab() {
       } else if (kanbanGroupBy === 'customer_grade') {
         const grade = c.custom_fields?.customer_grade as string | undefined;
         key = grade && groups.some(g => g.key === grade) ? grade : '_unrated';
+      } else if (kanbanGroupBy === 'country') {
+        const country = c.country || cf(c, 'country') || '';
+        key = country && groups.some(g => g.key === country) ? country : '_unknown';
       } else {
         const ctype = c.custom_fields?.customer_type as string | undefined;
         key = ctype && groups.some(g => g.key === ctype) ? ctype : '_other';
