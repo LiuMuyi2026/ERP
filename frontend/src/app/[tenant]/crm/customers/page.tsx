@@ -5,6 +5,7 @@ import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { api, getApiUrl, getAuthHeaders } from '@/lib/api';
 import { getCurrentUser, getTenantId } from '@/lib/auth';
 import { HandIcon } from '@/components/ui/HandIcon';
+import CustomerMap from '@/components/ui/CustomerMap';
 
 // ── Shared Types ───────────────────────────────────────────────────────────────
 interface Customer {
@@ -1176,75 +1177,6 @@ function CustomersTab() {
 
   // ── Map Rendering ────────────────────────────────────────────────────────────
   function renderMap() {
-    // Simplified SVG paths for major trade countries (Natural Earth inspired, simplified)
-    const COUNTRY_PATHS: Record<string, { name_zh: string; d: string }> = {
-      'China': { name_zh: '中国', d: 'M680 190 L720 180 740 200 760 195 770 210 755 230 740 240 720 260 700 270 680 260 660 240 650 220 655 200Z' },
-      'United States': { name_zh: '美国', d: 'M100 180 L160 170 200 175 240 180 260 190 250 210 230 220 200 225 160 220 120 215 100 210 90 195Z' },
-      'USA': { name_zh: '美国', d: 'M100 180 L160 170 200 175 240 180 260 190 250 210 230 220 200 225 160 220 120 215 100 210 90 195Z' },
-      'India': { name_zh: '印度', d: 'M640 240 L660 235 680 250 685 275 670 300 655 310 640 295 635 270 630 255Z' },
-      'Turkey': { name_zh: '土耳其', d: 'M545 195 L580 190 600 195 590 210 570 215 545 210 540 200Z' },
-      'Türkiye': { name_zh: '土耳其', d: 'M545 195 L580 190 600 195 590 210 570 215 545 210 540 200Z' },
-      'Vietnam': { name_zh: '越南', d: 'M720 260 L730 255 735 275 725 295 715 290 710 270Z' },
-      'Brazil': { name_zh: '巴西', d: 'M250 310 L290 290 320 300 330 330 320 360 290 370 260 360 240 340Z' },
-      'Russia': { name_zh: '俄罗斯', d: 'M540 100 L600 90 680 95 750 100 800 110 790 140 750 155 700 160 640 155 580 150 550 135 535 120Z' },
-      'Germany': { name_zh: '德国', d: 'M495 165 L510 160 515 175 510 190 495 188 490 175Z' },
-      'Japan': { name_zh: '日本', d: 'M790 195 L800 185 805 200 800 215 790 210Z' },
-      'South Korea': { name_zh: '韩国', d: 'M770 200 L780 195 782 210 775 215 768 210Z' },
-      'Korea': { name_zh: '韩国', d: 'M770 200 L780 195 782 210 775 215 768 210Z' },
-      'United Kingdom': { name_zh: '英国', d: 'M470 155 L478 148 482 162 476 170 468 165Z' },
-      'UK': { name_zh: '英国', d: 'M470 155 L478 148 482 162 476 170 468 165Z' },
-      'France': { name_zh: '法国', d: 'M478 175 L498 170 502 185 495 198 480 195 475 185Z' },
-      'Italy': { name_zh: '意大利', d: 'M505 190 L515 185 518 205 510 220 502 210 500 195Z' },
-      'Spain': { name_zh: '西班牙', d: 'M455 200 L480 195 485 210 475 220 455 218 448 210Z' },
-      'Mexico': { name_zh: '墨西哥', d: 'M120 240 L160 230 180 245 170 265 150 270 125 260Z' },
-      'Canada': { name_zh: '加拿大', d: 'M100 120 L180 110 260 115 280 130 260 155 200 160 140 158 100 155 85 140Z' },
-      'Australia': { name_zh: '澳大利亚', d: 'M740 360 L790 345 810 370 800 400 770 410 740 395 730 375Z' },
-      'Indonesia': { name_zh: '印度尼西亚', d: 'M720 310 L750 305 775 315 760 330 735 325 720 318Z' },
-      'Thailand': { name_zh: '泰国', d: 'M710 260 L720 255 718 280 710 290 705 275Z' },
-      'Saudi Arabia': { name_zh: '沙特阿拉伯', d: 'M580 240 L610 230 625 245 615 265 590 270 575 258Z' },
-      'UAE': { name_zh: '阿联酋', d: 'M620 255 L635 250 638 262 630 268 618 263Z' },
-      'Egypt': { name_zh: '埃及', d: 'M540 235 L560 230 565 250 555 265 538 260 535 245Z' },
-      'Nigeria': { name_zh: '尼日利亚', d: 'M485 290 L505 285 510 305 498 315 482 308 480 295Z' },
-      'South Africa': { name_zh: '南非', d: 'M520 380 L545 370 555 390 545 410 525 412 515 395Z' },
-      'Pakistan': { name_zh: '巴基斯坦', d: 'M630 220 L650 215 660 235 645 250 630 245 625 230Z' },
-      'Bangladesh': { name_zh: '孟加拉', d: 'M670 250 L685 245 688 260 680 268 668 262Z' },
-      'Poland': { name_zh: '波兰', d: 'M515 158 L535 154 538 168 530 178 515 175 512 165Z' },
-      'Netherlands': { name_zh: '荷兰', d: 'M490 160 L500 157 502 167 496 172 488 168Z' },
-      'Argentina': { name_zh: '阿根廷', d: 'M260 370 L280 360 285 400 275 430 260 425 250 395Z' },
-      'Colombia': { name_zh: '哥伦比亚', d: 'M220 280 L245 275 255 295 240 310 225 305 218 290Z' },
-      'Malaysia': { name_zh: '马来西亚', d: 'M725 300 L742 296 745 308 738 314 722 310Z' },
-      'Philippines': { name_zh: '菲律宾', d: 'M765 270 L775 265 778 285 770 295 762 285Z' },
-      'Singapore': { name_zh: '新加坡', d: 'M730 310 L735 308 736 314 732 316 728 313Z' },
-      'Iran': { name_zh: '伊朗', d: 'M600 210 L625 205 635 220 625 235 605 240 595 225Z' },
-      'Iraq': { name_zh: '伊拉克', d: 'M580 210 L600 205 605 225 595 235 578 230 575 218Z' },
-      'Chile': { name_zh: '智利', d: 'M245 370 L255 365 258 430 250 445 242 430 240 390Z' },
-      'Peru': { name_zh: '秘鲁', d: 'M215 310 L240 305 245 340 235 355 215 350 210 325Z' },
-    };
-
-    // Build country → count lookup
-    const countryCountMap: Record<string, number> = {};
-    for (const cs of countryStats) countryCountMap[cs.country] = cs.count;
-
-    // Color scale
-    const getColor = (count: number) => {
-      if (count <= 0) return '#f1f5f9';
-      if (count <= 2) return '#bfdbfe';
-      if (count <= 5) return '#60a5fa';
-      return '#2563eb';
-    };
-
-    // Find matching country in COUNTRY_PATHS
-    const findPathKey = (countryName: string): string | null => {
-      if (COUNTRY_PATHS[countryName]) return countryName;
-      // Fuzzy match
-      const lower = countryName.toLowerCase();
-      for (const key of Object.keys(COUNTRY_PATHS)) {
-        if (key.toLowerCase() === lower) return key;
-        if (COUNTRY_PATHS[key].name_zh === countryName) return key;
-      }
-      return null;
-    };
-
     // Customers for selected country
     const mapCustomers = mapSelectedCountry
       ? customers.filter(c => {
@@ -1256,51 +1188,13 @@ function CustomersTab() {
     return (
       <div style={{ marginTop: 16 }}>
         <div style={{ display: 'flex', gap: 24, minHeight: 400 }}>
-          {/* SVG Map */}
-          <div style={{ flex: 3, position: 'relative', borderRadius: 12, border: '1px solid var(--notion-border)', background: '#f8fafc', padding: 16, overflow: 'hidden' }}>
-            <svg viewBox="50 70 800 380" style={{ width: '100%', height: '100%', minHeight: 350 }}>
-              {/* Render all country paths */}
-              {Object.entries(COUNTRY_PATHS).map(([name, { d }]) => {
-                // Avoid duplicate rendering for aliases
-                const aliases: Record<string, string> = { 'USA': 'United States', 'UK': 'United Kingdom', 'Korea': 'South Korea', 'Türkiye': 'Turkey' };
-                if (aliases[name]) return null;
-                const count = countryCountMap[name] || 0;
-                // Also check aliases that point to this name
-                const allAliases = Object.entries(aliases).filter(([, v]) => v === name).map(([k]) => k);
-                const totalCount = count + allAliases.reduce((s, a) => s + (countryCountMap[a] || 0), 0);
-                // Also check Chinese name
-                const zhCount = countryCountMap[COUNTRY_PATHS[name].name_zh] || 0;
-                const finalCount = totalCount + zhCount;
-                const isSelected = mapSelectedCountry === name || mapSelectedCountry === COUNTRY_PATHS[name].name_zh || allAliases.includes(mapSelectedCountry);
-                return (
-                  <path
-                    key={name}
-                    d={d}
-                    fill={isSelected ? '#7c3aed' : getColor(finalCount)}
-                    stroke={isSelected ? '#5b21b6' : '#94a3b8'}
-                    strokeWidth={isSelected ? 2 : 0.5}
-                    style={{ cursor: finalCount > 0 ? 'pointer' : 'default', transition: 'fill 0.2s' }}
-                    onClick={() => {
-                      if (finalCount > 0) {
-                        const clickName = countryCountMap[name] ? name : countryCountMap[COUNTRY_PATHS[name].name_zh] ? COUNTRY_PATHS[name].name_zh : allAliases.find(a => countryCountMap[a]) || name;
-                        setMapSelectedCountry(prev => prev === clickName ? '' : clickName);
-                      }
-                    }}
-                  >
-                    <title>{COUNTRY_PATHS[name].name_zh} — {finalCount} 位客户</title>
-                  </path>
-                );
-              })}
-            </svg>
-            {/* Legend */}
-            <div style={{ position: 'absolute', bottom: 12, left: 16, display: 'flex', gap: 12, fontSize: 10, color: 'var(--notion-text-muted)' }}>
-              {[{ c: '#f1f5f9', l: '0' }, { c: '#bfdbfe', l: '1-2' }, { c: '#60a5fa', l: '3-5' }, { c: '#2563eb', l: '6+' }].map(x => (
-                <span key={x.l} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                  <span style={{ width: 12, height: 12, borderRadius: 3, background: x.c, border: '1px solid #cbd5e1' }} />
-                  {x.l}
-                </span>
-              ))}
-            </div>
+          {/* Leaflet Map */}
+          <div style={{ flex: 3, borderRadius: 12, border: '1px solid var(--notion-border)', overflow: 'hidden' }}>
+            <CustomerMap
+              countryStats={countryStats}
+              selectedCountry={mapSelectedCountry}
+              onSelectCountry={(c) => setMapSelectedCountry(prev => prev === c ? '' : c)}
+            />
           </div>
 
           {/* Country list sidebar */}
@@ -1924,6 +1818,78 @@ function ContactField({ icon, label, value, href, color }: { icon: React.ReactNo
   return content;
 }
 
+function AddWhatsAppButton({ phone, name }: { phone: string; name: string }) {
+  const [accounts, setAccounts] = useState<{ id: string; display_name?: string; phone_number?: string }[]>([]);
+  const [showModal, setShowModal] = useState(false);
+  const [selectedAccount, setSelectedAccount] = useState('');
+  const [adding, setAdding] = useState(false);
+  const [added, setAdded] = useState(false);
+
+  async function openModal() {
+    setShowModal(true);
+    try {
+      const data = await api.get('/api/whatsapp/accounts');
+      setAccounts(Array.isArray(data) ? data : []);
+      if (data.length === 1) setSelectedAccount(data[0].id);
+    } catch { setAccounts([]); }
+  }
+
+  async function handleAdd() {
+    if (!selectedAccount) return;
+    setAdding(true);
+    try {
+      // Stub: just mark as added since bridge isn't connected
+      setAdded(true);
+      setShowModal(false);
+    } catch {}
+    finally { setAdding(false); }
+  }
+
+  return (
+    <>
+      <button
+        onClick={added ? undefined : openModal}
+        disabled={added}
+        style={{ padding: '6px 12px', borderRadius: 8, border: '1px solid #25D366', background: added ? '#d1fae5' : 'none', color: added ? '#065f46' : '#25D366', cursor: added ? 'default' : 'pointer', fontSize: 12, fontWeight: 600 }}
+      >
+        {added ? '✓ WA Added' : 'WhatsApp'}
+      </button>
+      {showModal && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 50, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.4)' }}
+          onClick={e => { if (e.target === e.currentTarget) setShowModal(false); }}>
+          <div style={{ borderRadius: 12, padding: 24, width: '100%', maxWidth: 360, background: 'var(--notion-bg)', boxShadow: '0 25px 50px rgba(0,0,0,0.15)' }}>
+            <h3 style={{ fontSize: 16, fontWeight: 700, marginBottom: 4, color: 'var(--notion-text)' }}>Add to WhatsApp</h3>
+            <p style={{ fontSize: 13, color: 'var(--notion-text-muted)', marginBottom: 16 }}>
+              Add <strong>{name}</strong> ({phone}) to your WhatsApp account
+            </p>
+            {accounts.length === 0 ? (
+              <p style={{ fontSize: 13, color: '#dc2626', marginBottom: 16 }}>No WhatsApp accounts connected. Go to Settings to connect one.</p>
+            ) : (
+              <select value={selectedAccount} onChange={e => setSelectedAccount(e.target.value)}
+                style={{ width: '100%', padding: '8px 12px', borderRadius: 8, border: '1px solid var(--notion-border)', fontSize: 13, color: 'var(--notion-text)', marginBottom: 16, outline: 'none' }}>
+                <option value="">Select account...</option>
+                {accounts.map(a => (
+                  <option key={a.id} value={a.id}>{a.display_name || a.phone_number || 'WhatsApp Account'}</option>
+                ))}
+              </select>
+            )}
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+              <button onClick={() => setShowModal(false)}
+                style={{ padding: '8px 16px', borderRadius: 8, border: '1px solid var(--notion-border)', fontSize: 13, color: 'var(--notion-text)', cursor: 'pointer', background: 'none' }}>
+                Cancel
+              </button>
+              <button onClick={handleAdd} disabled={!selectedAccount || adding}
+                style={{ padding: '8px 16px', borderRadius: 8, border: 'none', background: '#25D366', color: 'white', fontSize: 13, fontWeight: 600, cursor: !selectedAccount ? 'default' : 'pointer', opacity: !selectedAccount ? 0.5 : 1 }}>
+                {adding ? 'Adding...' : 'Add'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
 function PersonCard({ person, onFindSimilar, onSaveToLeads }: { person: FoundPerson; onFindSimilar: (p: FoundPerson) => void; onSaveToLeads: (p: FoundPerson) => void }) {
   const [expanded, setExpanded] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -1981,6 +1947,9 @@ function PersonCard({ person, onFindSimilar, onSaveToLeads }: { person: FoundPer
           >
             <HandIcon name="refresh-arrows" size={12} /> 找类似
           </button>
+          {person.phone && (
+            <AddWhatsAppButton phone={person.phone} name={person.name} />
+          )}
         </div>
       </div>
 

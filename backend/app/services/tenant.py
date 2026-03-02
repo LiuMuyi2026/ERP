@@ -721,6 +721,63 @@ TENANT_SCHEMA_DDL = [
     )""",
     "CREATE INDEX IF NOT EXISTS idx_lead_file_perms_file ON lead_file_permissions(file_id)",
     "CREATE INDEX IF NOT EXISTS idx_lead_file_perms_user ON lead_file_permissions(user_id)",
+
+    # ── WhatsApp tables ──────────────────────────────────────────────────
+    """CREATE TABLE IF NOT EXISTS whatsapp_accounts (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        owner_user_id UUID NOT NULL,
+        owner_employee_id UUID,
+        wa_jid VARCHAR(50),
+        phone_number VARCHAR(50),
+        display_name VARCHAR(255),
+        profile_pic_url VARCHAR(1000),
+        label VARCHAR(100),
+        status VARCHAR(30) DEFAULT 'disconnected',
+        session_data TEXT,
+        last_seen_at TIMESTAMPTZ,
+        is_active BOOLEAN DEFAULT TRUE,
+        created_at TIMESTAMPTZ DEFAULT NOW(),
+        updated_at TIMESTAMPTZ
+    )""",
+    "CREATE INDEX IF NOT EXISTS idx_wa_accounts_owner ON whatsapp_accounts(owner_user_id)",
+
+    """CREATE TABLE IF NOT EXISTS whatsapp_contacts (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        wa_account_id UUID NOT NULL,
+        wa_jid VARCHAR(50) NOT NULL,
+        phone_number VARCHAR(50),
+        display_name VARCHAR(255),
+        push_name VARCHAR(255),
+        profile_pic_url VARCHAR(1000),
+        lead_id UUID,
+        contact_id UUID,
+        is_group BOOLEAN DEFAULT FALSE,
+        last_message_at TIMESTAMPTZ,
+        unread_count INTEGER DEFAULT 0,
+        created_at TIMESTAMPTZ DEFAULT NOW(),
+        updated_at TIMESTAMPTZ,
+        UNIQUE(wa_account_id, wa_jid)
+    )""",
+    "CREATE INDEX IF NOT EXISTS idx_wa_contacts_account ON whatsapp_contacts(wa_account_id)",
+    "CREATE INDEX IF NOT EXISTS idx_wa_contacts_lead ON whatsapp_contacts(lead_id)",
+
+    """CREATE TABLE IF NOT EXISTS whatsapp_messages (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        wa_account_id UUID NOT NULL,
+        wa_contact_id UUID NOT NULL,
+        wa_message_id VARCHAR(120),
+        direction VARCHAR(10) NOT NULL,
+        message_type VARCHAR(30) DEFAULT 'text',
+        content TEXT,
+        media_url VARCHAR(1000),
+        media_mime_type VARCHAR(100),
+        status VARCHAR(20) DEFAULT 'sent',
+        metadata JSONB DEFAULT '{}',
+        timestamp TIMESTAMPTZ NOT NULL,
+        created_at TIMESTAMPTZ DEFAULT NOW()
+    )""",
+    "CREATE INDEX IF NOT EXISTS idx_wa_messages_contact ON whatsapp_messages(wa_contact_id, timestamp DESC)",
+    "CREATE INDEX IF NOT EXISTS idx_wa_messages_account ON whatsapp_messages(wa_account_id, timestamp DESC)",
 ]
 
 

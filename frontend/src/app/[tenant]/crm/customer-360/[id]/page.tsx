@@ -6,6 +6,7 @@ import { api } from '@/lib/api';
 import { useTranslations } from 'next-intl';
 import { WorkflowTab } from './WorkflowTab';
 import { HandIcon } from '@/components/ui/HandIcon';
+import WhatsAppChatPanel from '../../components/WhatsAppChatPanel';
 
 // ── Types ───────────────────────────────────────────────────────────────────
 type Interaction = {
@@ -1300,7 +1301,7 @@ export default function Customer360Page() {
   const [data, setData] = useState<Lead360Data | null>(null);
   const [loading, setLoading] = useState(true);
   const tabParam = searchParams.get('tab') as 'comms' | 'profile' | 'business' | 'timeline' | 'workflow' | null;
-  const [tab, setTab] = useState<'comms' | 'profile' | 'business' | 'timeline' | 'workflow'>(tabParam || 'workflow');
+  const [tab, setTab] = useState<'comms' | 'profile' | 'business' | 'timeline' | 'workflow' | 'whatsapp'>(tabParam || 'workflow');
   const [advancing, setAdvancing] = useState(false);
   const [showColdModal, setShowColdModal] = useState(false);
   const [changingStage, setChangingStage] = useState(false);
@@ -1396,6 +1397,7 @@ export default function Customer360Page() {
     { key: 'profile',  label: t('tabProfile'),  badge: 0 },
     { key: 'business', label: t('tabBusiness'), badge: contracts.length },
     { key: 'timeline', label: t('tabTimeline'), badge: 0 },
+    { key: 'whatsapp', label: 'WhatsApp', badge: 0, icon: 'chat-bubble' },
   ] as const;
 
   return (
@@ -1782,6 +1784,11 @@ export default function Customer360Page() {
           )}
           {tab === 'timeline' && (
             <TimelineTab interactions={interactions} contracts={contracts} auditLogs={audit_logs} lead={lead} />
+          )}
+          {tab === 'whatsapp' && (
+            <div className="rounded-xl border overflow-hidden" style={{ borderColor: 'var(--notion-border)', height: 500 }}>
+              <WhatsAppChatPanel leadId={id} contactName={lead.full_name} />
+            </div>
           )}
 
           <div className="h-12" />

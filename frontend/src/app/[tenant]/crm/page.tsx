@@ -9,6 +9,7 @@ import SlideOver from '@/components/ui/SlideOver';
 import { HandIcon } from '@/components/ui/HandIcon';
 import { useTranslations } from 'next-intl';
 import LeadFilesTab from './components/LeadFilesTab';
+import WhatsAppDashboard from './components/WhatsAppDashboard';
 // ── Types ─────────────────────────────────────────────────────────────────────
 type Lead = {
   id: string; full_name: string; company?: string; email?: string;
@@ -2615,7 +2616,7 @@ function PublicPoolTab({ leads, users, onRestore }: { leads: Lead[]; users: Tena
 }
 
 // ── Main CRM Page ─────────────────────────────────────────────────────────────
-type TabKey = 'dashboard' | 'leads' | 'pool' | 'receivables' | 'files' | 'risks';
+type TabKey = 'dashboard' | 'leads' | 'pool' | 'receivables' | 'files' | 'risks' | 'whatsapp';
 
 export default function CRMPage() {
   const tCrm = useTranslations('crm');
@@ -2869,6 +2870,7 @@ export default function CRMPage() {
     ['receivables', tCrm('tabReceivables')],
     ['files', tCrm('tabFiles')],
     ['risks', tCrm('tabRisks')],
+    ['whatsapp', 'WhatsApp'],
   ];
 
   if (loading) {
@@ -3030,6 +3032,9 @@ export default function CRMPage() {
                 </button>
               </div>
             ) : undefined} />
+        )}
+        {tab === 'whatsapp' && (
+          <WhatsAppDashboard />
         )}
 
         {/* Risk approval decision modal */}

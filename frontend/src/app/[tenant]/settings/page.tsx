@@ -21,7 +21,7 @@ const LANGUAGES: { code: LangCode; label: string; native: string }[] = [
   { code: 'pt', label: 'Portuguese', native: 'Português' },
 ];
 
-type Section = 'account' | 'appearance' | 'workspace' | 'members' | 'notifications' | 'integrations' | 'ai' | 'ai-providers' | 'ai-finder';
+type Section = 'account' | 'appearance' | 'workspace' | 'members' | 'notifications' | 'integrations' | 'ai' | 'ai-providers' | 'ai-finder' | 'whatsapp';
 
 const NAV_ITEMS: { id: Section; icon: string; labelKey: string }[] = [
   { id: 'account', icon: 'person', labelKey: 'navAccount' },
@@ -33,6 +33,7 @@ const NAV_ITEMS: { id: Section; icon: string; labelKey: string }[] = [
   { id: 'members', icon: 'people-group', labelKey: 'navMembers' },
   { id: 'notifications', icon: 'bell', labelKey: 'navNotifications' },
   { id: 'integrations', icon: 'plug', labelKey: 'navIntegrations' },
+  { id: 'whatsapp', icon: 'chat-bubble', labelKey: 'navWhatsApp' },
 ];
 
 export default function SettingsPage() {
@@ -91,6 +92,7 @@ export default function SettingsPage() {
           {section === 'workspace' && <WorkspaceSection tenant={tenant} />}
           {section === 'members' && <MembersSection />}
           {section === 'notifications' && <NotificationsSection />}
+          {section === 'whatsapp' && <WhatsAppSettingsSection />}
         </div>
       </div>
     </div>
@@ -1744,6 +1746,160 @@ function NotificationsSection() {
           </div>
         </SettingsCard>
       </div>
+    </div>
+  );
+}
+
+// ── WhatsApp Settings Section ────────────────────────────────────────────────
+
+type WaAccount = {
+  id: string; display_name?: string; phone_number?: string; status: string;
+  label?: string; last_seen_at?: string; created_at?: string;
+};
+
+function WhatsAppSettingsSection() {
+  const [accounts, setAccounts] = useState<WaAccount[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [showQrModal, setShowQrModal] = useState<string | null>(null);
+  const [qrData, setQrData] = useState<string>('');
+  const [qrStatus, setQrStatus] = useState<string>('');
+  const [creating, setCreating] = useState(false);
+
+  async function loadAccounts() {
+    try {
+      const data = await api.get('/api/whatsapp/accounts');
+      setAccounts(Array.isArray(data) ? data : []);
+    } catch { setAccounts([]); }
+    finally { setLoading(false); }
+  }
+
+  useEffect(() => { loadAccounts(); }, []);
+
+  // Poll QR when modal is open
+  useEffect(() => {
+    if (!showQrModal) return;
+    let active = true;
+    const poll = async () => {
+      try {
+        const data = await api.get(`/api/whatsapp/accounts/${showQrModal}/qr`);
+        if (!active) return;
+        setQrData(data.qr_data || '');
+        setQrStatus(data.status || '');
+        if (data.status === 'connected') { setShowQrModal(null); loadAccounts(); }
+      } catch {}
+    };
+    poll();
+    const timer = setInterval(poll, 2000);
+    return () => { active = false; clearInterval(timer); };
+  }, [showQrModal]);
+
+  async function connectNew() {
+    setCreating(true);
+    try {
+      const res = await api.post('/api/whatsapp/accounts', {});
+      setShowQrModal(res.id);
+    } catch (err: any) { alert(err.message || 'Failed'); }
+    finally { setCreating(false); }
+  }
+
+  async function reconnect(id: string) {
+    try { await api.post(`/api/whatsapp/accounts/${id}/reconnect`, {}); setShowQrModal(id); } catch {}
+  }
+
+  async function disconnect(id: string) {
+    if (!confirm('Disconnect this WhatsApp account?')) return;
+    try { await api.delete(`/api/whatsapp/accounts/${id}`); loadAccounts(); } catch {}
+  }
+
+  const statusColors: Record<string, string> = {
+    connected: '#16a34a', pending_qr: '#d97706', disconnected: '#9ca3af',
+  };
+
+  if (loading) return <div className="text-sm" style={{ color: 'var(--notion-text-muted)' }}>Loading WhatsApp...</div>;
+
+  return (
+    <div>
+      <SectionHeader title="WhatsApp" subtitle="Connect and manage your WhatsApp accounts for CRM messaging." />
+
+      <div className="space-y-4">
+        {accounts.map(acc => (
+          <SettingsCard key={acc.id}>
+            <div className="flex items-center gap-4">
+              <div className="w-10 h-10 rounded-full flex items-center justify-center text-white text-lg font-bold" style={{ background: '#25D366' }}>
+                W
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2">
+                  <span className="text-sm font-semibold" style={{ color: 'var(--notion-text)' }}>
+                    {acc.display_name || acc.phone_number || acc.label || 'WhatsApp Account'}
+                  </span>
+                  <span className="text-xs px-2 py-0.5 rounded-full font-medium"
+                    style={{ background: `${statusColors[acc.status] || '#9ca3af'}20`, color: statusColors[acc.status] || '#9ca3af' }}>
+                    {acc.status}
+                  </span>
+                </div>
+                {acc.phone_number && <p className="text-xs" style={{ color: 'var(--notion-text-muted)' }}>{acc.phone_number}</p>}
+                {acc.last_seen_at && <p className="text-xs" style={{ color: 'var(--notion-text-muted)' }}>Last seen: {new Date(acc.last_seen_at).toLocaleString()}</p>}
+              </div>
+              <div className="flex gap-2">
+                {acc.status !== 'connected' && (
+                  <button onClick={() => reconnect(acc.id)} className="px-3 py-1.5 rounded-md text-xs font-medium border"
+                    style={{ borderColor: '#25D366', color: '#25D366' }}>
+                    Reconnect
+                  </button>
+                )}
+                <button onClick={() => disconnect(acc.id)} className="px-3 py-1.5 rounded-md text-xs font-medium border"
+                  style={{ borderColor: 'var(--notion-border)', color: '#dc2626' }}>
+                  Disconnect
+                </button>
+              </div>
+            </div>
+          </SettingsCard>
+        ))}
+
+        <button onClick={connectNew} disabled={creating}
+          className="w-full py-3 rounded-lg border-2 border-dashed text-sm font-medium transition-colors"
+          style={{ borderColor: 'var(--notion-border)', color: 'var(--notion-text-muted)' }}
+          onMouseEnter={e => { e.currentTarget.style.borderColor = '#25D366'; e.currentTarget.style.color = '#25D366'; }}
+          onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--notion-border)'; e.currentTarget.style.color = 'var(--notion-text-muted)'; }}>
+          {creating ? 'Connecting...' : '+ Connect New WhatsApp Account'}
+        </button>
+      </div>
+
+      {/* QR Code Modal */}
+      {showQrModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.5)' }}>
+          <div className="rounded-xl shadow-2xl p-8 w-full max-w-sm text-center" style={{ background: 'var(--notion-bg)' }}>
+            <h3 className="text-lg font-bold mb-2" style={{ color: 'var(--notion-text)' }}>Scan QR Code</h3>
+            <p className="text-sm mb-6" style={{ color: 'var(--notion-text-muted)' }}>
+              Open WhatsApp on your phone → Settings → Linked Devices → Link a Device
+            </p>
+            <div className="w-56 h-56 mx-auto rounded-xl border-2 flex items-center justify-center mb-4"
+              style={{ borderColor: 'var(--notion-border)', background: 'var(--notion-hover)' }}>
+              {qrData && qrData !== 'STUB_QR_PLACEHOLDER' ? (
+                <img src={qrData} alt="QR" className="w-full h-full object-contain rounded-lg" />
+              ) : (
+                <div className="text-center">
+                  <div className="text-4xl mb-2" style={{ color: '#25D366' }}>
+                    <HandIcon name="chat-bubble" size={48} />
+                  </div>
+                  <p className="text-xs" style={{ color: 'var(--notion-text-muted)' }}>
+                    Bridge not connected<br />Stub QR placeholder
+                  </p>
+                </div>
+              )}
+            </div>
+            <p className="text-xs mb-4" style={{ color: 'var(--notion-text-muted)' }}>
+              Status: <span className="font-medium">{qrStatus || 'pending_qr'}</span>
+            </p>
+            <button onClick={() => setShowQrModal(null)}
+              className="px-6 py-2 rounded-md text-sm font-medium border"
+              style={{ borderColor: 'var(--notion-border)', color: 'var(--notion-text)' }}>
+              Close
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
