@@ -1049,6 +1049,55 @@ const SparklerIcon: IC = p => (
   </S>
 );
 
+// ── Additional UI Icons ──────────────────────────────────────────────────────
+
+const Funnel: IC = p => (
+  <S {...p}>
+    <path d="M22 3H2l8 9.46V19l4 2v-8.54z"/>
+  </S>
+);
+
+const Bars3: IC = p => (
+  <S {...p}>
+    <path d="M4 6h16"/>
+    <path d="M4 12h16"/>
+    <path d="M4 18h16"/>
+  </S>
+);
+
+const Clock: IC = p => (
+  <S {...p}>
+    <circle cx="12" cy="12" r="10"/>
+    <path d="M12 6v6l4 2"/>
+  </S>
+);
+
+const Squares2x2: IC = p => (
+  <S {...p}>
+    <rect x="3" y="3" width="7" height="7" rx="1"/>
+    <rect x="14" y="3" width="7" height="7" rx="1"/>
+    <rect x="3" y="14" width="7" height="7" rx="1"/>
+    <rect x="14" y="14" width="7" height="7" rx="1"/>
+  </S>
+);
+
+const UserGroup: IC = p => (
+  <S {...p}>
+    <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
+    <circle cx="9" cy="7" r="4"/>
+    <path d="M23 21v-2a4 4 0 0 0-3-3.87"/>
+    <circle cx="17" cy="7" r="3" strokeDasharray="1 0.5"/>
+  </S>
+);
+
+const ExclamationTriangle: IC = p => (
+  <S {...p}>
+    <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
+    <line x1="12" y1="9" x2="12" y2="13"/>
+    <circle cx="12" cy="17" r="0.5" fill="currentColor"/>
+  </S>
+);
+
 // ── Icon Registry ─────────────────────────────────────────────────────────────
 
 export const ICON_REGISTRY: Record<string, IC> = {
@@ -1169,6 +1218,14 @@ export const ICON_REGISTRY: Record<string, IC> = {
   'sunflower': Sunflower,
   'fireworks': Fireworks,
   'sparkler': SparklerIcon,
+  // Aliases and additional icons
+  'funnel': Funnel,
+  'bars-3': Bars3,
+  'clock': Clock,
+  'squares-2x2': Squares2x2,
+  'user-group': UserGroup,
+  'exclamation-triangle': ExclamationTriangle,
+  'magnifying-glass': Magnifier,
 };
 
 /** All available icon names */
