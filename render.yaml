@@ -48,6 +48,29 @@ services:
         value: "http://localhost:3000"
       - key: APP_BASE_URL
         value: "http://localhost:3000"
+      - key: WA_BRIDGE_URL
+        sync: false
+      - key: WA_BRIDGE_SECRET
+        sync: false
+
+  - type: web
+    name: nexus-wa-bridge
+    env: docker
+    rootDir: whatsapp-bridge
+    dockerfilePath: ./Dockerfile
+    autoDeploy: true
+    healthCheckPath: /health
+    envVars:
+      - key: PORT
+        value: "3100"
+      - key: BRIDGE_SECRET
+        sync: false
+      - key: BACKEND_URL
+        sync: false
+      - key: SESSION_DIR
+        value: /app/data/wa-sessions
+      - key: LOG_LEVEL
+        value: info
 
   - type: web
     name: nexus-frontend
