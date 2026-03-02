@@ -44,7 +44,7 @@ type ProfitRow = {
   total_revenue: number; total_cost: number; gross_profit: number;
   margin_pct: number; contract_count: number;
 };
-type ProfitDimension = 'lead' | 'customer' | 'salesperson';
+type ProfitDimension = 'lead' | 'customer' | 'salesperson' | 'product';
 type ProfitSortKey = 'name' | 'total_revenue' | 'total_cost' | 'gross_profit' | 'margin_pct' | 'contract_count';
 
 // ── Constants ────────────────────────────────────────────────────────────────
@@ -1256,6 +1256,7 @@ function ProfitAnalysisTab() {
             { key: 'lead' as const, label: t('byLead') },
             { key: 'customer' as const, label: t('byCustomer') },
             { key: 'salesperson' as const, label: t('bySalesperson') },
+            { key: 'product' as const, label: t('byProduct') },
           ]).map(({ key, label }) => (
             <button key={key} onClick={() => setDimension(key)}
               className="px-3 py-1 rounded text-sm font-medium transition-colors"
@@ -1345,7 +1346,7 @@ function ProfitAnalysisTab() {
             <thead>
               <tr style={{ background: 'var(--notion-active)' }}>
                 {[
-                  { key: 'name' as const, label: dimension === 'lead' ? t('byLead') : dimension === 'customer' ? t('byCustomer') : t('bySalesperson') },
+                  { key: 'name' as const, label: dimension === 'lead' ? t('byLead') : dimension === 'customer' ? t('byCustomer') : dimension === 'product' ? t('byProduct') : t('bySalesperson') },
                   { key: 'total_revenue' as const, label: t('totalRevenue') },
                   { key: 'total_cost' as const, label: t('totalCost') },
                   { key: 'gross_profit' as const, label: t('grossProfit') },

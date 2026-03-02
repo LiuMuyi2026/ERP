@@ -1109,7 +1109,8 @@
     "dateTo": "To",
     "sortBy": "Sort",
     "viewTable": "Table",
-    "viewCard": "Cards"
+    "viewCard": "Cards",
+    "byProduct": "By Product"
   },
   "inventory": {
     "title": "Inventory",
@@ -3014,6 +3015,15 @@
     "aiSource": "AI Finder"
   },
   "login": {
-    "rememberCredentials": "Remember credentials"
+    "workspace": "Workspace",
+    "workspacePlaceholder": "company-slug",
+    "email": "Email",
+    "emailPlaceholder": "you@company.com",
+    "password": "Password",
+    "passwordPlaceholder": "Enter password",
+    "rememberCredentials": "Remember me",
+    "signIn": "Sign In",
+    "signingIn": "Signing in...",
+    "loginFailed": "Login failed"
   }
 }

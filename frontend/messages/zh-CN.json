@@ -1418,7 +1418,8 @@
     "dateTo": "结束日期",
     "sortBy": "排序",
     "viewTable": "表格",
-    "viewCard": "卡片"
+    "viewCard": "卡片",
+    "byProduct": "按产品"
   },
   "inventory": {
     "title": "库存管理",
@@ -3027,6 +3028,15 @@
     "waitingCustomsDocs": "等待单证员上传报关材料…"
   },
   "login": {
-    "rememberCredentials": "记住账号密码"
+    "workspace": "工作空间",
+    "workspacePlaceholder": "公司标识",
+    "email": "邮箱",
+    "emailPlaceholder": "you@company.com",
+    "password": "密码",
+    "passwordPlaceholder": "输入密码",
+    "rememberCredentials": "记住账号",
+    "signIn": "登 录",
+    "signingIn": "登录中...",
+    "loginFailed": "登录失败"
   }
 }

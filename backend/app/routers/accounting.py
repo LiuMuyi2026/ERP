@@ -751,8 +751,8 @@ async def profit_analysis(
     ctx: dict = Depends(get_current_user_with_tenant),
 ):
     db = ctx["db"]
-    if dimension not in ("lead", "customer", "salesperson"):
-        raise HTTPException(status_code=400, detail="dimension must be lead, customer, or salesperson")
+    if dimension not in ("lead", "customer", "salesperson", "product"):
+        raise HTTPException(status_code=400, detail="dimension must be lead, customer, salesperson, or product")
 
     # Build WHERE clause for contract_profit CTE
     conditions = ["1=1"]
@@ -808,6 +808,22 @@ async def profit_analysis(
           COUNT(DISTINCT cp.id) AS contract_count
         FROM contract_profit cp JOIN crm_accounts a ON a.id = cp.account_id
         GROUP BY a.id, a.name
+        ORDER BY total_revenue DESC
+        """
+    elif dimension == "product":
+        # Product dimension: revenue = line item amount, cost = quantity * product cost_price
+        query = f"""
+        SELECT p.id, COALESCE(p.name, li.product_name, 'Unknown') AS name, p.category AS status,
+          COALESCE(SUM(li.amount), 0) AS total_revenue,
+          COALESCE(SUM(li.quantity * p.cost_price), 0) AS total_cost,
+          COALESCE(SUM(li.amount), 0) - COALESCE(SUM(li.quantity * p.cost_price), 0) AS gross_profit,
+          CASE WHEN SUM(li.amount) > 0 THEN ROUND((SUM(li.amount) - SUM(li.quantity * p.cost_price)) / SUM(li.amount) * 100, 2) ELSE 0 END AS margin_pct,
+          COUNT(DISTINCT c.id) AS contract_count
+        FROM crm_contracts c
+        JOIN contract_line_items li ON li.contract_id = c.id
+        LEFT JOIN products p ON p.id = li.product_id
+        WHERE {where}
+        GROUP BY p.id, COALESCE(p.name, li.product_name, 'Unknown'), p.category
         ORDER BY total_revenue DESC
         """
     else:  # salesperson
