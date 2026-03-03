@@ -414,14 +414,14 @@ export default function WhatsAppInbox() {
       params.set('sort_by', 'last_message');
       const qs = params.toString();
       const [convs, accs, lbls] = await Promise.all([
-        api.get(`/api/whatsapp/dashboard${qs ? `?${qs}` : ''}`),
-        api.get('/api/whatsapp/accounts'),
+        api.get(`/api/whatsapp/dashboard${qs ? `?${qs}` : ''}`).catch(() => []),
+        api.get('/api/whatsapp/accounts').catch(() => []),
         api.get('/api/whatsapp/labels').catch(() => []),
       ]);
       setConversations(Array.isArray(convs) ? convs : []);
       setAccounts(Array.isArray(accs) ? accs : []);
       setLabels(Array.isArray(lbls) ? lbls : []);
-    } catch { setConversations([]); }
+    } catch { /* all errors handled per-request above */ }
     finally { setLoading(false); }
   }
 
