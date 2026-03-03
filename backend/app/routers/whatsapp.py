@@ -1365,7 +1365,7 @@ async def _handle_messages_upsert(db: AsyncSession, instance: str, data: dict):
                     INSERT INTO whatsapp_messages (wa_account_id, wa_contact_id, wa_message_id, direction, message_type,
                         content, media_url, media_mime_type, status, timestamp, created_at, metadata, reply_to_message_id)
                     VALUES (:aid, :cid, :mid, :dir, :mtype, :content, :murl, :mmime, 'received', :ts, NOW(), :meta, :reply_to)
-                    ON CONFLICT (wa_account_id, wa_message_id) DO NOTHING
+                    ON CONFLICT DO NOTHING
                 """), {
                     "aid": instance, "cid": contact_id, "mid": wa_message_id,
                     "dir": direction, "mtype": extracted["type"], "content": extracted["text"],
