@@ -1182,6 +1182,7 @@ function CustomersTab() {
           onSave={() => { setShowAddCustomer(false); load(search); }}
           customTitle={tCrm('addCustomer')}
           customSubmitLabel={tCrm('addCustomer')}
+          defaultStatus="quoted"
         />
       )}
     </div>

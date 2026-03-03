@@ -113,9 +113,11 @@ export interface LeadModalProps {
   customTitle?: string;
   /** Override submit button label (defaults to tCrm('createLeadBtn')) */
   customSubmitLabel?: string;
+  /** Override default status (defaults to 'inquiry') */
+  defaultStatus?: string;
 }
 
-export default function LeadModal({ users, onClose, onSave, isLeadContext, customTitle, customSubmitLabel }: LeadModalProps) {
+export default function LeadModal({ users, onClose, onSave, isLeadContext, customTitle, customSubmitLabel, defaultStatus }: LeadModalProps) {
   const tCrm = useTranslations('crm');
   const tCommon = useTranslations('common');
   const LEAD_STATUS_OPTIONS = getLeadStatusOptions(tCrm);
@@ -124,7 +126,7 @@ export default function LeadModal({ users, onClose, onSave, isLeadContext, custo
 
   const [form, setForm] = useState<LeadFormState>(() => {
     const me = getCurrentUser();
-    return { ...EMPTY_LEAD, assigned_to: me?.sub || '' };
+    return { ...EMPTY_LEAD, status: defaultStatus || 'inquiry', assigned_to: me?.sub || '' };
   });
   const [saving, setSaving] = useState(false);
   const [dupCheck, setDupCheck] = useState<DupCheck | null>(null);
@@ -233,8 +235,9 @@ export default function LeadModal({ users, onClose, onSave, isLeadContext, custo
           {showDupDialog && nameDupMatches.length > 0 && (
             <div className="rounded-xl px-4 py-3 mb-2" style={{ background: '#fff7ed', border: '1px solid #fed7aa' }}>
               {nameDupMatches.map(match => {
+                const hasOwner = !!match.assigned_to;
                 if (match.is_mine && isLeadContext) {
-                  // Scenario B: own customer (leads page only)
+                  // Scenario B: own customer (leads page only) — auto-fill
                   return (
                     <div key={match.id} className="mb-2 last:mb-0">
                       <p className="text-xs font-semibold mb-1" style={{ color: '#7c3aed' }}>
@@ -260,8 +263,8 @@ export default function LeadModal({ users, onClose, onSave, isLeadContext, custo
                       </div>
                     </div>
                   );
-                } else if (!match.is_mine) {
-                  // Scenario A: someone else's customer
+                } else if (!match.is_mine && hasOwner) {
+                  // Scenario A: someone else's customer — acquire flow
                   return (
                     <div key={match.id} className="mb-2 last:mb-0">
                       <p className="text-xs font-semibold mb-1" style={{ color: '#c2410c' }}>
@@ -285,6 +288,33 @@ export default function LeadModal({ users, onClose, onSave, isLeadContext, custo
                           className="px-3 py-1.5 rounded-lg text-xs font-medium"
                           style={{ border: '1px solid var(--notion-border)', color: 'var(--notion-text)' }}>
                           {tCrm('cancelCreate')}
+                        </button>
+                      </div>
+                    </div>
+                  );
+                } else if (!match.is_mine && !hasOwner) {
+                  // Scenario C: unassigned duplicate — warn, allow continue
+                  return (
+                    <div key={match.id} className="mb-2 last:mb-0">
+                      <p className="text-xs font-semibold mb-1" style={{ color: '#c2410c' }}>
+                        {tCrm('dupFound')}
+                      </p>
+                      <p className="text-[11px]" style={{ color: '#92400e' }}>
+                        {match.full_name}
+                        {match.company ? ` (${match.company})` : ''}
+                        {match.email ? ` · ${match.email}` : ''}
+                        {' — '}{match.status}
+                      </p>
+                      <div className="flex gap-2 mt-2">
+                        <button type="button" onClick={() => { setShowDupDialog(false); setNameDupMatches([]); }}
+                          className="px-3 py-1.5 rounded-lg text-xs font-medium"
+                          style={{ border: '1px solid var(--notion-border)', color: 'var(--notion-text)' }}>
+                          {tCrm('cancelCreate')}
+                        </button>
+                        <button type="button" onClick={() => { setShowDupDialog(false); }}
+                          className="px-3 py-1.5 rounded-lg text-xs font-medium"
+                          style={{ background: 'var(--notion-hover)', color: 'var(--notion-text)' }}>
+                          {tCrm('createIndependent')}
                         </button>
                       </div>
                     </div>
