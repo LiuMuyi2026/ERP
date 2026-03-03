@@ -488,30 +488,67 @@ export default function WhatsAppInbox() {
     try {
       const result: any = await api.post('/api/whatsapp/accounts', { label: newAccountLabel || undefined });
       setNewAccountLabel('');
+      // Start QR polling regardless — bridge may need time to initialize
       pollQR(result.id);
+      loadData();
     } catch (e: any) { alert(e.message || 'Failed to create account'); }
     finally { setCreatingAccount(false); }
   }
 
+  const [qrError, setQrError] = useState<string | null>(null);
+
   async function pollQR(accountId: string) {
     setQrPolling(true);
+    setQrError(null);
     let attempts = 0;
+    let bridgeFailCount = 0;
     const poll = async () => {
-      if (attempts > 60) { setQrPolling(false); setQrData(null); return; }
+      if (attempts > 60) { setQrPolling(false); setQrData(null); setQrError('QR polling timed out'); return; }
       try {
         const result: any = await api.get(`/api/whatsapp/accounts/${accountId}/qr`);
-        if (result.status === 'connected') { setQrData(null); setQrPolling(false); loadData(); return; }
-        if (result.qr_data) setQrData({ accountId, qr: result.qr_data });
-      } catch {}
+        if (result.status === 'connected') { setQrData(null); setQrPolling(false); setQrError(null); loadData(); return; }
+        if (result.status === 'bridge_unavailable') {
+          bridgeFailCount++;
+          setQrError(result.error || 'WhatsApp Bridge unavailable');
+          // Keep retrying but slower — bridge might be starting up
+          if (bridgeFailCount > 10) { setQrPolling(false); return; }
+          setTimeout(poll, 5000);
+          return;
+        }
+        if (result.status === 'restarting') {
+          setQrError('Instance restarting, waiting...');
+          setTimeout(poll, 4000);
+          attempts++;
+          return;
+        }
+        // Got QR data — clear any previous error
+        if (result.qr_data) {
+          setQrData({ accountId, qr: result.qr_data });
+          setQrError(null);
+          bridgeFailCount = 0;
+        }
+      } catch (e: any) {
+        setQrError(e.message || 'Failed to fetch QR');
+      }
       attempts++;
       setTimeout(poll, 3000);
     };
+    // Show modal immediately with loading state
+    setQrData({ accountId, qr: '' });
     poll();
   }
 
   async function reconnectAccount(accountId: string) {
-    try { await api.post(`/api/whatsapp/accounts/${accountId}/reconnect`, {}); loadData(); }
-    catch (e: any) { alert(e.message || 'Reconnect failed'); }
+    try {
+      const result: any = await api.post(`/api/whatsapp/accounts/${accountId}/reconnect`, {});
+      loadData();
+      // Auto-start QR polling after reconnect
+      if (result.status === 'pending_qr' || result.ok) {
+        pollQR(accountId);
+      } else if (result.status === 'bridge_unavailable') {
+        alert(result.error || 'WhatsApp Bridge unavailable — check Evolution API');
+      }
+    } catch (e: any) { alert(e.message || 'Reconnect failed'); }
   }
 
   async function disconnectAccount(accountId: string) {
@@ -878,7 +915,7 @@ export default function WhatsAppInbox() {
                         {acc.last_seen_at && <p>Last seen: {new Date(acc.last_seen_at).toLocaleString()}</p>}
                       </div>
                       <div className="flex gap-2 mt-2">
-                        {acc.status === 'disconnected' && (
+                        {acc.status !== 'connected' && (
                           <button onClick={() => { reconnectAccount(acc.id); setShowAccountPanel(false); }}
                             className="text-xs px-3 py-1 rounded font-medium" style={{ background: '#dbeafe', color: '#1d4ed8' }}>Reconnect</button>
                         )}
@@ -886,7 +923,7 @@ export default function WhatsAppInbox() {
                           <button onClick={() => disconnectAccount(acc.id)}
                             className="text-xs px-3 py-1 rounded font-medium" style={{ background: '#fef2f2', color: '#dc2626' }}>Disconnect</button>
                         )}
-                        {acc.status === 'pending_qr' && (
+                        {(acc.status === 'pending_qr' || acc.status === 'connecting') && (
                           <button onClick={() => pollQR(acc.id)}
                             className="text-xs px-3 py-1 rounded font-medium" style={{ background: '#fef9c3', color: '#a16207' }}>Show QR Code</button>
                         )}
@@ -924,10 +961,31 @@ export default function WhatsAppInbox() {
             <h3 className="font-semibold mb-2 text-base" style={{ color: 'var(--notion-text)' }}>Scan QR Code</h3>
             <p className="text-xs mb-4" style={{ color: 'var(--notion-text-muted)' }}>Open WhatsApp on your phone &rarr; Settings &rarr; Linked Devices &rarr; Link a Device</p>
             <div className="mx-auto w-64 h-64 rounded-lg overflow-hidden mb-4 flex items-center justify-center" style={{ background: 'white' }}>
-              <img src={qrData.qr} alt="QR Code" className="w-full h-full object-contain" />
+              {qrData.qr ? (
+                <img src={qrData.qr} alt="QR Code" className="w-full h-full object-contain" />
+              ) : qrError ? (
+                <div className="flex flex-col items-center gap-2 px-4">
+                  <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#dc2626" strokeWidth="1.5" strokeLinecap="round">
+                    <circle cx="12" cy="12" r="10"/><path d="M12 8v4m0 4h.01"/>
+                  </svg>
+                  <p className="text-xs text-center" style={{ color: '#dc2626' }}>{qrError}</p>
+                </div>
+              ) : (
+                <div className="flex flex-col items-center gap-2">
+                  <div className="w-8 h-8 border-2 border-t-transparent rounded-full animate-spin" style={{ borderColor: '#25D366', borderTopColor: 'transparent' }} />
+                  <p className="text-xs" style={{ color: '#8696a0' }}>Connecting to WhatsApp...</p>
+                </div>
+              )}
             </div>
-            {qrPolling && <p className="text-xs animate-pulse" style={{ color: '#25D366' }}>Waiting for scan...</p>}
-            <button onClick={() => { setQrData(null); setQrPolling(false); }}
+            {qrPolling && !qrError && qrData.qr && <p className="text-xs animate-pulse" style={{ color: '#25D366' }}>Waiting for scan...</p>}
+            {qrError && qrPolling && <p className="text-xs animate-pulse" style={{ color: '#a16207' }}>Retrying...</p>}
+            {qrError && !qrPolling && (
+              <button onClick={() => pollQR(qrData.accountId)}
+                className="mt-2 px-4 py-1.5 rounded-lg text-xs font-medium text-white" style={{ background: '#25D366' }}>
+                Retry
+              </button>
+            )}
+            <button onClick={() => { setQrData(null); setQrPolling(false); setQrError(null); }}
               className="mt-3 px-4 py-2 rounded-lg text-sm border" style={{ borderColor: 'var(--notion-border)', color: 'var(--notion-text)' }}>Close</button>
           </div>
         </div>

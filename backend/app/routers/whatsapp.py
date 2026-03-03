@@ -341,8 +341,18 @@ async def create_account(body: CreateAccountBody, ctx: dict = Depends(get_curren
     try:
         bridge_result = await wa_bridge.start_session(account_id, ctx["tenant_slug"])
     except BridgeError as e:
-        logger.warning("Evolution API unavailable when creating account %s: %s", account_id, e)
-        bridge_result = {"ok": False, "error": str(e)}
+        # Instance might already exist — try deleting and recreating
+        if e.status_code in (400, 409):
+            logger.info("Instance %s may already exist (status %s), deleting and recreating...", account_id, e.status_code)
+            try:
+                await wa_bridge.close_session(account_id, logout=False)
+                bridge_result = await wa_bridge.start_session(account_id, ctx["tenant_slug"])
+            except BridgeError as e2:
+                logger.warning("Failed to recreate instance %s: %s", account_id, e2)
+                bridge_result = {"ok": False, "error": str(e2)}
+        else:
+            logger.warning("Evolution API unavailable when creating account %s: %s", account_id, e)
+            bridge_result = {"ok": False, "error": str(e)}
     return {"id": account_id, "status": "pending_qr", "bridge": bridge_result}
 
 
@@ -403,10 +413,16 @@ async def reconnect_account(account_id: str, ctx: dict = Depends(get_current_use
     await db.commit()
     if result.rowcount == 0:
         raise HTTPException(status_code=404, detail="Account not found")
+    # Delete old instance first (ignore errors), then create fresh
+    try:
+        await wa_bridge.close_session(account_id, logout=True)
+    except BridgeError:
+        pass
     try:
         await wa_bridge.start_session(account_id, ctx["tenant_slug"])
     except BridgeError as e:
         logger.warning("Evolution API unavailable when reconnecting account %s: %s", account_id, e)
+        return {"ok": False, "status": "bridge_unavailable", "error": str(e)}
     return {"ok": True, "status": "pending_qr"}
 
 
