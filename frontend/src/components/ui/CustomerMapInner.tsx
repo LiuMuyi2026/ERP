@@ -161,8 +161,12 @@ export default function CustomerMapInner({ countryStats, selectedCountry, onSele
       center={[20, 10]}
       zoom={2}
       style={{ width: '100%', height: '100%', minHeight: 350, background: '#f8fafc' }}
-      scrollWheelZoom={true}
-      zoomControl={true}
+      scrollWheelZoom={false}
+      doubleClickZoom={false}
+      touchZoom={false}
+      boxZoom={false}
+      keyboard={false}
+      zoomControl={false}
     >
       <TileLayer
         attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'

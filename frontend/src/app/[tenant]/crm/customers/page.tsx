@@ -940,19 +940,22 @@ function CustomersTab() {
   return (
     <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
       {/* Stats + Search + Filter */}
-      <div style={{ padding: '16px 32px', display: 'flex', gap: 16, borderBottom: '1px solid var(--notion-border)' }}>
-        {[
-          { label: '客户总数', value: total, color: '#4338ca', bg: '#e0e7ff', suffix: '' },
-          { label: '成交客户', value: convertedCount, color: '#059669', bg: '#d1fae5', suffix: '' },
-          { label: '合同总额', value: totalContractValue > 0 ? `$${totalContractValue.toLocaleString()}` : '$0', color: '#7c3aed', bg: '#ede9fe', suffix: '' },
-          { label: '平均了解度', value: avgScore, color: '#f59e0b', bg: '#fef3c7', suffix: '%' },
-        ].map((s, i) => (
-          <div key={i} style={{ padding: '10px 18px', borderRadius: 10, background: s.bg, border: `1px solid ${s.color}22`, minWidth: 100 }}>
-            <div style={{ fontSize: 11, color: s.color, fontWeight: 500, marginBottom: 4 }}>{s.label}</div>
-            <div style={{ fontSize: 22, fontWeight: 800, color: s.color }}>{s.value}{s.suffix}</div>
-          </div>
-        ))}
-        <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 8 }}>
+      <div style={{ padding: '16px 32px', display: 'flex', flexDirection: 'column', gap: 12, borderBottom: '1px solid var(--notion-border)' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 12 }}>
+          {[
+            { label: '客户总数', value: total, color: '#4338ca', bg: '#e0e7ff', suffix: '' },
+            { label: '成交客户', value: convertedCount, color: '#059669', bg: '#d1fae5', suffix: '' },
+            { label: '合同总额', value: totalContractValue > 0 ? `$${totalContractValue.toLocaleString()}` : '$0', color: '#7c3aed', bg: '#ede9fe', suffix: '' },
+            { label: '平均了解度', value: avgScore, color: '#f59e0b', bg: '#fef3c7', suffix: '%' },
+          ].map((s, i) => (
+            <div key={i} style={{ padding: '10px 14px', borderRadius: 10, background: s.bg, border: `1px solid ${s.color}22`, minWidth: 0 }}>
+              <div style={{ fontSize: 11, color: s.color, fontWeight: 600, marginBottom: 4, whiteSpace: 'nowrap' }}>{s.label}</div>
+              <div style={{ fontSize: 22, fontWeight: 800, color: s.color, whiteSpace: 'nowrap' }}>{s.value}{s.suffix}</div>
+            </div>
+          ))}
+        </div>
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 14px', borderRadius: 8, border: '1px solid var(--notion-border)', background: 'var(--notion-card, white)', maxWidth: 260, width: '100%' }}>
             <span style={{ color: 'var(--notion-text-muted)', display: 'flex', alignItems: 'center' }}><HandIcon name="magnifier" size={14} /></span>
             <input value={search} onChange={e => setSearch(e.target.value)} placeholder="搜索客户名、公司..." style={{ flex: 1, border: 'none', outline: 'none', fontSize: 13, background: 'transparent', color: 'var(--notion-text)' }} />
@@ -1037,7 +1040,7 @@ function CustomersTab() {
             <span style={{ fontSize: 16, lineHeight: 1 }}>+</span> {tCrm('addCustomer')}
           </button>
 
-          <span style={{ fontSize: 12, color: 'var(--notion-text-muted)', whiteSpace: 'nowrap' }}>{customers.length} 条记录</span>
+          <span style={{ fontSize: 12, color: 'var(--notion-text-muted)', whiteSpace: 'nowrap', marginLeft: 'auto' }}>{customers.length} 条记录</span>
         </div>
       </div>
 
