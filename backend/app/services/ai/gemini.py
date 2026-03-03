@@ -200,7 +200,10 @@ async def generate_json(
             )
 
     try:
-        return json.loads(response.text)
-    except json.JSONDecodeError:
+        parsed = json.loads(response.text)
+        if not parsed:
+            raise ValueError("Gemini returned empty JSON")
+        return parsed
+    except (json.JSONDecodeError, ValueError) as e:
         logger.error(f"Failed to parse JSON from Gemini: {response.text[:200]}")
-        return {}
+        raise RuntimeError(f"AI 返回了无效的 JSON 格式: {e}")

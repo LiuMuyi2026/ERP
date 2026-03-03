@@ -2393,6 +2393,22 @@ async def generate_ai_portrait(lead_id: str, ctx: dict = Depends(get_current_use
     )
     interactions = [dict(r._mapping) for r in interactions_row.fetchall()]
 
+    # Gather WhatsApp messages linked to this lead
+    wa_messages: list[dict] = []
+    try:
+        wa_msg_row = await db.execute(
+            text("""SELECT m.direction, m.content, m.message_type, m.timestamp
+                    FROM whatsapp_messages m
+                    JOIN whatsapp_contacts c ON c.id = m.wa_contact_id
+                    WHERE c.lead_id = CAST(:lid AS uuid) AND m.is_deleted = FALSE
+                      AND m.content IS NOT NULL AND m.content != ''
+                    ORDER BY m.timestamp DESC LIMIT 30"""),
+            {"lid": lead_id},
+        )
+        wa_messages = [dict(r._mapping) for r in wa_msg_row.fetchall()]
+    except Exception:
+        pass  # table may not exist in older tenants
+
     contracts_row = await db.execute(
         text("SELECT contract_no, contract_amount, currency, status, sign_date FROM crm_contracts WHERE lead_id = CAST(:lid AS uuid)"),
         {"lid": lead_id},
@@ -2449,6 +2465,9 @@ WhatsApp: {lead_d.get('whatsapp', '未知')}
 
 【历史互动记录】({len(interactions)} 条，最近10条)
 {chr(10).join([f"- [{i['type']}] {i['content'][:150]}" for i in interactions[:10]]) if interactions else '暂无互动记录'}
+
+【WhatsApp 聊天记录】({len(wa_messages)} 条，最近15条)
+{chr(10).join([f"- [{m['direction']}] {m['content'][:200]}" for m in wa_messages[:15]]) if wa_messages else '暂无WhatsApp记录'}
 
 【合同记录】({len(contracts)} 份)
 {chr(10).join([f"- {c['contract_no']} {c['contract_amount']} {c['currency']} ({c['status']})" for c in contracts]) if contracts else '暂无合同'}

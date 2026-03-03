@@ -35,11 +35,13 @@ interface Customer {
 interface Portrait {
   personality_tags?: string[];
   buying_intention?: string;
+  buying_intention_reason?: string;
   communication_style?: string;
   key_concerns?: string[];
   recommended_strategy?: string;
   risk_factors?: string[];
   opportunity_score?: number;
+  opportunity_reason?: string;
   next_actions?: string[];
   customer_type?: string;
   industry_insight?: string;
@@ -185,6 +187,28 @@ function PortraitPanel({ portrait }: { portrait: Portrait }) {
           </div>
         )}
       </div>
+      {(portrait.buying_intention_reason || portrait.opportunity_reason) && (
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+          {portrait.buying_intention_reason && (
+            <div style={{ padding: '10px 14px', borderRadius: 10, background: '#f9fafb', border: '1px solid #e5e7eb' }}>
+              <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--notion-text-muted)', marginBottom: 4 }}>购买意向分析</div>
+              <div style={{ fontSize: 12, color: 'var(--notion-text)', lineHeight: 1.6 }}>{portrait.buying_intention_reason}</div>
+            </div>
+          )}
+          {portrait.opportunity_reason && (
+            <div style={{ padding: '10px 14px', borderRadius: 10, background: '#f0fdf4', border: '1px solid #bbf7d0' }}>
+              <div style={{ fontSize: 11, fontWeight: 600, color: '#166534', marginBottom: 4 }}>商机评分依据</div>
+              <div style={{ fontSize: 12, color: '#15803d', lineHeight: 1.6 }}>{portrait.opportunity_reason}</div>
+            </div>
+          )}
+        </div>
+      )}
+      {portrait.communication_style && (
+        <div style={{ padding: '12px 16px', borderRadius: 10, background: '#f0f9ff', border: '1px solid #bae6fd' }}>
+          <div style={{ fontSize: 12, fontWeight: 600, color: '#0c4a6e', marginBottom: 6 }}>沟通风格</div>
+          <div style={{ fontSize: 13, color: '#0369a1', lineHeight: 1.6 }}>{portrait.communication_style}</div>
+        </div>
+      )}
       {portrait.personality_tags && portrait.personality_tags.length > 0 && (
         <div>
           <div style={{ fontSize: 12, color: 'var(--notion-text-muted)', marginBottom: 8, fontWeight: 500 }}>客户标签</div>
