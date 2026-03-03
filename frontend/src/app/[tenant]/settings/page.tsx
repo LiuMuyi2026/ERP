@@ -21,7 +21,7 @@ const LANGUAGES: { code: LangCode; label: string; native: string }[] = [
   { code: 'pt', label: 'Portuguese', native: 'Português' },
 ];
 
-type Section = 'account' | 'appearance' | 'workspace' | 'members' | 'notifications' | 'integrations' | 'ai' | 'ai-providers' | 'ai-finder' | 'whatsapp';
+type Section = 'account' | 'appearance' | 'workspace' | 'members' | 'notifications' | 'email' | 'integrations' | 'ai' | 'ai-providers' | 'ai-finder' | 'whatsapp';
 
 const NAV_ITEMS: { id: Section; icon: string; labelKey: string }[] = [
   { id: 'account', icon: 'person', labelKey: 'navAccount' },
@@ -32,6 +32,7 @@ const NAV_ITEMS: { id: Section; icon: string; labelKey: string }[] = [
   { id: 'workspace', icon: 'folder', labelKey: 'navWorkspace' },
   { id: 'members', icon: 'people-group', labelKey: 'navMembers' },
   { id: 'notifications', icon: 'bell', labelKey: 'navNotifications' },
+  { id: 'email', icon: 'envelope', labelKey: 'navEmail' },
   { id: 'integrations', icon: 'plug', labelKey: 'navIntegrations' },
   { id: 'whatsapp', icon: 'chat-bubble', labelKey: 'navWhatsApp' },
 ];
@@ -92,6 +93,7 @@ export default function SettingsPage() {
           {section === 'workspace' && <WorkspaceSection tenant={tenant} />}
           {section === 'members' && <MembersSection />}
           {section === 'notifications' && <NotificationsSection />}
+          {section === 'email' && <EmailSettingsSection />}
           {section === 'whatsapp' && <WhatsAppSettingsSection />}
         </div>
       </div>
@@ -1321,24 +1323,10 @@ const DEFAULT_NOTIFICATION_SMTP: NotificationSmtpForm = {
 
 function NotificationsSection() {
   const tSettings = useTranslations('settings');
-  const currentUser = getCurrentUser();
-  const canManageAdminSMTP = currentUser?.role === 'tenant_admin' || currentUser?.role === 'platform_admin';
 
   const [prefs, setPrefs] = useState({ ...DEFAULT_NOTIFICATION_PREFS });
   const [loadingPrefs, setLoadingPrefs] = useState(true);
   const [savingKey, setSavingKey] = useState<keyof NotificationPrefs | null>(null);
-
-  const [adminSmtpConfig, setAdminSmtpConfig] = useState<NotificationSmtpForm>({ ...DEFAULT_NOTIFICATION_SMTP });
-  const [adminSmtpPassword, setAdminSmtpPassword] = useState('');
-  const [loadingAdminSmtp, setLoadingAdminSmtp] = useState(true);
-  const [savingAdminSmtp, setSavingAdminSmtp] = useState(false);
-  const [adminSmtpSaved, setAdminSmtpSaved] = useState<string | null>(null);
-
-  const [userSmtpConfig, setUserSmtpConfig] = useState<NotificationSmtpForm>({ ...DEFAULT_NOTIFICATION_SMTP });
-  const [userSmtpPassword, setUserSmtpPassword] = useState('');
-  const [loadingUserSmtp, setLoadingUserSmtp] = useState(true);
-  const [savingUserSmtp, setSavingUserSmtp] = useState(false);
-  const [userSmtpSaved, setUserSmtpSaved] = useState<string | null>(null);
 
   useEffect(() => {
     let alive = true;
@@ -1350,42 +1338,6 @@ function NotificationsSection() {
       .catch(() => {})
       .finally(() => {
         if (alive) setLoadingPrefs(false);
-      });
-    return () => { alive = false; };
-  }, []);
-
-  useEffect(() => {
-    if (!canManageAdminSMTP) {
-      setLoadingAdminSmtp(false);
-      return;
-    }
-    let alive = true;
-    api.get('/api/admin/notifications/smtp')
-      .then((remote: Partial<NotificationSmtpForm>) => {
-        if (!alive) return;
-        if (remote) {
-          setAdminSmtpConfig(prev => ({ ...prev, ...remote }));
-        }
-      })
-      .catch(() => {})
-      .finally(() => {
-        if (alive) setLoadingAdminSmtp(false);
-      });
-    return () => { alive = false; };
-  }, [canManageAdminSMTP]);
-
-  useEffect(() => {
-    let alive = true;
-    api.get('/api/notifications/user-smtp')
-      .then((remote: Partial<NotificationSmtpForm>) => {
-        if (!alive) return;
-        if (remote) {
-          setUserSmtpConfig(prev => ({ ...prev, ...remote }));
-        }
-      })
-      .catch(() => {})
-      .finally(() => {
-        if (alive) setLoadingUserSmtp(false);
       });
     return () => { alive = false; };
   }, []);
@@ -1402,55 +1354,6 @@ function NotificationsSection() {
       alert(err.message || tSettings('notifSaveFailed'));
     } finally {
       setSavingKey(null);
-    }
-  }
-
-  function updateAdminSmtp<K extends keyof NotificationSmtpForm>(field: K, value: NotificationSmtpForm[K]) {
-    setAdminSmtpConfig(prev => ({ ...prev, [field]: value }));
-  }
-
-  async function saveAdminSmtpConfig() {
-    if (!canManageAdminSMTP) return;
-    setSavingAdminSmtp(true);
-    setAdminSmtpSaved(null);
-    try {
-      const payload: Partial<NotificationSmtpForm> = { ...adminSmtpConfig };
-      if (!adminSmtpPassword) {
-        delete payload.smtp_password;
-      } else {
-        payload.smtp_password = adminSmtpPassword;
-      }
-      await api.patch('/api/admin/notifications/smtp', payload);
-      setAdminSmtpPassword('');
-      setAdminSmtpSaved(tSettings('notifSmtpSaved'));
-    } catch (err: any) {
-      alert(err.message || tSettings('notifSmtpSaveFailed'));
-    } finally {
-      setSavingAdminSmtp(false);
-    }
-  }
-
-  function updateUserSmtp<K extends keyof NotificationSmtpForm>(field: K, value: NotificationSmtpForm[K]) {
-    setUserSmtpConfig(prev => ({ ...prev, [field]: value }));
-  }
-
-  async function saveUserSmtpConfig() {
-    setSavingUserSmtp(true);
-    setUserSmtpSaved(null);
-    try {
-      const payload: Partial<NotificationSmtpForm> = { ...userSmtpConfig };
-      if (!userSmtpPassword) {
-        delete payload.smtp_password;
-      } else {
-        payload.smtp_password = userSmtpPassword;
-      }
-      await api.patch('/api/notifications/user-smtp', payload);
-      setUserSmtpPassword('');
-      setUserSmtpSaved(tSettings('notifPersonalSmtpSaved'));
-    } catch (err: any) {
-      alert(err.message || tSettings('notifPersonalSmtpSaveFailed'));
-    } finally {
-      setSavingUserSmtp(false);
     }
   }
 
@@ -1512,9 +1415,120 @@ function NotificationsSection() {
           </div>
         ))}
       </div>
+    </div>
+  );
+}
+
+// ── Email Settings Section ───────────────────────────────────────────────────
+
+function EmailSettingsSection() {
+  const tSettings = useTranslations('settings');
+  const currentUser = getCurrentUser();
+  const canManageAdminSMTP = currentUser?.role === 'tenant_admin' || currentUser?.role === 'platform_admin';
+
+  const [adminSmtpConfig, setAdminSmtpConfig] = useState<NotificationSmtpForm>({ ...DEFAULT_NOTIFICATION_SMTP });
+  const [adminSmtpPassword, setAdminSmtpPassword] = useState('');
+  const [loadingAdminSmtp, setLoadingAdminSmtp] = useState(true);
+  const [savingAdminSmtp, setSavingAdminSmtp] = useState(false);
+  const [adminSmtpSaved, setAdminSmtpSaved] = useState<string | null>(null);
+
+  const [userSmtpConfig, setUserSmtpConfig] = useState<NotificationSmtpForm>({ ...DEFAULT_NOTIFICATION_SMTP });
+  const [userSmtpPassword, setUserSmtpPassword] = useState('');
+  const [loadingUserSmtp, setLoadingUserSmtp] = useState(true);
+  const [savingUserSmtp, setSavingUserSmtp] = useState(false);
+  const [userSmtpSaved, setUserSmtpSaved] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!canManageAdminSMTP) {
+      setLoadingAdminSmtp(false);
+      return;
+    }
+    let alive = true;
+    api.get('/api/admin/notifications/smtp')
+      .then((remote: Partial<NotificationSmtpForm>) => {
+        if (!alive) return;
+        if (remote) {
+          setAdminSmtpConfig(prev => ({ ...prev, ...remote }));
+        }
+      })
+      .catch(() => {})
+      .finally(() => {
+        if (alive) setLoadingAdminSmtp(false);
+      });
+    return () => { alive = false; };
+  }, [canManageAdminSMTP]);
+
+  useEffect(() => {
+    let alive = true;
+    api.get('/api/notifications/user-smtp')
+      .then((remote: Partial<NotificationSmtpForm>) => {
+        if (!alive) return;
+        if (remote) {
+          setUserSmtpConfig(prev => ({ ...prev, ...remote }));
+        }
+      })
+      .catch(() => {})
+      .finally(() => {
+        if (alive) setLoadingUserSmtp(false);
+      });
+    return () => { alive = false; };
+  }, []);
+
+  function updateAdminSmtp<K extends keyof NotificationSmtpForm>(field: K, value: NotificationSmtpForm[K]) {
+    setAdminSmtpConfig(prev => ({ ...prev, [field]: value }));
+  }
+
+  async function saveAdminSmtpConfig() {
+    if (!canManageAdminSMTP) return;
+    setSavingAdminSmtp(true);
+    setAdminSmtpSaved(null);
+    try {
+      const payload: Partial<NotificationSmtpForm> = { ...adminSmtpConfig };
+      if (!adminSmtpPassword) {
+        delete payload.smtp_password;
+      } else {
+        payload.smtp_password = adminSmtpPassword;
+      }
+      await api.patch('/api/admin/notifications/smtp', payload);
+      setAdminSmtpPassword('');
+      setAdminSmtpSaved(tSettings('notifSmtpSaved'));
+    } catch (err: any) {
+      alert(err.message || tSettings('notifSmtpSaveFailed'));
+    } finally {
+      setSavingAdminSmtp(false);
+    }
+  }
+
+  function updateUserSmtp<K extends keyof NotificationSmtpForm>(field: K, value: NotificationSmtpForm[K]) {
+    setUserSmtpConfig(prev => ({ ...prev, [field]: value }));
+  }
+
+  async function saveUserSmtpConfig() {
+    setSavingUserSmtp(true);
+    setUserSmtpSaved(null);
+    try {
+      const payload: Partial<NotificationSmtpForm> = { ...userSmtpConfig };
+      if (!userSmtpPassword) {
+        delete payload.smtp_password;
+      } else {
+        payload.smtp_password = userSmtpPassword;
+      }
+      await api.patch('/api/notifications/user-smtp', payload);
+      setUserSmtpPassword('');
+      setUserSmtpSaved(tSettings('notifPersonalSmtpSaved'));
+    } catch (err: any) {
+      alert(err.message || tSettings('notifPersonalSmtpSaveFailed'));
+    } finally {
+      setSavingUserSmtp(false);
+    }
+  }
+
+  return (
+    <div>
+      <SectionHeader title={tSettings('emailTitle')} subtitle={tSettings('emailSubtitle')} />
 
       {canManageAdminSMTP && (
-        <div className="mt-10">
+        <div>
           <p className="text-sm font-semibold uppercase tracking-wider mb-2" style={{ color: 'var(--notion-text-muted)' }}>
             {tSettings('notifTenantEmail')}
           </p>
@@ -1644,7 +1658,7 @@ function NotificationsSection() {
         </div>
       )}
 
-      <div className="mt-10">
+      <div className={canManageAdminSMTP ? 'mt-10' : ''}>
         <p className="text-sm font-semibold uppercase tracking-wider mb-2" style={{ color: 'var(--notion-text-muted)' }}>
           {tSettings('notifPersonalEmail')}
         </p>
