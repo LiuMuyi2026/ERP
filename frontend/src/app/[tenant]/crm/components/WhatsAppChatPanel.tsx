@@ -30,6 +30,8 @@ interface WhatsAppChatPanelProps {
   profilePicUrl?: string;
   isGroup?: boolean;
   disappearingDuration?: number;
+  isBlocked?: boolean;
+  isArchived?: boolean;
 }
 
 function formatTime(iso: string) {
@@ -78,6 +80,7 @@ const AI_ACTIONS: { key: AiAction; label: string; icon: string; color: string }[
 
 export default function WhatsAppChatPanel({
   contactId, leadId, contactName, profilePicUrl, isGroup, disappearingDuration,
+  isBlocked: initialIsBlocked, isArchived: initialIsArchived,
 }: WhatsAppChatPanelProps) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [loading, setLoading] = useState(true);
@@ -128,6 +131,37 @@ export default function WhatsAppChatPanel({
   // Resolved contactId (when opened via leadId, resolve from messages)
   const [resolvedContactId, setResolvedContactId] = useState<string | undefined>(contactId);
 
+  // ── New feature states ──
+  const [showButtonsModal, setShowButtonsModal] = useState(false);
+  const [btnTitle, setBtnTitle] = useState('');
+  const [btnDesc, setBtnDesc] = useState('');
+  const [btnFooter, setBtnFooter] = useState('');
+  const [btnButtons, setBtnButtons] = useState([{ id: '1', text: '' }]);
+
+  const [showListModal, setShowListModal] = useState(false);
+  const [listTitle, setListTitle] = useState('');
+  const [listDesc, setListDesc] = useState('');
+  const [listBtnText, setListBtnText] = useState('');
+  const [listFooter, setListFooter] = useState('');
+  const [listSections, setListSections] = useState([{ title: '', rows: [{ title: '', description: '', row_id: '1' }] }]);
+
+  const [showTemplateModal, setShowTemplateModal] = useState(false);
+  const [templates, setTemplates] = useState<any[]>([]);
+  const [templateSearch, setTemplateSearch] = useState('');
+
+  const [isBlocked, setIsBlocked] = useState(initialIsBlocked || false);
+
+  // Message search
+  const [showSearch, setShowSearch] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState<Message[]>([]);
+  const [searchIdx, setSearchIdx] = useState(0);
+
+  // Group info panel
+  const [showGroupInfo, setShowGroupInfo] = useState(false);
+  const [groupMeta, setGroupMeta] = useState<any>(null);
+  const [inviteCode, setInviteCode] = useState('');
+
   const effectiveContactId = contactId || resolvedContactId;
 
   // ── Load messages ──
@@ -139,7 +173,6 @@ export default function WhatsAppChatPanel({
         data = await api.get(`/api/whatsapp/conversations/${contactId}/messages`);
       } else if (leadId) {
         data = await api.get(`/api/whatsapp/leads/${leadId}/messages`);
-        // Resolve contactId from first message so send/reactions/etc. work
         if (!resolvedContactId && Array.isArray(data) && data.length > 0) {
           const cid = (data[0] as any).wa_contact_id;
           if (cid) setResolvedContactId(cid);
@@ -157,17 +190,15 @@ export default function WhatsAppChatPanel({
     loadMessages();
     if (effectiveContactId) {
       api.post(`/api/whatsapp/conversations/${effectiveContactId}/read`, {}).catch(() => {});
-      // Subscribe presence
       api.post(`/api/whatsapp/conversations/${effectiveContactId}/subscribe-presence`, {}).catch(() => {});
     }
-    // Poll for new messages every 5s
     const iv = setInterval(() => { loadMessages(); }, 5000);
     return () => clearInterval(iv);
   }, [effectiveContactId, leadId]);
 
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages.length]);
 
-  // ── Presence polling (5s) ──
+  // ── Presence polling ──
   useEffect(() => {
     if (!effectiveContactId) return;
     const fetchPresence = async () => {
@@ -247,7 +278,7 @@ export default function WhatsAppChatPanel({
     setMenuMsg(null);
   }
 
-  // ── Delete (revoke) ──
+  // ── Delete ──
   async function handleDelete(msg: Message) {
     if (!effectiveContactId) return;
     try {
@@ -331,9 +362,142 @@ export default function WhatsAppChatPanel({
     finally { setAiLoading(null); }
   }
 
+  // ── Send Buttons ──
+  async function handleSendButtons() {
+    if (!effectiveContactId || !btnTitle.trim() || !btnButtons.some(b => b.text.trim())) return;
+    try {
+      await api.post(`/api/whatsapp/conversations/${effectiveContactId}/send-buttons`, {
+        title: btnTitle, description: btnDesc, footer: btnFooter,
+        buttons: btnButtons.filter(b => b.text.trim()).map((b, i) => ({ id: b.id || String(i + 1), text: b.text })),
+      });
+      setShowButtonsModal(false);
+      setBtnTitle(''); setBtnDesc(''); setBtnFooter('');
+      setBtnButtons([{ id: '1', text: '' }]);
+      loadMessages();
+    } catch {}
+  }
+
+  // ── Send List ──
+  async function handleSendList() {
+    if (!effectiveContactId || !listTitle.trim()) return;
+    try {
+      await api.post(`/api/whatsapp/conversations/${effectiveContactId}/send-list`, {
+        title: listTitle, description: listDesc, button_text: listBtnText || 'View',
+        footer: listFooter,
+        sections: listSections.map(s => ({
+          title: s.title,
+          rows: s.rows.filter(r => r.title.trim()).map(r => ({ title: r.title, description: r.description, rowId: r.row_id })),
+        })),
+      });
+      setShowListModal(false);
+      setListTitle(''); setListDesc(''); setListBtnText(''); setListFooter('');
+      setListSections([{ title: '', rows: [{ title: '', description: '', row_id: '1' }] }]);
+      loadMessages();
+    } catch {}
+  }
+
+  // ── Template selector ──
+  async function loadTemplates() {
+    try {
+      const data = await api.get('/api/whatsapp/templates');
+      setTemplates(Array.isArray(data) ? data : []);
+    } catch { setTemplates([]); }
+  }
+
+  function handleSelectTemplate(tpl: any) {
+    setInput(tpl.content || '');
+    setShowTemplateModal(false);
+  }
+
+  // ── Block/Unblock ──
+  async function handleBlock() {
+    if (!effectiveContactId) return;
+    const newBlocked = !isBlocked;
+    try {
+      await api.post(`/api/whatsapp/conversations/${effectiveContactId}/block`, { block: newBlocked });
+      setIsBlocked(newBlocked);
+    } catch {}
+  }
+
+  // ── Search messages ──
+  async function handleSearch() {
+    if (!searchQuery.trim() || !effectiveContactId) return;
+    try {
+      const data = await api.get(`/api/whatsapp/search?q=${encodeURIComponent(searchQuery)}&contact_id=${effectiveContactId}`);
+      setSearchResults(Array.isArray(data) ? data : []);
+      setSearchIdx(0);
+    } catch { setSearchResults([]); }
+  }
+
+  // ── Group info ──
+  async function loadGroupInfo() {
+    if (!effectiveContactId) return;
+    try {
+      const meta = await api.get(`/api/whatsapp/groups/${effectiveContactId}/metadata`);
+      setGroupMeta(meta);
+    } catch {}
+    try {
+      const inv = await api.get(`/api/whatsapp/groups/${effectiveContactId}/invite-code`);
+      setInviteCode(inv.inviteCode || inv.code || '');
+    } catch {}
+  }
+
   // ── Find quoted message ──
   function findQuotedMessage(replyId: string): Message | undefined {
     return messages.find(m => m.id === replyId);
+  }
+
+  // ── Render interactive message types ──
+  function renderButtonsMessage(msg: Message) {
+    const meta = typeof msg.metadata === 'string' ? JSON.parse(msg.metadata) : (msg.metadata || {});
+    const buttons = meta.buttons || [];
+    const desc = meta.description || '';
+    const footer = meta.footer || '';
+    return (
+      <div>
+        <p className="text-sm font-semibold mb-1" style={{ color: 'var(--notion-text)' }}>{msg.content}</p>
+        {desc && <p className="text-xs mb-2" style={{ color: 'var(--notion-text-muted)' }}>{desc}</p>}
+        {buttons.map((b: any, i: number) => (
+          <div key={i} className="border rounded-lg px-3 py-1.5 mb-1 text-center text-xs font-medium"
+            style={{ borderColor: '#25D366', color: '#25D366' }}>
+            {b.text || b.buttonText || ''}
+          </div>
+        ))}
+        {footer && <p className="text-[10px] mt-1 text-right" style={{ color: 'var(--notion-text-muted)' }}>{footer}</p>}
+      </div>
+    );
+  }
+
+  function renderListMessage(msg: Message) {
+    const meta = typeof msg.metadata === 'string' ? JSON.parse(msg.metadata) : (msg.metadata || {});
+    const sections = meta.sections || [];
+    const desc = meta.description || '';
+    const footer = meta.footer || '';
+    const buttonText = meta.button_text || 'View';
+    return (
+      <div>
+        <p className="text-sm font-semibold mb-1" style={{ color: 'var(--notion-text)' }}>{msg.content}</p>
+        {desc && <p className="text-xs mb-2" style={{ color: 'var(--notion-text-muted)' }}>{desc}</p>}
+        {sections.map((s: any, si: number) => (
+          <div key={si} className="mb-2">
+            {s.title && <p className="text-[10px] font-semibold uppercase tracking-wider mb-1" style={{ color: 'var(--notion-text-muted)' }}>── {s.title} ──</p>}
+            <div className="border rounded-lg overflow-hidden" style={{ borderColor: 'var(--notion-border)' }}>
+              {(s.rows || []).map((r: any, ri: number) => (
+                <div key={ri} className="px-3 py-1.5 border-b last:border-b-0" style={{ borderColor: 'var(--notion-border)' }}>
+                  <p className="text-xs font-medium" style={{ color: 'var(--notion-text)' }}>{r.title}</p>
+                  {r.description && <p className="text-[10px]" style={{ color: 'var(--notion-text-muted)' }}>{r.description}</p>}
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
+        <div className="border rounded-lg px-3 py-1.5 text-center text-xs font-medium mt-1"
+          style={{ borderColor: '#25D366', color: '#25D366' }}>
+          {buttonText}
+        </div>
+        {footer && <p className="text-[10px] mt-1 text-right" style={{ color: 'var(--notion-text-muted)' }}>{footer}</p>}
+      </div>
+    );
   }
 
   const groups = groupByDate(messages);
@@ -347,20 +511,43 @@ export default function WhatsAppChatPanel({
     <div className="flex flex-col h-full" style={{ minHeight: 400 }}>
       {/* ── Header ── */}
       <div className="px-4 py-3 border-b flex items-center gap-3" style={{ borderColor: 'var(--notion-border)', background: 'var(--notion-card, white)' }}>
-        <div className="w-8 h-8 rounded-full flex items-center justify-center text-white text-sm font-bold overflow-hidden" style={{ background: '#25D366' }}>
+        <div className="w-8 h-8 rounded-full flex items-center justify-center text-white text-sm font-bold overflow-hidden cursor-pointer"
+          style={{ background: '#25D366' }}
+          onClick={() => { if (isGroup) { setShowGroupInfo(!showGroupInfo); loadGroupInfo(); } }}>
           {profilePicUrl ? (
             <img src={profilePicUrl} alt="" className="w-full h-full object-cover" />
           ) : (
             (contactName || 'W').charAt(0).toUpperCase()
           )}
         </div>
-        <div className="flex-1 min-w-0">
+        <div className="flex-1 min-w-0"
+          onClick={() => { if (isGroup) { setShowGroupInfo(!showGroupInfo); loadGroupInfo(); } }}
+          style={{ cursor: isGroup ? 'pointer' : 'default' }}>
           <p className="text-sm font-semibold truncate" style={{ color: 'var(--notion-text)' }}>{contactName || 'WhatsApp Chat'}</p>
           <p className="text-xs" style={{ color: presenceText === 'typing...' ? '#25D366' : 'var(--notion-text-muted)' }}>
             {presenceText || `${messages.length} messages`}
           </p>
         </div>
         <div className="flex items-center gap-1">
+          {/* Search */}
+          <button onClick={() => setShowSearch(!showSearch)}
+            className="p-1.5 rounded hover:bg-gray-100" title="Search messages">
+            <HandIcon name="search" size={16} />
+          </button>
+          {/* Block */}
+          <button onClick={handleBlock}
+            className="p-1.5 rounded hover:bg-gray-100 text-xs" title={isBlocked ? 'Unblock' : 'Block'}
+            style={{ color: isBlocked ? '#dc2626' : 'var(--notion-text-muted)' }}>
+            <HandIcon name="shield" size={16} />
+          </button>
+          {/* Sync profile pic */}
+          {effectiveContactId && !isGroup && (
+            <button onClick={async () => {
+              try { await api.post(`/api/whatsapp/conversations/${effectiveContactId}/sync-profile`, {}); } catch {}
+            }} className="p-1.5 rounded hover:bg-gray-100 text-xs" title="Sync profile picture">
+              <HandIcon name="refresh" size={16} />
+            </button>
+          )}
           {/* Disappearing toggle */}
           <div className="relative">
             <button onClick={() => setShowDisappearing(!showDisappearing)}
@@ -390,6 +577,33 @@ export default function WhatsAppChatPanel({
           )}
         </div>
       </div>
+
+      {/* ── Blocked banner ── */}
+      {isBlocked && (
+        <div className="px-4 py-2 text-xs text-center font-medium" style={{ background: '#fef2f2', color: '#dc2626' }}>
+          This contact is blocked. <button onClick={handleBlock} className="underline">Unblock</button>
+        </div>
+      )}
+
+      {/* ── Search bar ── */}
+      {showSearch && (
+        <div className="px-4 py-2 border-b flex items-center gap-2" style={{ borderColor: 'var(--notion-border)', background: 'var(--notion-card, white)' }}>
+          <input value={searchQuery} onChange={e => setSearchQuery(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter') handleSearch(); }}
+            placeholder="Search messages..." className="flex-1 text-xs border rounded px-2 py-1.5 outline-none"
+            style={{ borderColor: 'var(--notion-border)' }} autoFocus />
+          <button onClick={handleSearch} className="text-xs px-2 py-1 rounded" style={{ background: '#25D366', color: 'white' }}>Search</button>
+          {searchResults.length > 0 && (
+            <div className="flex items-center gap-1 text-[10px]" style={{ color: 'var(--notion-text-muted)' }}>
+              <span>{searchIdx + 1}/{searchResults.length}</span>
+              <button onClick={() => setSearchIdx(Math.max(0, searchIdx - 1))} className="px-1">▲</button>
+              <button onClick={() => setSearchIdx(Math.min(searchResults.length - 1, searchIdx + 1))} className="px-1">▼</button>
+            </div>
+          )}
+          <button onClick={() => { setShowSearch(false); setSearchQuery(''); setSearchResults([]); }}
+            className="text-xs p-1 hover:bg-gray-100 rounded">✕</button>
+        </div>
+      )}
 
       {/* ── AI Panel ── */}
       {showAiPanel && (
@@ -433,6 +647,48 @@ export default function WhatsAppChatPanel({
         </div>
       )}
 
+      {/* ── Group info panel ── */}
+      {showGroupInfo && isGroup && groupMeta && (
+        <div className="border-b px-4 py-3" style={{ borderColor: 'var(--notion-border)', background: 'var(--notion-card, white)' }}>
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-xs font-semibold" style={{ color: 'var(--notion-text)' }}>Group Info</span>
+            <button onClick={() => setShowGroupInfo(false)} className="text-xs" style={{ color: 'var(--notion-text-muted)' }}>✕</button>
+          </div>
+          <p className="text-[11px] mb-1" style={{ color: 'var(--notion-text-muted)' }}>
+            {groupMeta.desc || groupMeta.description || 'No description'}
+          </p>
+          <p className="text-[10px] mb-1" style={{ color: 'var(--notion-text-muted)' }}>
+            {groupMeta.size || (groupMeta.participants || []).length} members
+          </p>
+          {inviteCode && (
+            <div className="flex items-center gap-2 mt-1">
+              <span className="text-[10px] truncate" style={{ color: 'var(--notion-text-muted)' }}>
+                Invite: https://chat.whatsapp.com/{inviteCode}
+              </span>
+              <button onClick={() => navigator.clipboard.writeText(`https://chat.whatsapp.com/${inviteCode}`)}
+                className="text-[9px] px-1.5 py-0.5 rounded" style={{ background: '#dbeafe', color: '#1d4ed8' }}>
+                Copy
+              </button>
+            </div>
+          )}
+          {/* Participants */}
+          {(groupMeta.participants || []).length > 0 && (
+            <div className="mt-2 max-h-[120px] overflow-y-auto">
+              {(groupMeta.participants || []).slice(0, 50).map((p: any, i: number) => {
+                const pid = typeof p === 'string' ? p : (p.id || '');
+                const isAdmin = typeof p === 'object' && (p.admin === 'admin' || p.admin === 'superadmin');
+                return (
+                  <div key={i} className="flex items-center justify-between py-0.5">
+                    <span className="text-[10px] truncate" style={{ color: 'var(--notion-text)' }}>{pid.replace(/@s\.whatsapp\.net$/, '')}</span>
+                    {isAdmin && <span className="text-[9px] px-1 rounded" style={{ background: '#dcfce7', color: '#15803d' }}>Admin</span>}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
       {/* ── Messages ── */}
       <div className="flex-1 overflow-y-auto px-4 py-4" style={{ background: 'var(--notion-hover)' }}
         onClick={() => { setMenuMsg(null); setShowDisappearing(false); }}>
@@ -454,6 +710,7 @@ export default function WhatsAppChatPanel({
               {group.messages.map(msg => {
                 const isOut = msg.direction === 'outbound';
                 const quoted = msg.reply_to_message_id ? findQuotedMessage(msg.reply_to_message_id) : null;
+                const isHighlighted = searchResults.length > 0 && searchResults[searchIdx]?.id === msg.id;
 
                 // Deleted message
                 if (msg.is_deleted) {
@@ -490,6 +747,7 @@ export default function WhatsAppChatPanel({
                         background: isOut ? '#dcf8c6' : 'var(--notion-card, white)',
                         borderBottomRightRadius: isOut ? 4 : 12,
                         borderBottomLeftRadius: isOut ? 12 : 4,
+                        outline: isHighlighted ? '2px solid #f59e0b' : 'none',
                       }}>
 
                       {/* Quoted message */}
@@ -503,6 +761,10 @@ export default function WhatsAppChatPanel({
                       {isOut && msg.created_by_name && (
                         <p className="text-[10px] font-semibold mb-0.5" style={{ color: '#128C7E' }}>{msg.created_by_name}</p>
                       )}
+
+                      {/* Interactive message types */}
+                      {msg.message_type === 'buttons' && renderButtonsMessage(msg)}
+                      {msg.message_type === 'list' && renderListMessage(msg)}
 
                       {/* Media rendering */}
                       {msg.message_type === 'image' && msg.media_url && (
@@ -528,8 +790,8 @@ export default function WhatsAppChatPanel({
                         </div>
                       )}
 
-                      {/* Text content (not for document type where it's the filename) */}
-                      {msg.content && msg.message_type !== 'document' && msg.message_type !== 'poll' && (
+                      {/* Text content (not for special types) */}
+                      {msg.content && !['document', 'poll', 'buttons', 'list'].includes(msg.message_type) && (
                         <p className="text-sm whitespace-pre-wrap" style={{ color: 'var(--notion-text)', lineHeight: 1.5 }}>
                           {msg.content}
                         </p>
@@ -631,6 +893,24 @@ export default function WhatsAppChatPanel({
             📊
           </button>
 
+          {/* Buttons message */}
+          <button type="button" onClick={() => setShowButtonsModal(true)}
+            className="p-2 rounded-lg hover:bg-gray-100 text-xs" title="Send buttons">
+            <HandIcon name="grid" size={16} />
+          </button>
+
+          {/* List message */}
+          <button type="button" onClick={() => setShowListModal(true)}
+            className="p-2 rounded-lg hover:bg-gray-100 text-xs" title="Send list">
+            <HandIcon name="list" size={16} />
+          </button>
+
+          {/* Template */}
+          <button type="button" onClick={() => { setShowTemplateModal(true); loadTemplates(); }}
+            className="p-2 rounded-lg hover:bg-gray-100 text-xs" title="Templates">
+            <HandIcon name="bookmark" size={16} />
+          </button>
+
           <input type="text" value={input}
             onChange={e => handleInputChange(e.target.value)}
             placeholder="Type a message..."
@@ -689,6 +969,116 @@ export default function WhatsAppChatPanel({
             <div className="flex gap-2">
               <button onClick={handleSendPoll} className="flex-1 px-3 py-1.5 rounded text-xs font-medium text-white" style={{ background: '#25D366' }}>Send</button>
               <button onClick={() => setShowPollModal(false)} className="flex-1 px-3 py-1.5 rounded text-xs border">Cancel</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Buttons message modal ── */}
+      {showButtonsModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={() => setShowButtonsModal(false)}>
+          <div className="bg-white rounded-xl shadow-xl w-96 p-4" onClick={e => e.stopPropagation()}>
+            <h3 className="text-sm font-semibold mb-3">Send Button Message</h3>
+            <input value={btnTitle} onChange={e => setBtnTitle(e.target.value)}
+              placeholder="Title" className="w-full text-xs border rounded px-2 py-1.5 mb-2" />
+            <textarea value={btnDesc} onChange={e => setBtnDesc(e.target.value)}
+              placeholder="Description" rows={2} className="w-full text-xs border rounded px-2 py-1.5 mb-2" />
+            <input value={btnFooter} onChange={e => setBtnFooter(e.target.value)}
+              placeholder="Footer (optional)" className="w-full text-xs border rounded px-2 py-1.5 mb-2" />
+            <p className="text-[10px] mb-1 font-semibold" style={{ color: 'var(--notion-text-muted)' }}>Buttons (max 3)</p>
+            {btnButtons.map((btn, i) => (
+              <input key={i} value={btn.text} onChange={e => {
+                const next = [...btnButtons]; next[i] = { ...next[i], text: e.target.value }; setBtnButtons(next);
+              }} placeholder={`Button ${i + 1}`} className="w-full text-xs border rounded px-2 py-1.5 mb-1" />
+            ))}
+            {btnButtons.length < 3 && (
+              <button onClick={() => setBtnButtons([...btnButtons, { id: String(btnButtons.length + 1), text: '' }])}
+                className="text-xs text-blue-500 mb-2">+ Add button</button>
+            )}
+            <div className="flex gap-2 mt-2">
+              <button onClick={handleSendButtons} className="flex-1 px-3 py-1.5 rounded text-xs font-medium text-white" style={{ background: '#25D366' }}>Send</button>
+              <button onClick={() => setShowButtonsModal(false)} className="flex-1 px-3 py-1.5 rounded text-xs border">Cancel</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── List message modal ── */}
+      {showListModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={() => setShowListModal(false)}>
+          <div className="bg-white rounded-xl shadow-xl w-[440px] p-4 max-h-[80vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+            <h3 className="text-sm font-semibold mb-3">Send List Message</h3>
+            <input value={listTitle} onChange={e => setListTitle(e.target.value)}
+              placeholder="Title" className="w-full text-xs border rounded px-2 py-1.5 mb-2" />
+            <textarea value={listDesc} onChange={e => setListDesc(e.target.value)}
+              placeholder="Description" rows={2} className="w-full text-xs border rounded px-2 py-1.5 mb-2" />
+            <input value={listBtnText} onChange={e => setListBtnText(e.target.value)}
+              placeholder="Button text (e.g. View Options)" className="w-full text-xs border rounded px-2 py-1.5 mb-2" />
+            <input value={listFooter} onChange={e => setListFooter(e.target.value)}
+              placeholder="Footer (optional)" className="w-full text-xs border rounded px-2 py-1.5 mb-3" />
+
+            {listSections.map((section, si) => (
+              <div key={si} className="border rounded-lg p-3 mb-2" style={{ borderColor: 'var(--notion-border)' }}>
+                <input value={section.title} onChange={e => {
+                  const next = [...listSections]; next[si] = { ...next[si], title: e.target.value }; setListSections(next);
+                }} placeholder={`Section ${si + 1} title`} className="w-full text-xs border rounded px-2 py-1.5 mb-2 font-semibold" />
+                {section.rows.map((row, ri) => (
+                  <div key={ri} className="flex gap-1 mb-1">
+                    <input value={row.title} onChange={e => {
+                      const next = [...listSections];
+                      next[si].rows[ri] = { ...next[si].rows[ri], title: e.target.value };
+                      setListSections(next);
+                    }} placeholder="Row title" className="flex-1 text-xs border rounded px-2 py-1" />
+                    <input value={row.description} onChange={e => {
+                      const next = [...listSections];
+                      next[si].rows[ri] = { ...next[si].rows[ri], description: e.target.value };
+                      setListSections(next);
+                    }} placeholder="Description" className="flex-1 text-xs border rounded px-2 py-1" />
+                  </div>
+                ))}
+                <button onClick={() => {
+                  const next = [...listSections];
+                  next[si].rows.push({ title: '', description: '', row_id: String(next[si].rows.length + 1) });
+                  setListSections(next);
+                }} className="text-[10px] text-blue-500">+ Add row</button>
+              </div>
+            ))}
+            <button onClick={() => setListSections([...listSections, { title: '', rows: [{ title: '', description: '', row_id: '1' }] }])}
+              className="text-xs text-blue-500 mb-3">+ Add section</button>
+
+            <div className="flex gap-2">
+              <button onClick={handleSendList} className="flex-1 px-3 py-1.5 rounded text-xs font-medium text-white" style={{ background: '#25D366' }}>Send</button>
+              <button onClick={() => setShowListModal(false)} className="flex-1 px-3 py-1.5 rounded text-xs border">Cancel</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Template selector modal ── */}
+      {showTemplateModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={() => setShowTemplateModal(false)}>
+          <div className="bg-white rounded-xl shadow-xl w-80 max-h-96 overflow-hidden" onClick={e => e.stopPropagation()}>
+            <div className="px-4 py-3 border-b font-semibold text-sm">Quick Reply Templates</div>
+            <div className="px-4 py-2">
+              <input value={templateSearch} onChange={e => setTemplateSearch(e.target.value)}
+                placeholder="Search templates..." className="w-full text-xs border rounded px-2 py-1.5" />
+            </div>
+            <div className="overflow-y-auto max-h-64">
+              {templates.length === 0 ? (
+                <div className="px-4 py-6 text-center text-xs" style={{ color: 'var(--notion-text-muted)' }}>No templates. Create one in Settings.</div>
+              ) : templates
+                .filter(t => !templateSearch || t.name.toLowerCase().includes(templateSearch.toLowerCase()) || t.content.toLowerCase().includes(templateSearch.toLowerCase()))
+                .map(tpl => (
+                  <button key={tpl.id} onClick={() => handleSelectTemplate(tpl)}
+                    className="block w-full text-left px-4 py-2 hover:bg-gray-50 border-b" style={{ borderColor: 'var(--notion-border)' }}>
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-semibold" style={{ color: 'var(--notion-text)' }}>{tpl.name}</span>
+                      <span className="text-[9px] px-1 rounded" style={{ background: 'var(--notion-hover)', color: 'var(--notion-text-muted)' }}>{tpl.category}</span>
+                      {tpl.shortcut && <span className="text-[9px]" style={{ color: '#7c3aed' }}>/{tpl.shortcut}</span>}
+                    </div>
+                    <p className="text-[11px] mt-0.5 truncate" style={{ color: 'var(--notion-text-muted)' }}>{tpl.content}</p>
+                  </button>
+                ))}
             </div>
           </div>
         </div>

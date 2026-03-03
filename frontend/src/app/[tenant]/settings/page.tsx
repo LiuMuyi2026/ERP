@@ -2069,6 +2069,48 @@ function WhatsAppSettingsSection() {
         </div>
       )}
 
+      {/* ── Reply Templates ── */}
+      <div className="mt-8">
+        <h2 className="text-sm font-bold mb-3" style={{ color: 'var(--notion-text)' }}>Reply Templates</h2>
+        <TemplateManager />
+      </div>
+
+      {/* ── Profile & Privacy ── */}
+      {accounts.length > 0 && (
+        <div className="mt-8">
+          <h2 className="text-sm font-bold mb-3" style={{ color: 'var(--notion-text)' }}>Profile & Privacy</h2>
+          {accounts.filter(a => a.status === 'connected').map(acc => (
+            <ProfileEditor key={acc.id} accountId={acc.id} displayName={acc.display_name || ''} />
+          ))}
+        </div>
+      )}
+
+      {/* ── WhatsApp Status ── */}
+      {accounts.filter(a => a.status === 'connected').length > 0 && (
+        <div className="mt-8">
+          <h2 className="text-sm font-bold mb-3" style={{ color: 'var(--notion-text)' }}>Publish Status</h2>
+          <StatusPublisher accountId={accounts.find(a => a.status === 'connected')!.id} />
+        </div>
+      )}
+
+      {/* ── AI Chatbot ── */}
+      {accounts.filter(a => a.status === 'connected').length > 0 && (
+        <div className="mt-8">
+          <h2 className="text-sm font-bold mb-3" style={{ color: 'var(--notion-text)' }}>AI Auto-Reply (Chatbot)</h2>
+          {accounts.filter(a => a.status === 'connected').map(acc => (
+            <ChatbotConfig key={acc.id} accountId={acc.id} accountName={acc.display_name || acc.phone_number || acc.id} />
+          ))}
+        </div>
+      )}
+
+      {/* ── Broadcast ── */}
+      {accounts.length > 0 && (
+        <div className="mt-8">
+          <h2 className="text-sm font-bold mb-3" style={{ color: 'var(--notion-text)' }}>Broadcast Messages</h2>
+          <BroadcastManager />
+        </div>
+      )}
+
       {/* QR Code Modal */}
       {showQrModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.5)' }}>
@@ -2120,6 +2162,486 @@ function WhatsAppSettingsSection() {
             </button>
           </div>
         </div>
+      )}
+    </div>
+  );
+}
+
+// ── Template Manager ───────────────────────────────────────────────────────────
+function TemplateManager() {
+  const [templates, setTemplates] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [showForm, setShowForm] = useState(false);
+  const [editId, setEditId] = useState<string | null>(null);
+  const [name, setName] = useState('');
+  const [content, setContent] = useState('');
+  const [category, setCategory] = useState('general');
+  const [shortcut, setShortcut] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  async function loadTemplates() {
+    try {
+      const data = await api.get('/api/whatsapp/templates');
+      setTemplates(Array.isArray(data) ? data : []);
+    } catch {}
+    finally { setLoading(false); }
+  }
+
+  useEffect(() => { loadTemplates(); }, []);
+
+  function openEdit(tpl: any) {
+    setEditId(tpl.id);
+    setName(tpl.name);
+    setContent(tpl.content);
+    setCategory(tpl.category || 'general');
+    setShortcut(tpl.shortcut || '');
+    setShowForm(true);
+  }
+
+  function openNew() {
+    setEditId(null);
+    setName(''); setContent(''); setCategory('general'); setShortcut('');
+    setShowForm(true);
+  }
+
+  async function handleSave() {
+    if (!name.trim() || !content.trim()) return;
+    setSaving(true);
+    try {
+      if (editId) {
+        await api.put(`/api/whatsapp/templates/${editId}`, { name, content, category, shortcut: shortcut || null });
+      } else {
+        await api.post('/api/whatsapp/templates', { name, content, category, shortcut: shortcut || null });
+      }
+      setShowForm(false);
+      loadTemplates();
+    } catch {}
+    finally { setSaving(false); }
+  }
+
+  async function handleDelete(id: string) {
+    if (!confirm('Delete this template?')) return;
+    try { await api.delete(`/api/whatsapp/templates/${id}`); loadTemplates(); } catch {}
+  }
+
+  if (loading) return <div className="text-xs" style={{ color: 'var(--notion-text-muted)' }}>Loading...</div>;
+
+  return (
+    <div>
+      {templates.map(tpl => (
+        <SettingsCard key={tpl.id}>
+          <div className="flex items-start justify-between">
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2">
+                <span className="text-sm font-medium" style={{ color: 'var(--notion-text)' }}>{tpl.name}</span>
+                <span className="text-[9px] px-1.5 rounded" style={{ background: 'var(--notion-hover)', color: 'var(--notion-text-muted)' }}>{tpl.category}</span>
+                {tpl.shortcut && <span className="text-[9px] font-mono" style={{ color: '#7c3aed' }}>/{tpl.shortcut}</span>}
+              </div>
+              <p className="text-xs mt-1 line-clamp-2" style={{ color: 'var(--notion-text-muted)' }}>{tpl.content}</p>
+            </div>
+            <div className="flex gap-1 flex-shrink-0 ml-2">
+              <button onClick={() => openEdit(tpl)} className="text-xs px-2 py-1 rounded border"
+                style={{ borderColor: 'var(--notion-border)', color: 'var(--notion-text)' }}>Edit</button>
+              <button onClick={() => handleDelete(tpl.id)} className="text-xs px-2 py-1 rounded border"
+                style={{ borderColor: 'var(--notion-border)', color: '#dc2626' }}>Delete</button>
+            </div>
+          </div>
+        </SettingsCard>
+      ))}
+      {!showForm ? (
+        <button onClick={openNew} className="w-full py-2.5 rounded-lg border-2 border-dashed text-xs font-medium mt-2"
+          style={{ borderColor: 'var(--notion-border)', color: 'var(--notion-text-muted)' }}>
+          + New Template
+        </button>
+      ) : (
+        <SettingsCard>
+          <div className="space-y-2">
+            <input value={name} onChange={e => setName(e.target.value)} placeholder="Template name"
+              className="w-full text-sm px-3 py-2 rounded border outline-none"
+              style={{ borderColor: 'var(--notion-border)', color: 'var(--notion-text)' }} />
+            <textarea value={content} onChange={e => setContent(e.target.value)} placeholder="Template content..."
+              rows={3} className="w-full text-sm px-3 py-2 rounded border outline-none"
+              style={{ borderColor: 'var(--notion-border)', color: 'var(--notion-text)' }} />
+            <div className="flex gap-2">
+              <select value={category} onChange={e => setCategory(e.target.value)}
+                className="text-xs h-8 rounded px-2 border outline-none"
+                style={{ borderColor: 'var(--notion-border)', color: 'var(--notion-text)' }}>
+                <option value="general">General</option>
+                <option value="greeting">Greeting</option>
+                <option value="follow_up">Follow Up</option>
+                <option value="closing">Closing</option>
+                <option value="support">Support</option>
+              </select>
+              <input value={shortcut} onChange={e => setShortcut(e.target.value)} placeholder="Shortcut (optional)"
+                className="flex-1 text-xs px-2 h-8 rounded border outline-none"
+                style={{ borderColor: 'var(--notion-border)', color: 'var(--notion-text)' }} />
+            </div>
+            <div className="flex gap-2 pt-1">
+              <button onClick={handleSave} disabled={saving} className="px-4 py-1.5 rounded text-xs font-medium text-white"
+                style={{ background: '#25D366' }}>{saving ? '...' : (editId ? 'Update' : 'Create')}</button>
+              <button onClick={() => setShowForm(false)} className="px-4 py-1.5 rounded text-xs border"
+                style={{ borderColor: 'var(--notion-border)', color: 'var(--notion-text)' }}>Cancel</button>
+            </div>
+          </div>
+        </SettingsCard>
+      )}
+    </div>
+  );
+}
+
+// ── Profile Editor ─────────────────────────────────────────────────────────────
+function ProfileEditor({ accountId, displayName }: { accountId: string; displayName: string }) {
+  const [name, setName] = useState(displayName);
+  const [statusText, setStatusText] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [expanded, setExpanded] = useState(false);
+
+  async function handleSave() {
+    setSaving(true);
+    try {
+      const body: any = {};
+      if (name.trim()) body.name = name;
+      if (statusText.trim()) body.status_text = statusText;
+      await api.put(`/api/whatsapp/accounts/${accountId}/profile`, body);
+    } catch {}
+    finally { setSaving(false); }
+  }
+
+  return (
+    <SettingsCard>
+      <button onClick={() => setExpanded(!expanded)} className="w-full text-left flex items-center justify-between">
+        <span className="text-sm font-medium" style={{ color: 'var(--notion-text)' }}>
+          {displayName || accountId.slice(0, 8)}
+        </span>
+        <span className="text-xs" style={{ color: 'var(--notion-text-muted)' }}>{expanded ? '▼' : '▶'}</span>
+      </button>
+      {expanded && (
+        <div className="mt-3 space-y-2">
+          <input value={name} onChange={e => setName(e.target.value)} placeholder="Display name"
+            className="w-full text-sm px-3 py-2 rounded border outline-none"
+            style={{ borderColor: 'var(--notion-border)', color: 'var(--notion-text)' }} />
+          <input value={statusText} onChange={e => setStatusText(e.target.value)} placeholder="Status text / About"
+            className="w-full text-sm px-3 py-2 rounded border outline-none"
+            style={{ borderColor: 'var(--notion-border)', color: 'var(--notion-text)' }} />
+          <button onClick={handleSave} disabled={saving} className="px-4 py-1.5 rounded text-xs font-medium text-white"
+            style={{ background: '#25D366' }}>{saving ? '...' : 'Save'}</button>
+        </div>
+      )}
+    </SettingsCard>
+  );
+}
+
+// ── Status Publisher ───────────────────────────────────────────────────────────
+function StatusPublisher({ accountId }: { accountId: string }) {
+  const [type, setType] = useState<'text' | 'image'>('text');
+  const [content, setContent] = useState('');
+  const [bgColor, setBgColor] = useState('#25D366');
+  const [caption, setCaption] = useState('');
+  const [publishing, setPublishing] = useState(false);
+
+  const BG_COLORS = ['#25D366', '#075E54', '#128C7E', '#1DA1F2', '#E91E63', '#FF5722', '#673AB7', '#000000'];
+
+  async function handlePublish() {
+    if (!content.trim()) return;
+    setPublishing(true);
+    try {
+      await api.post(`/api/whatsapp/accounts/${accountId}/send-status`, {
+        status_type: type, content, background_color: bgColor,
+        caption: type !== 'text' ? caption : undefined,
+        all_contacts: true,
+      });
+      setContent(''); setCaption('');
+      alert('Status published!');
+    } catch {}
+    finally { setPublishing(false); }
+  }
+
+  return (
+    <SettingsCard>
+      <div className="space-y-3">
+        <div className="flex gap-2">
+          <button onClick={() => setType('text')} className="text-xs px-3 py-1.5 rounded font-medium"
+            style={{ background: type === 'text' ? '#25D366' : 'var(--notion-hover)', color: type === 'text' ? 'white' : 'var(--notion-text)' }}>
+            Text Status
+          </button>
+          <button onClick={() => setType('image')} className="text-xs px-3 py-1.5 rounded font-medium"
+            style={{ background: type === 'image' ? '#25D366' : 'var(--notion-hover)', color: type === 'image' ? 'white' : 'var(--notion-text)' }}>
+            Image Status
+          </button>
+        </div>
+
+        {type === 'text' ? (
+          <>
+            <textarea value={content} onChange={e => setContent(e.target.value)}
+              placeholder="What's on your mind?" rows={3}
+              className="w-full text-sm px-3 py-2 rounded border outline-none"
+              style={{ borderColor: 'var(--notion-border)', color: 'var(--notion-text)' }} />
+            <div className="flex gap-1.5">
+              {BG_COLORS.map(c => (
+                <button key={c} onClick={() => setBgColor(c)}
+                  className="w-6 h-6 rounded-full border-2"
+                  style={{ background: c, borderColor: bgColor === c ? 'var(--notion-text)' : 'transparent' }} />
+              ))}
+            </div>
+          </>
+        ) : (
+          <>
+            <input value={content} onChange={e => setContent(e.target.value)}
+              placeholder="Image URL" className="w-full text-sm px-3 py-2 rounded border outline-none"
+              style={{ borderColor: 'var(--notion-border)', color: 'var(--notion-text)' }} />
+            <input value={caption} onChange={e => setCaption(e.target.value)}
+              placeholder="Caption (optional)" className="w-full text-sm px-3 py-2 rounded border outline-none"
+              style={{ borderColor: 'var(--notion-border)', color: 'var(--notion-text)' }} />
+          </>
+        )}
+
+        <button onClick={handlePublish} disabled={publishing || !content.trim()}
+          className="px-4 py-1.5 rounded text-xs font-medium text-white disabled:opacity-40"
+          style={{ background: '#25D366' }}>{publishing ? '...' : 'Publish'}</button>
+      </div>
+    </SettingsCard>
+  );
+}
+
+// ── Chatbot Config ─────────────────────────────────────────────────────────────
+function ChatbotConfig({ accountId, accountName }: { accountId: string; accountName: string }) {
+  const [expanded, setExpanded] = useState(false);
+  const [apiKey, setApiKey] = useState('');
+  const [model, setModel] = useState('gpt-4o');
+  const [systemPrompt, setSystemPrompt] = useState('You are a helpful customer service assistant.');
+  const [triggerType, setTriggerType] = useState('all');
+  const [triggerValue, setTriggerValue] = useState('');
+  const [keywordFinish, setKeywordFinish] = useState('#human');
+  const [expire, setExpire] = useState(20);
+  const [speechToText, setSpeechToText] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [isSetup, setIsSetup] = useState(false);
+
+  async function handleSetup() {
+    if (!apiKey.trim()) return;
+    setSaving(true);
+    try {
+      await api.post(`/api/whatsapp/accounts/${accountId}/chatbot/setup`, {
+        openai_api_key: apiKey, model,
+        system_messages: [systemPrompt],
+        trigger_type: triggerType,
+        trigger_value: triggerValue || undefined,
+        keyword_finish: keywordFinish,
+        expire, speech_to_text: speechToText,
+      });
+      setIsSetup(true);
+    } catch {}
+    finally { setSaving(false); }
+  }
+
+  async function handleUpdate() {
+    setSaving(true);
+    try {
+      await api.put(`/api/whatsapp/accounts/${accountId}/chatbot/settings`, {
+        model, system_messages: [systemPrompt],
+        trigger_type: triggerType,
+        trigger_value: triggerValue || undefined,
+        keyword_finish: keywordFinish,
+        expire, speech_to_text: speechToText,
+      });
+    } catch {}
+    finally { setSaving(false); }
+  }
+
+  return (
+    <SettingsCard>
+      <button onClick={() => setExpanded(!expanded)} className="w-full text-left flex items-center justify-between">
+        <span className="text-sm font-medium" style={{ color: 'var(--notion-text)' }}>{accountName}</span>
+        <span className="text-xs" style={{ color: 'var(--notion-text-muted)' }}>{expanded ? '▼' : '▶'}</span>
+      </button>
+      {expanded && (
+        <div className="mt-3 space-y-2">
+          {!isSetup && (
+            <input value={apiKey} onChange={e => setApiKey(e.target.value)} placeholder="OpenAI API Key"
+              type="password" className="w-full text-sm px-3 py-2 rounded border outline-none"
+              style={{ borderColor: 'var(--notion-border)', color: 'var(--notion-text)' }} />
+          )}
+          <select value={model} onChange={e => setModel(e.target.value)}
+            className="w-full text-sm h-9 rounded px-3 border outline-none"
+            style={{ borderColor: 'var(--notion-border)', color: 'var(--notion-text)' }}>
+            <option value="gpt-4o">GPT-4o</option>
+            <option value="gpt-4o-mini">GPT-4o Mini</option>
+            <option value="gpt-3.5-turbo">GPT-3.5 Turbo</option>
+          </select>
+          <textarea value={systemPrompt} onChange={e => setSystemPrompt(e.target.value)}
+            placeholder="System prompt (bot personality)" rows={3}
+            className="w-full text-sm px-3 py-2 rounded border outline-none"
+            style={{ borderColor: 'var(--notion-border)', color: 'var(--notion-text)' }} />
+          <div className="flex gap-2">
+            <select value={triggerType} onChange={e => setTriggerType(e.target.value)}
+              className="text-xs h-8 rounded px-2 border outline-none"
+              style={{ borderColor: 'var(--notion-border)', color: 'var(--notion-text)' }}>
+              <option value="all">All messages</option>
+              <option value="keyword">Keyword trigger</option>
+              <option value="none">Manual only</option>
+            </select>
+            {triggerType === 'keyword' && (
+              <input value={triggerValue} onChange={e => setTriggerValue(e.target.value)}
+                placeholder="Trigger keyword" className="flex-1 text-xs px-2 h-8 rounded border outline-none"
+                style={{ borderColor: 'var(--notion-border)', color: 'var(--notion-text)' }} />
+            )}
+          </div>
+          <div className="flex gap-2 items-center">
+            <input value={keywordFinish} onChange={e => setKeywordFinish(e.target.value)}
+              placeholder="End keyword (e.g. #human)" className="flex-1 text-xs px-2 h-8 rounded border outline-none"
+              style={{ borderColor: 'var(--notion-border)', color: 'var(--notion-text)' }} />
+            <label className="flex items-center gap-1 text-xs">
+              <input type="checkbox" checked={speechToText} onChange={e => setSpeechToText(e.target.checked)} />
+              Voice-to-text
+            </label>
+          </div>
+          <div className="flex gap-2 items-center">
+            <label className="text-xs" style={{ color: 'var(--notion-text-muted)' }}>Session timeout (min):</label>
+            <input type="number" value={expire} onChange={e => setExpire(Number(e.target.value))}
+              className="w-20 text-xs px-2 h-8 rounded border outline-none"
+              style={{ borderColor: 'var(--notion-border)', color: 'var(--notion-text)' }} />
+          </div>
+          <button onClick={isSetup ? handleUpdate : handleSetup} disabled={saving}
+            className="px-4 py-1.5 rounded text-xs font-medium text-white"
+            style={{ background: '#25D366' }}>{saving ? '...' : (isSetup ? 'Update Settings' : 'Setup Chatbot')}</button>
+        </div>
+      )}
+    </SettingsCard>
+  );
+}
+
+// ── Broadcast Manager ──────────────────────────────────────────────────────────
+function BroadcastManager() {
+  const [broadcasts, setBroadcasts] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [showCreate, setShowCreate] = useState(false);
+  const [name, setName] = useState('');
+  const [content, setContent] = useState('');
+  const [contacts, setContacts] = useState<any[]>([]);
+  const [selectedContacts, setSelectedContacts] = useState<string[]>([]);
+  const [contactSearch, setContactSearch] = useState('');
+  const [creating, setCreating] = useState(false);
+  const [sendingId, setSendingId] = useState<string | null>(null);
+
+  async function loadBroadcasts() {
+    try {
+      const data = await api.get('/api/whatsapp/broadcasts');
+      setBroadcasts(Array.isArray(data) ? data : []);
+    } catch {}
+    finally { setLoading(false); }
+  }
+
+  async function loadContacts() {
+    try {
+      const data = await api.get('/api/whatsapp/conversations?include_archived=true');
+      setContacts(Array.isArray(data) ? data : []);
+    } catch {}
+  }
+
+  useEffect(() => { loadBroadcasts(); }, []);
+
+  async function handleCreate() {
+    if (!content.trim() || selectedContacts.length === 0) return;
+    setCreating(true);
+    try {
+      await api.post('/api/whatsapp/broadcasts', {
+        name: name || 'Broadcast', message_content: content,
+        target_contacts: selectedContacts,
+      });
+      setShowCreate(false);
+      setName(''); setContent(''); setSelectedContacts([]);
+      loadBroadcasts();
+    } catch {}
+    finally { setCreating(false); }
+  }
+
+  async function handleSend(id: string) {
+    if (!confirm('Send this broadcast now?')) return;
+    setSendingId(id);
+    try {
+      await api.post(`/api/whatsapp/broadcasts/${id}/send`, {});
+      loadBroadcasts();
+    } catch {}
+    finally { setSendingId(null); }
+  }
+
+  function toggleContact(id: string) {
+    setSelectedContacts(prev => prev.includes(id) ? prev.filter(c => c !== id) : [...prev, id]);
+  }
+
+  if (loading) return <div className="text-xs" style={{ color: 'var(--notion-text-muted)' }}>Loading...</div>;
+
+  return (
+    <div>
+      {broadcasts.map(bc => (
+        <SettingsCard key={bc.id}>
+          <div className="flex items-center justify-between">
+            <div>
+              <span className="text-sm font-medium" style={{ color: 'var(--notion-text)' }}>{bc.name || 'Broadcast'}</span>
+              <span className="text-[9px] ml-2 px-1.5 rounded"
+                style={{
+                  background: bc.status === 'completed' ? '#dcfce7' : bc.status === 'sending' ? '#fef9c3' : '#f3f4f6',
+                  color: bc.status === 'completed' ? '#15803d' : bc.status === 'sending' ? '#a16207' : '#6b7280',
+                }}>{bc.status}</span>
+              <p className="text-xs mt-0.5" style={{ color: 'var(--notion-text-muted)' }}>
+                Sent: {bc.sent_count || 0} | Failed: {bc.failed_count || 0} | Recipients: {JSON.parse(bc.target_contacts || '[]').length}
+              </p>
+            </div>
+            {bc.status === 'draft' && (
+              <button onClick={() => handleSend(bc.id)} disabled={sendingId === bc.id}
+                className="px-3 py-1.5 rounded text-xs font-medium text-white"
+                style={{ background: '#25D366' }}>{sendingId === bc.id ? '...' : 'Send Now'}</button>
+            )}
+          </div>
+        </SettingsCard>
+      ))}
+
+      {!showCreate ? (
+        <button onClick={() => { setShowCreate(true); loadContacts(); }}
+          className="w-full py-2.5 rounded-lg border-2 border-dashed text-xs font-medium mt-2"
+          style={{ borderColor: 'var(--notion-border)', color: 'var(--notion-text-muted)' }}>
+          + New Broadcast
+        </button>
+      ) : (
+        <SettingsCard>
+          <div className="space-y-2">
+            <input value={name} onChange={e => setName(e.target.value)} placeholder="Broadcast name"
+              className="w-full text-sm px-3 py-2 rounded border outline-none"
+              style={{ borderColor: 'var(--notion-border)', color: 'var(--notion-text)' }} />
+            <textarea value={content} onChange={e => setContent(e.target.value)} placeholder="Message content..."
+              rows={3} className="w-full text-sm px-3 py-2 rounded border outline-none"
+              style={{ borderColor: 'var(--notion-border)', color: 'var(--notion-text)' }} />
+
+            {/* Contact selector */}
+            <div>
+              <p className="text-xs font-semibold mb-1" style={{ color: 'var(--notion-text)' }}>
+                Recipients ({selectedContacts.length} selected)
+              </p>
+              <input value={contactSearch} onChange={e => setContactSearch(e.target.value)}
+                placeholder="Search contacts..." className="w-full text-xs px-2 py-1.5 rounded border outline-none mb-1"
+                style={{ borderColor: 'var(--notion-border)', color: 'var(--notion-text)' }} />
+              <div className="max-h-[150px] overflow-y-auto border rounded" style={{ borderColor: 'var(--notion-border)' }}>
+                {contacts
+                  .filter(c => !c.is_group && (!contactSearch || (c.display_name || c.push_name || c.phone_number || '').toLowerCase().includes(contactSearch.toLowerCase())))
+                  .map(c => (
+                    <label key={c.id} className="flex items-center gap-2 px-2 py-1.5 hover:bg-gray-50 cursor-pointer text-xs border-b"
+                      style={{ borderColor: 'var(--notion-border)' }}>
+                      <input type="checkbox" checked={selectedContacts.includes(c.id)} onChange={() => toggleContact(c.id)} />
+                      <span style={{ color: 'var(--notion-text)' }}>{c.display_name || c.push_name || c.phone_number || c.wa_jid}</span>
+                    </label>
+                  ))}
+              </div>
+            </div>
+
+            <div className="flex gap-2 pt-1">
+              <button onClick={handleCreate} disabled={creating || !content.trim() || selectedContacts.length === 0}
+                className="px-4 py-1.5 rounded text-xs font-medium text-white disabled:opacity-40"
+                style={{ background: '#25D366' }}>{creating ? '...' : 'Create Broadcast'}</button>
+              <button onClick={() => setShowCreate(false)} className="px-4 py-1.5 rounded text-xs border"
+                style={{ borderColor: 'var(--notion-border)', color: 'var(--notion-text)' }}>Cancel</button>
+            </div>
+          </div>
+        </SettingsCard>
       )}
     </div>
   );

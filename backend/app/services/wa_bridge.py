@@ -304,5 +304,133 @@ class WABridgeClient:
     async def get_labels(self, account_id: str) -> dict:
         return await self._get(f"/label/findLabels/{account_id}")
 
+    async def handle_label(self, account_id: str, label_id: str, jid: str, action: str = "add") -> dict:
+        return await self._post(f"/label/handleLabel/{account_id}", {
+            "labelId": label_id, "number": jid, "action": action,
+        })
+
+    # ── Profile picture ──
+
+    async def fetch_profile_picture(self, account_id: str, jid: str) -> dict:
+        result = await self._post(f"/chat/fetchProfilePictureUrl/{account_id}", {"number": jid})
+        return {"profile_pic_url": result.get("profilePictureUrl") or result.get("profilePicUrl")}
+
+    # ── Interactive messages ──
+
+    async def send_buttons(self, account_id: str, jid: str, title: str,
+                           description: str, footer: str, buttons: list[dict]) -> dict:
+        result = await self._post(f"/message/sendButtons/{account_id}", {
+            "number": jid, "title": title, "description": description,
+            "footer": footer, "buttons": buttons,
+        })
+        key = result.get("key", {})
+        return {"wa_message_id": key.get("id"), "wa_key": key}
+
+    async def send_list(self, account_id: str, jid: str, title: str, description: str,
+                        button_text: str, footer: str, sections: list[dict]) -> dict:
+        result = await self._post(f"/message/sendList/{account_id}", {
+            "number": jid, "title": title, "description": description,
+            "buttonText": button_text, "footerText": footer, "sections": sections,
+        })
+        key = result.get("key", {})
+        return {"wa_message_id": key.get("id"), "wa_key": key}
+
+    # ── Archive ──
+
+    async def archive_chat(self, account_id: str, jid: str, archive: bool = True) -> dict:
+        return await self._post(f"/chat/archiveChat/{account_id}", {
+            "lastMessage": {"key": {"remoteJid": jid}}, "archive": archive,
+        })
+
+    # ── Block ──
+
+    async def update_block_status(self, account_id: str, jid: str, action: str = "block") -> dict:
+        return await self._post(f"/chat/updateBlockStatus/{account_id}", {
+            "number": jid, "status": action,
+        })
+
+    # ── Profile management ──
+
+    async def update_profile_name(self, account_id: str, name: str) -> dict:
+        return await self._post(f"/chat/updateProfileName/{account_id}", {"name": name})
+
+    async def update_profile_status(self, account_id: str, status: str) -> dict:
+        return await self._post(f"/chat/updateProfileStatus/{account_id}", {"status": status})
+
+    async def update_profile_picture(self, account_id: str, image_url: str) -> dict:
+        return await self._put(f"/chat/updateProfilePicture/{account_id}", {"picture": image_url})
+
+    async def fetch_privacy_settings(self, account_id: str) -> dict:
+        return await self._get(f"/chat/fetchPrivacySettings/{account_id}")
+
+    async def update_privacy_settings(self, account_id: str, settings: dict) -> dict:
+        return await self._put(f"/chat/updatePrivacySettings/{account_id}", settings)
+
+    # ── Group management (enhanced) ──
+
+    async def fetch_invite_code(self, account_id: str, group_jid: str) -> dict:
+        return await self._get(f"/group/inviteCode/{account_id}?groupJid={group_jid}")
+
+    async def update_group_subject(self, account_id: str, group_jid: str, subject: str) -> dict:
+        return await self._post(f"/group/updateGroupSubject/{account_id}", {
+            "groupJid": group_jid, "subject": subject,
+        })
+
+    async def update_group_description(self, account_id: str, group_jid: str, description: str) -> dict:
+        return await self._post(f"/group/updateGroupDescription/{account_id}", {
+            "groupJid": group_jid, "description": description,
+        })
+
+    async def update_group_picture(self, account_id: str, group_jid: str, image_url: str) -> dict:
+        return await self._put(f"/group/updateGroupPicture/{account_id}", {
+            "groupJid": group_jid, "image": image_url,
+        })
+
+    async def promote_participant(self, account_id: str, group_jid: str, participants: list[str]) -> dict:
+        return await self._post(f"/group/updateParticipant/{account_id}", {
+            "groupJid": group_jid, "action": "promote", "participants": participants,
+        })
+
+    async def demote_participant(self, account_id: str, group_jid: str, participants: list[str]) -> dict:
+        return await self._post(f"/group/updateParticipant/{account_id}", {
+            "groupJid": group_jid, "action": "demote", "participants": participants,
+        })
+
+    # ── WhatsApp Status / Stories ──
+
+    async def send_status(self, account_id: str, status_type: str, content: str,
+                          background_color: str = "#25D366", font: int = 1,
+                          media_url: str = None, caption: str = None,
+                          all_contacts: bool = True, jid_list: list[str] = None) -> dict:
+        payload: dict = {"type": status_type, "allContacts": all_contacts}
+        if status_type == "text":
+            payload.update({"content": content, "backgroundColor": background_color, "font": font})
+        else:
+            payload.update({"content": media_url or content, "caption": caption or ""})
+        if jid_list:
+            payload["statusJidList"] = jid_list
+        return await self._post(f"/message/sendStatus/{account_id}", payload)
+
+    # ── OpenAI / Chatbot integration ──
+
+    async def set_openai_creds(self, account_id: str, name: str, api_key: str) -> dict:
+        return await self._post(f"/openai/creds/{account_id}", {
+            "name": name, "apiKey": api_key,
+        })
+
+    async def create_openai_bot(self, account_id: str, config: dict) -> dict:
+        return await self._post(f"/openai/create/{account_id}", config)
+
+    async def update_openai_settings(self, account_id: str, settings: dict) -> dict:
+        return await self._post(f"/openai/settings/{account_id}", settings)
+
+    async def change_bot_status(self, account_id: str, jid: str, status: str) -> dict:
+        return await self._post(f"/openai/changeStatus/{account_id}", {
+            "remoteJid": jid, "status": status,
+        })
+
+    async def list_bot_sessions(self, account_id: str, bot_id: str) -> dict:
+        return await self._get(f"/openai/fetchSessions/{bot_id}/{account_id}")
+
 
 wa_bridge = WABridgeClient()

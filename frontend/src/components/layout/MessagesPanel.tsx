@@ -165,6 +165,9 @@ export default function MessagesPanel({ label }: { label?: string }) {
   const [waFilterLabel, setWaFilterLabel]     = useState('');
   const [waSortBy, setWaSortBy]               = useState<'last_message' | 'unread'>('last_message');
   const [linkingContact, setLinkingContact]   = useState<WaConversation | null>(null);
+  const [showArchived, setShowArchived]       = useState(false);
+  const [labelingContact, setLabelingContact] = useState<WaConversation | null>(null);
+  const [waMessageSearch, setWaMessageSearch] = useState('');
 
   // ── Unread badge polling ──────────────────────────────────────────────────
   useEffect(() => {
@@ -188,7 +191,7 @@ export default function MessagesPanel({ label }: { label?: string }) {
 
   // ── WhatsApp conversations load ───────────────────────────────────────────
   const loadWaConversations = useCallback(async (filters?: {
-    account_id?: string; is_group?: string; label_id?: string; sort_by?: string;
+    account_id?: string; is_group?: string; label_id?: string; sort_by?: string; include_archived?: boolean;
   }) => {
     setWaLoading(true);
     try {
@@ -198,6 +201,7 @@ export default function MessagesPanel({ label }: { label?: string }) {
       if (f.is_group === 'true' || f.is_group === 'false') params.set('is_group', f.is_group);
       if (f.label_id) params.set('label_id', f.label_id);
       if (f.sort_by) params.set('sort_by', f.sort_by);
+      if (f.include_archived) params.set('include_archived', 'true');
       const qs = params.toString();
       const convs = await api.get(`/api/whatsapp/dashboard${qs ? `?${qs}` : ''}`);
       const list: WaConversation[] = Array.isArray(convs) ? convs : [];
@@ -224,13 +228,13 @@ export default function MessagesPanel({ label }: { label?: string }) {
   // ── Reload WhatsApp when filters change ───────────────────────────────────
   useEffect(() => {
     if (!open || activeTab !== 'whatsapp') return;
-    loadWaConversations({ account_id: waFilterAccount, is_group: waFilterGroup, label_id: waFilterLabel, sort_by: waSortBy });
-    // Poll WhatsApp conversations every 10s
+    const filters = { account_id: waFilterAccount, is_group: waFilterGroup, label_id: waFilterLabel, sort_by: waSortBy, include_archived: showArchived };
+    loadWaConversations(filters);
     const iv = setInterval(() => {
-      if (isVisible) loadWaConversations({ account_id: waFilterAccount, is_group: waFilterGroup, label_id: waFilterLabel, sort_by: waSortBy });
+      if (isVisible) loadWaConversations(filters);
     }, 10_000);
     return () => clearInterval(iv);
-  }, [open, activeTab, waFilterAccount, waFilterGroup, waFilterLabel, waSortBy, loadWaConversations, isVisible]);
+  }, [open, activeTab, waFilterAccount, waFilterGroup, waFilterLabel, waSortBy, showArchived, loadWaConversations, isVisible]);
 
   // ── Thread polling ────────────────────────────────────────────────────────
   useEffect(() => {
@@ -706,6 +710,11 @@ export default function MessagesPanel({ label }: { label?: string }) {
                     <option value="last_message">{t('waSortLastMsg')}</option>
                     <option value="unread">{t('waSortUnread')}</option>
                   </select>
+                  <button onClick={() => setShowArchived(!showArchived)}
+                    className="text-[10px] h-6 rounded px-1.5 cursor-pointer flex items-center gap-0.5"
+                    style={{ background: showArchived ? '#dbeafe' : 'var(--sb-hover)', color: showArchived ? '#1d4ed8' : 'var(--sb-text)' }}>
+                    {showArchived ? '📦 Archived' : '📦'}
+                  </button>
                 </div>
 
                 {/* Conversation List */}
@@ -811,7 +820,7 @@ export default function MessagesPanel({ label }: { label?: string }) {
                             {conv.last_message_preview || ''}
                           </span>
 
-                          {/* Row 4: Labels + link button */}
+                          {/* Row 4: Labels + archive + link button */}
                           <div className="flex items-center gap-1 mt-0.5 overflow-hidden">
                             {labels.slice(0, 3).map((lb, i) => (
                               <span key={i} className="text-[9px] px-1 rounded truncate max-w-[70px]"
@@ -822,6 +831,27 @@ export default function MessagesPanel({ label }: { label?: string }) {
                             {labels.length > 3 && (
                               <span className="text-[9px]" style={{ color: 'var(--sb-text-faint)' }}>+{labels.length - 3}</span>
                             )}
+                            {/* Label manage button */}
+                            <button
+                              onClick={e => { e.stopPropagation(); setLabelingContact(conv); }}
+                              className="text-[9px] px-1 py-0.5 rounded opacity-0 group-hover:opacity-100 transition-opacity"
+                              style={{ background: '#fef9c3', color: '#a16207' }}
+                              title="Manage labels"
+                            >+Label</button>
+                            {/* Archive button */}
+                            <button
+                              onClick={async (e) => {
+                                e.stopPropagation();
+                                try {
+                                  const isArch = (conv as any).is_archived;
+                                  await api.post(`/api/whatsapp/conversations/${conv.id}/archive`, { archive: !isArch });
+                                  loadWaConversations({ account_id: waFilterAccount, is_group: waFilterGroup, label_id: waFilterLabel, sort_by: waSortBy, include_archived: showArchived });
+                                } catch {}
+                              }}
+                              className="text-[9px] px-1 py-0.5 rounded opacity-0 group-hover:opacity-100 transition-opacity"
+                              style={{ background: 'var(--sb-hover)', color: 'var(--sb-text-muted)' }}
+                              title={(conv as any).is_archived ? 'Unarchive' : 'Archive'}
+                            >{(conv as any).is_archived ? 'Unarchive' : 'Archive'}</button>
                             {!isLinked && (
                               <button
                                 onClick={e => { e.stopPropagation(); setLinkingContact(conv); }}
@@ -884,7 +914,20 @@ export default function MessagesPanel({ label }: { label?: string }) {
           onClose={() => setLinkingContact(null)}
           onLinked={() => {
             setLinkingContact(null);
-            loadWaConversations({ account_id: waFilterAccount, is_group: waFilterGroup, label_id: waFilterLabel, sort_by: waSortBy });
+            loadWaConversations({ account_id: waFilterAccount, is_group: waFilterGroup, label_id: waFilterLabel, sort_by: waSortBy, include_archived: showArchived });
+          }}
+        />
+      )}
+
+      {/* Label Management Modal */}
+      {labelingContact && (
+        <LabelManageModal
+          contact={labelingContact}
+          allLabels={waLabels}
+          onClose={() => setLabelingContact(null)}
+          onUpdated={() => {
+            setLabelingContact(null);
+            loadWaConversations({ account_id: waFilterAccount, is_group: waFilterGroup, label_id: waFilterLabel, sort_by: waSortBy, include_archived: showArchived });
           }}
         />
       )}
@@ -1031,6 +1074,68 @@ function LinkContactModal({ contact, onClose, onLinked }: {
               )}
             </button>
           ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Label Management Modal ─────────────────────────────────────────────────────
+function LabelManageModal({ contact, allLabels, onClose, onUpdated }: {
+  contact: WaConversation;
+  allLabels: WaLabel[];
+  onClose: () => void;
+  onUpdated: () => void;
+}) {
+  const [saving, setSaving] = useState(false);
+  const contactLabels = Array.isArray(contact.wa_labels) ? contact.wa_labels : [];
+  const contactLabelIds = new Set(contactLabels.map(l => l.id));
+
+  async function toggleLabel(labelId: string) {
+    setSaving(true);
+    const action = contactLabelIds.has(labelId) ? 'remove' : 'add';
+    try {
+      await api.post(`/api/whatsapp/conversations/${contact.id}/labels`, { label_id: labelId, action });
+      onUpdated();
+    } catch (e: any) { alert(e.message || 'Failed'); }
+    finally { setSaving(false); }
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-[9999]" onClick={onClose}>
+      <div className="rounded-xl w-full max-w-sm shadow-xl border overflow-hidden"
+        style={{ background: 'var(--notion-card, white)', borderColor: 'var(--notion-border)' }}
+        onClick={e => e.stopPropagation()}>
+        <div className="px-5 py-3 border-b flex items-center justify-between" style={{ borderColor: 'var(--notion-border)' }}>
+          <div>
+            <h3 className="text-sm font-semibold" style={{ color: 'var(--notion-text)' }}>Manage Labels</h3>
+            <p className="text-[11px] mt-0.5" style={{ color: 'var(--notion-text-muted)' }}>
+              {contact.display_name || contact.push_name || contact.phone_number}
+            </p>
+          </div>
+          <button onClick={onClose} className="text-lg" style={{ color: 'var(--notion-text-muted)' }}>&times;</button>
+        </div>
+        <div className="px-5 py-3 max-h-[300px] overflow-y-auto">
+          {allLabels.length === 0 ? (
+            <p className="text-xs text-center py-6" style={{ color: 'var(--notion-text-muted)' }}>No labels available</p>
+          ) : allLabels.map(label => {
+            const isSelected = contactLabelIds.has(label.id);
+            return (
+              <button key={label.id} onClick={() => toggleLabel(label.id)} disabled={saving}
+                className="w-full text-left px-3 py-2 rounded-md flex items-center justify-between hover:bg-gray-50 transition-colors mb-1">
+                <div className="flex items-center gap-2">
+                  {label.color && (
+                    <span className="w-3 h-3 rounded-full flex-shrink-0" style={{ background: label.color }} />
+                  )}
+                  <span className="text-xs font-medium" style={{ color: 'var(--notion-text)' }}>{label.name}</span>
+                </div>
+                <span className={`w-5 h-5 rounded flex items-center justify-center text-xs ${isSelected ? 'bg-green-500 text-white' : 'border'}`}
+                  style={{ borderColor: isSelected ? undefined : 'var(--notion-border)' }}>
+                  {isSelected && '✓'}
+                </span>
+              </button>
+            );
+          })}
         </div>
       </div>
     </div>

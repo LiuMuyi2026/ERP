@@ -1278,6 +1278,43 @@ TENANT_MIGRATION_DDL = [
     # ── Phase 6: Bind WhatsApp info to users ─────────────────────────────
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS phone_number VARCHAR(50)",
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS wa_jid VARCHAR(50)",
+
+    # ── Phase 7: WhatsApp Evolution API enhancements ─────────────────────
+    "ALTER TABLE whatsapp_contacts ADD COLUMN IF NOT EXISTS is_archived BOOLEAN DEFAULT FALSE",
+    "ALTER TABLE whatsapp_contacts ADD COLUMN IF NOT EXISTS is_blocked BOOLEAN DEFAULT FALSE",
+
+    """CREATE TABLE IF NOT EXISTS whatsapp_templates (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        name VARCHAR(255) NOT NULL,
+        content TEXT NOT NULL,
+        category VARCHAR(50) DEFAULT 'general',
+        media_url VARCHAR(1000),
+        media_type VARCHAR(30),
+        variables JSONB DEFAULT '[]',
+        shortcut VARCHAR(50),
+        created_by UUID,
+        created_at TIMESTAMPTZ DEFAULT NOW(),
+        updated_at TIMESTAMPTZ
+    )""",
+
+    """CREATE TABLE IF NOT EXISTS whatsapp_broadcasts (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        name VARCHAR(255),
+        template_id UUID,
+        message_content TEXT,
+        media_url VARCHAR(1000),
+        target_contacts JSONB DEFAULT '[]',
+        sent_count INTEGER DEFAULT 0,
+        failed_count INTEGER DEFAULT 0,
+        status VARCHAR(30) DEFAULT 'draft',
+        created_by UUID,
+        created_at TIMESTAMPTZ DEFAULT NOW(),
+        started_at TIMESTAMPTZ,
+        completed_at TIMESTAMPTZ
+    )""",
+
+    "CREATE EXTENSION IF NOT EXISTS pg_trgm",
+    "CREATE INDEX IF NOT EXISTS idx_wa_messages_content_trgm ON whatsapp_messages USING gin (content gin_trgm_ops)",
 ]
 
 
