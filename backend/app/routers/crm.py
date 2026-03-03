@@ -2474,12 +2474,17 @@ AI摘要: {lead_d.get('ai_summary', '暂无')}
   "customer_needs_summary": "客户核心需求总结（基于五维信息的综合分析，包括产品需求、采购规律、合作潜力）"
 }}"""
 
-    result = await generate_json_for_tenant(
-        db=db,
-        tenant_id_or_slug=ctx.get("tenant_id"),
-        prompt=prompt,
-        system_instruction="你是一位资深的B2B国际贸易销售顾问和客户分析专家，擅长从有限信息中洞察客户需求和商机，对全球各国商业文化、贸易习惯有深入了解。请严格按JSON格式输出，不要添加任何解释。",
-    )
+    try:
+        result = await generate_json_for_tenant(
+            db=db,
+            tenant_id_or_slug=ctx.get("tenant_id"),
+            prompt=prompt,
+            system_instruction="你是一位资深的B2B国际贸易销售顾问和客户分析专家，擅长从有限信息中洞察客户需求和商机，对全球各国商业文化、贸易习惯有深入了解。请严格按JSON格式输出，不要添加任何解释。",
+        )
+    except RuntimeError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"AI 生成失败: {e}")
 
     # Save portrait to lead custom_fields
     existing_cf = lead_d.get("custom_fields") or {}

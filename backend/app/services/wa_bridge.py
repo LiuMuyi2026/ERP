@@ -103,11 +103,16 @@ class WABridgeClient:
         """Get the QR code for an instance. Returns base64 QR data."""
         result = await self._get(f"/instance/connect/{account_id}")
         # Normalize response to match old bridge format
-        base64 = result.get("base64")
+        b64 = result.get("base64")
         code = result.get("code")
+        qr_data = None
+        if b64:
+            qr_data = f"data:image/png;base64,{b64}" if not b64.startswith("data:") else b64
+        elif code:
+            qr_data = code
         return {
-            "qr_data": base64 or code,
-            "status": "pending_qr" if (base64 or code) else "connected",
+            "qr_data": qr_data,
+            "status": "pending_qr" if qr_data else "connected",
         }
 
     async def get_status(self, account_id: str) -> dict:

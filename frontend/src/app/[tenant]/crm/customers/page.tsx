@@ -484,7 +484,9 @@ function CustomerDrawer({ customer, onClose, onUpdated }: { customer: Customer; 
     try {
       const res = await api.post(`/api/crm/customers/${c.id}/ai-portrait`, {});
       setPortrait(res.portrait);
-    } catch {}
+    } catch (err: any) {
+      alert(err?.message || '生成 AI 画像失败，请检查 AI 配置');
+    }
     finally { setGenerating(false); }
   }
 
