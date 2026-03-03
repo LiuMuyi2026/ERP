@@ -276,13 +276,21 @@ def normalize_jid(jid: str, alt_jid: str = "") -> str:
     return jid
 
 
-async def _verify_contact_ownership(db, contact_id: str, uid: str):
-    """Verify user owns this contact via account ownership. Returns contact row."""
-    own = await db.execute(text("""
-        SELECT c.id, c.wa_account_id, c.wa_jid FROM whatsapp_contacts c
-        JOIN whatsapp_accounts a ON a.id = c.wa_account_id
-        WHERE c.id = :cid AND a.owner_user_id = :uid
-    """), {"cid": contact_id, "uid": uid})
+async def _verify_contact_ownership(db, contact_id: str, uid: str, role: str = ""):
+    """Verify user owns this contact via account ownership. Admins bypass ownership check."""
+    is_admin = role in ("platform_admin", "tenant_admin")
+    if is_admin:
+        own = await db.execute(text("""
+            SELECT c.id, c.wa_account_id, c.wa_jid FROM whatsapp_contacts c
+            JOIN whatsapp_accounts a ON a.id = c.wa_account_id
+            WHERE c.id = :cid
+        """), {"cid": contact_id})
+    else:
+        own = await db.execute(text("""
+            SELECT c.id, c.wa_account_id, c.wa_jid FROM whatsapp_contacts c
+            JOIN whatsapp_accounts a ON a.id = c.wa_account_id
+            WHERE c.id = :cid AND a.owner_user_id = :uid
+        """), {"cid": contact_id, "uid": uid})
     contact = own.fetchone()
     if not contact:
         raise HTTPException(status_code=404, detail="Conversation not found")
@@ -514,7 +522,7 @@ async def get_messages(
     ctx: dict = Depends(get_current_user_with_tenant),
 ):
     db = ctx["db"]
-    contact = await _verify_contact_ownership(db, contact_id, ctx["sub"])
+    contact = await _verify_contact_ownership(db, contact_id, ctx["sub"], ctx.get("role", ""))
     actual_limit = min(limit, 200)
 
     # For 1:1 chats, merge messages from all contacts with the same phone number
@@ -575,7 +583,7 @@ async def get_messages(
 @router.post("/conversations/{contact_id}/send")
 async def send_message(contact_id: str, body: SendMessageBody, ctx: dict = Depends(get_current_user_with_tenant)):
     db = ctx["db"]
-    contact = await _verify_contact_ownership(db, contact_id, ctx["sub"])
+    contact = await _verify_contact_ownership(db, contact_id, ctx["sub"], ctx.get("role", ""))
     account_id = str(contact.wa_account_id)
     msg_id = str(uuid.uuid4())
     now = datetime.now(timezone.utc)
@@ -627,7 +635,7 @@ async def send_message(contact_id: str, body: SendMessageBody, ctx: dict = Depen
 @router.post("/conversations/{contact_id}/read")
 async def mark_conversation_read(contact_id: str, ctx: dict = Depends(get_current_user_with_tenant)):
     db = ctx["db"]
-    contact = await _verify_contact_ownership(db, contact_id, ctx["sub"])
+    contact = await _verify_contact_ownership(db, contact_id, ctx["sub"], ctx.get("role", ""))
     account_id = str(contact.wa_account_id)
 
     # Get recent unread message IDs
@@ -668,7 +676,7 @@ async def mark_conversation_read(contact_id: str, ctx: dict = Depends(get_curren
 @router.post("/conversations/{contact_id}/typing")
 async def send_typing(contact_id: str, body: TypingBody, ctx: dict = Depends(get_current_user_with_tenant)):
     db = ctx["db"]
-    contact = await _verify_contact_ownership(db, contact_id, ctx["sub"])
+    contact = await _verify_contact_ownership(db, contact_id, ctx["sub"], ctx.get("role", ""))
     await wa_bridge.send_presence(str(contact.wa_account_id), contact.wa_jid, body.type)
     return {"ok": True}
 
@@ -678,7 +686,7 @@ async def send_typing(contact_id: str, body: TypingBody, ctx: dict = Depends(get
 @router.post("/conversations/{contact_id}/messages/{message_id}/react")
 async def react_to_message(contact_id: str, message_id: str, body: ReactBody, ctx: dict = Depends(get_current_user_with_tenant)):
     db = ctx["db"]
-    contact = await _verify_contact_ownership(db, contact_id, ctx["sub"])
+    contact = await _verify_contact_ownership(db, contact_id, ctx["sub"], ctx.get("role", ""))
     _, wa_key = await _get_message_with_key(db, message_id, contact_id)
     await wa_bridge.send_reaction(str(contact.wa_account_id), contact.wa_jid, wa_key, body.emoji)
     return {"ok": True}
@@ -689,8 +697,8 @@ async def react_to_message(contact_id: str, message_id: str, body: ReactBody, ct
 @router.post("/conversations/{contact_id}/messages/{message_id}/forward")
 async def forward_msg(contact_id: str, message_id: str, body: ForwardBody, ctx: dict = Depends(get_current_user_with_tenant)):
     db = ctx["db"]
-    contact = await _verify_contact_ownership(db, contact_id, ctx["sub"])
-    target_contact = await _verify_contact_ownership(db, body.target_contact_id, ctx["sub"])
+    contact = await _verify_contact_ownership(db, contact_id, ctx["sub"], ctx.get("role", ""))
+    target_contact = await _verify_contact_ownership(db, body.target_contact_id, ctx["sub"], ctx.get("role", ""))
     _, wa_key = await _get_message_with_key(db, message_id, contact_id)
 
     result = await wa_bridge.forward_message(
@@ -704,7 +712,7 @@ async def forward_msg(contact_id: str, message_id: str, body: ForwardBody, ctx: 
 @router.delete("/conversations/{contact_id}/messages/{message_id}")
 async def delete_msg(contact_id: str, message_id: str, ctx: dict = Depends(get_current_user_with_tenant)):
     db = ctx["db"]
-    contact = await _verify_contact_ownership(db, contact_id, ctx["sub"])
+    contact = await _verify_contact_ownership(db, contact_id, ctx["sub"], ctx.get("role", ""))
     msg, wa_key = await _get_message_with_key(db, message_id, contact_id)
     if msg.direction != "outbound":
         raise HTTPException(status_code=400, detail="Can only delete own messages")
@@ -722,7 +730,7 @@ async def delete_msg(contact_id: str, message_id: str, ctx: dict = Depends(get_c
 @router.patch("/conversations/{contact_id}/messages/{message_id}")
 async def edit_msg(contact_id: str, message_id: str, body: EditMessageBody, ctx: dict = Depends(get_current_user_with_tenant)):
     db = ctx["db"]
-    contact = await _verify_contact_ownership(db, contact_id, ctx["sub"])
+    contact = await _verify_contact_ownership(db, contact_id, ctx["sub"], ctx.get("role", ""))
     msg, wa_key = await _get_message_with_key(db, message_id, contact_id)
     if msg.direction != "outbound":
         raise HTTPException(status_code=400, detail="Can only edit own messages")
@@ -747,7 +755,7 @@ async def edit_msg(contact_id: str, message_id: str, body: EditMessageBody, ctx:
 @router.post("/conversations/{contact_id}/send-poll")
 async def send_poll(contact_id: str, body: SendPollBody, ctx: dict = Depends(get_current_user_with_tenant)):
     db = ctx["db"]
-    contact = await _verify_contact_ownership(db, contact_id, ctx["sub"])
+    contact = await _verify_contact_ownership(db, contact_id, ctx["sub"], ctx.get("role", ""))
     account_id = str(contact.wa_account_id)
 
     result = await wa_bridge.send_poll(account_id, contact.wa_jid, body.question, body.options, body.allow_multiple)
@@ -806,7 +814,7 @@ async def check_numbers(body: CheckNumbersBody, ctx: dict = Depends(get_current_
 @router.post("/conversations/{contact_id}/subscribe-presence")
 async def subscribe_presence(contact_id: str, ctx: dict = Depends(get_current_user_with_tenant)):
     db = ctx["db"]
-    contact = await _verify_contact_ownership(db, contact_id, ctx["sub"])
+    contact = await _verify_contact_ownership(db, contact_id, ctx["sub"], ctx.get("role", ""))
     await wa_bridge.subscribe_presence(str(contact.wa_account_id), contact.wa_jid)
     return {"ok": True}
 
@@ -814,7 +822,7 @@ async def subscribe_presence(contact_id: str, ctx: dict = Depends(get_current_us
 @router.get("/conversations/{contact_id}/presence")
 async def get_presence(contact_id: str, ctx: dict = Depends(get_current_user_with_tenant)):
     db = ctx["db"]
-    contact = await _verify_contact_ownership(db, contact_id, ctx["sub"])
+    contact = await _verify_contact_ownership(db, contact_id, ctx["sub"], ctx.get("role", ""))
     result = await wa_bridge.get_presence(str(contact.wa_account_id), contact.wa_jid)
     return result
 
@@ -824,7 +832,7 @@ async def get_presence(contact_id: str, ctx: dict = Depends(get_current_user_wit
 @router.post("/conversations/{contact_id}/disappearing")
 async def set_disappearing(contact_id: str, body: DisappearingBody, ctx: dict = Depends(get_current_user_with_tenant)):
     db = ctx["db"]
-    contact = await _verify_contact_ownership(db, contact_id, ctx["sub"])
+    contact = await _verify_contact_ownership(db, contact_id, ctx["sub"], ctx.get("role", ""))
     await wa_bridge.set_disappearing(str(contact.wa_account_id), contact.wa_jid, body.duration)
     await db.execute(text(
         "UPDATE whatsapp_contacts SET disappearing_duration = :d, updated_at = NOW() WHERE id = :cid"
@@ -852,7 +860,7 @@ async def create_group(body: GroupCreateBody, ctx: dict = Depends(get_current_us
 @router.get("/groups/{contact_id}/metadata")
 async def get_group_metadata(contact_id: str, ctx: dict = Depends(get_current_user_with_tenant)):
     db = ctx["db"]
-    contact = await _verify_contact_ownership(db, contact_id, ctx["sub"])
+    contact = await _verify_contact_ownership(db, contact_id, ctx["sub"], ctx.get("role", ""))
     if not contact.wa_jid.endswith("@g.us"):
         raise HTTPException(status_code=400, detail="Not a group chat")
     result = await wa_bridge.get_group_metadata(str(contact.wa_account_id), contact.wa_jid)
@@ -862,7 +870,7 @@ async def get_group_metadata(contact_id: str, ctx: dict = Depends(get_current_us
 @router.post("/groups/{contact_id}/participants/add")
 async def add_participants(contact_id: str, body: GroupParticipantsBody, ctx: dict = Depends(get_current_user_with_tenant)):
     db = ctx["db"]
-    contact = await _verify_contact_ownership(db, contact_id, ctx["sub"])
+    contact = await _verify_contact_ownership(db, contact_id, ctx["sub"], ctx.get("role", ""))
     await wa_bridge.add_group_participants(str(contact.wa_account_id), contact.wa_jid, body.participants)
     return {"ok": True}
 
@@ -870,7 +878,7 @@ async def add_participants(contact_id: str, body: GroupParticipantsBody, ctx: di
 @router.post("/groups/{contact_id}/participants/remove")
 async def remove_participants(contact_id: str, body: GroupParticipantsBody, ctx: dict = Depends(get_current_user_with_tenant)):
     db = ctx["db"]
-    contact = await _verify_contact_ownership(db, contact_id, ctx["sub"])
+    contact = await _verify_contact_ownership(db, contact_id, ctx["sub"], ctx.get("role", ""))
     await wa_bridge.remove_group_participants(str(contact.wa_account_id), contact.wa_jid, body.participants)
     return {"ok": True}
 
@@ -1125,7 +1133,7 @@ async def lead_messages(lead_id: str, limit: int = 50, ctx: dict = Depends(get_c
 @router.post("/contacts/{contact_id}/link-lead")
 async def link_lead(contact_id: str, body: LinkLeadBody, ctx: dict = Depends(get_current_user_with_tenant)):
     db = ctx["db"]
-    await _verify_contact_ownership(db, contact_id, ctx["sub"])
+    await _verify_contact_ownership(db, contact_id, ctx["sub"], ctx.get("role", ""))
     # Also try to find account_id from contracts linked to this lead
     acct_row = await db.execute(text(
         "SELECT account_id FROM crm_contracts WHERE lead_id = :lid AND account_id IS NOT NULL LIMIT 1"
@@ -1143,7 +1151,7 @@ async def link_lead(contact_id: str, body: LinkLeadBody, ctx: dict = Depends(get
 @router.post("/contacts/{contact_id}/link-account")
 async def link_account(contact_id: str, body: LinkAccountBody, ctx: dict = Depends(get_current_user_with_tenant)):
     db = ctx["db"]
-    await _verify_contact_ownership(db, contact_id, ctx["sub"])
+    await _verify_contact_ownership(db, contact_id, ctx["sub"], ctx.get("role", ""))
     # Verify the CRM account exists
     acct_row = await db.execute(
         text("SELECT id FROM crm_accounts WHERE id = :aid"), {"aid": body.account_id}
@@ -1161,7 +1169,7 @@ async def link_account(contact_id: str, body: LinkAccountBody, ctx: dict = Depen
 @router.post("/contacts/{contact_id}/unlink")
 async def unlink_contact(contact_id: str, ctx: dict = Depends(get_current_user_with_tenant)):
     db = ctx["db"]
-    await _verify_contact_ownership(db, contact_id, ctx["sub"])
+    await _verify_contact_ownership(db, contact_id, ctx["sub"], ctx.get("role", ""))
     await db.execute(
         text("UPDATE whatsapp_contacts SET lead_id = NULL, account_id = NULL, updated_at = NOW() WHERE id = :cid"),
         {"cid": contact_id},
@@ -1173,7 +1181,7 @@ async def unlink_contact(contact_id: str, ctx: dict = Depends(get_current_user_w
 @router.post("/contacts/{contact_id}/pin")
 async def toggle_pin(contact_id: str, ctx: dict = Depends(get_current_user_with_tenant)):
     db = ctx["db"]
-    await _verify_contact_ownership(db, contact_id, ctx["sub"])
+    await _verify_contact_ownership(db, contact_id, ctx["sub"], ctx.get("role", ""))
     row = await db.execute(
         text("SELECT COALESCE(is_pinned, FALSE) AS is_pinned FROM whatsapp_contacts WHERE id = :cid"),
         {"cid": contact_id},
@@ -1192,7 +1200,7 @@ async def toggle_pin(contact_id: str, ctx: dict = Depends(get_current_user_with_
 @router.post("/contacts/{contact_id}/mute")
 async def toggle_mute(contact_id: str, ctx: dict = Depends(get_current_user_with_tenant)):
     db = ctx["db"]
-    await _verify_contact_ownership(db, contact_id, ctx["sub"])
+    await _verify_contact_ownership(db, contact_id, ctx["sub"], ctx.get("role", ""))
     row = await db.execute(
         text("SELECT COALESCE(is_muted, FALSE) AS is_muted FROM whatsapp_contacts WHERE id = :cid"),
         {"cid": contact_id},
@@ -1212,7 +1220,7 @@ async def toggle_mute(contact_id: str, ctx: dict = Depends(get_current_user_with
 async def get_crm_context(contact_id: str, ctx: dict = Depends(get_current_user_with_tenant)):
     """Get CRM context for a WhatsApp contact — lead info, recent interactions, contract summary."""
     db = ctx["db"]
-    contact = await _verify_contact_ownership(db, contact_id, ctx["sub"])
+    contact = await _verify_contact_ownership(db, contact_id, ctx["sub"], ctx.get("role", ""))
 
     result: dict = {"contact_id": contact_id, "lead": None, "interactions": [], "contracts": []}
 
@@ -1260,7 +1268,7 @@ class UpdateLeadStatusBody(BaseModel):
 async def update_lead_status(contact_id: str, body: UpdateLeadStatusBody, ctx: dict = Depends(get_current_user_with_tenant)):
     """Quick lead status update from chat panel."""
     db = ctx["db"]
-    contact = await _verify_contact_ownership(db, contact_id, ctx["sub"])
+    contact = await _verify_contact_ownership(db, contact_id, ctx["sub"], ctx.get("role", ""))
     lead_id = getattr(contact, "lead_id", None)
     if not lead_id:
         raise HTTPException(status_code=400, detail="Contact not linked to a lead")
@@ -1278,7 +1286,7 @@ async def update_lead_status(contact_id: str, body: UpdateLeadStatusBody, ctx: d
 @router.post("/conversations/{contact_id}/sync-profile")
 async def sync_profile_picture(contact_id: str, ctx: dict = Depends(get_current_user_with_tenant)):
     db = ctx["db"]
-    contact = await _verify_contact_ownership(db, contact_id, ctx["sub"])
+    contact = await _verify_contact_ownership(db, contact_id, ctx["sub"], ctx.get("role", ""))
     try:
         result = await wa_bridge.fetch_profile_picture(str(contact.wa_account_id), contact.wa_jid)
         pic_url = result.get("profile_pic_url")
@@ -1295,7 +1303,7 @@ async def sync_profile_picture(contact_id: str, ctx: dict = Depends(get_current_
 @router.post("/conversations/{contact_id}/labels")
 async def manage_label(contact_id: str, body: LabelActionBody, ctx: dict = Depends(get_current_user_with_tenant)):
     db = ctx["db"]
-    contact = await _verify_contact_ownership(db, contact_id, ctx["sub"])
+    contact = await _verify_contact_ownership(db, contact_id, ctx["sub"], ctx.get("role", ""))
     account_id = str(contact.wa_account_id)
 
     await wa_bridge.handle_label(account_id, body.label_id, contact.wa_jid, body.action)
@@ -1330,7 +1338,7 @@ async def manage_label(contact_id: str, body: LabelActionBody, ctx: dict = Depen
 @router.post("/conversations/{contact_id}/send-buttons")
 async def send_buttons(contact_id: str, body: SendButtonsBody, ctx: dict = Depends(get_current_user_with_tenant)):
     db = ctx["db"]
-    contact = await _verify_contact_ownership(db, contact_id, ctx["sub"])
+    contact = await _verify_contact_ownership(db, contact_id, ctx["sub"], ctx.get("role", ""))
     account_id = str(contact.wa_account_id)
 
     if len(body.buttons) > 3:
@@ -1362,7 +1370,7 @@ async def send_buttons(contact_id: str, body: SendButtonsBody, ctx: dict = Depen
 @router.post("/conversations/{contact_id}/send-list")
 async def send_list(contact_id: str, body: SendListBody, ctx: dict = Depends(get_current_user_with_tenant)):
     db = ctx["db"]
-    contact = await _verify_contact_ownership(db, contact_id, ctx["sub"])
+    contact = await _verify_contact_ownership(db, contact_id, ctx["sub"], ctx.get("role", ""))
     account_id = str(contact.wa_account_id)
 
     result = await wa_bridge.send_list(
@@ -1392,7 +1400,7 @@ async def send_list(contact_id: str, body: SendListBody, ctx: dict = Depends(get
 @router.post("/conversations/{contact_id}/archive")
 async def archive_conversation(contact_id: str, body: ArchiveBody, ctx: dict = Depends(get_current_user_with_tenant)):
     db = ctx["db"]
-    contact = await _verify_contact_ownership(db, contact_id, ctx["sub"])
+    contact = await _verify_contact_ownership(db, contact_id, ctx["sub"], ctx.get("role", ""))
     await wa_bridge.archive_chat(str(contact.wa_account_id), contact.wa_jid, body.archive)
     await db.execute(text(
         "UPDATE whatsapp_contacts SET is_archived = :arch, updated_at = NOW() WHERE id = :cid"
@@ -1477,7 +1485,7 @@ async def delete_template(template_id: str, ctx: dict = Depends(get_current_user
 @router.post("/conversations/{contact_id}/block")
 async def block_contact(contact_id: str, body: BlockBody, ctx: dict = Depends(get_current_user_with_tenant)):
     db = ctx["db"]
-    contact = await _verify_contact_ownership(db, contact_id, ctx["sub"])
+    contact = await _verify_contact_ownership(db, contact_id, ctx["sub"], ctx.get("role", ""))
     action = "block" if body.block else "unblock"
     await wa_bridge.update_block_status(str(contact.wa_account_id), contact.wa_jid, action)
     await db.execute(text(
@@ -1539,7 +1547,7 @@ async def update_privacy(account_id: str, body: PrivacyUpdateBody, ctx: dict = D
 @router.get("/groups/{contact_id}/invite-code")
 async def get_invite_code(contact_id: str, ctx: dict = Depends(get_current_user_with_tenant)):
     db = ctx["db"]
-    contact = await _verify_contact_ownership(db, contact_id, ctx["sub"])
+    contact = await _verify_contact_ownership(db, contact_id, ctx["sub"], ctx.get("role", ""))
     if not contact.wa_jid.endswith("@g.us"):
         raise HTTPException(status_code=400, detail="Not a group chat")
     result = await wa_bridge.fetch_invite_code(str(contact.wa_account_id), contact.wa_jid)
@@ -1549,7 +1557,7 @@ async def get_invite_code(contact_id: str, ctx: dict = Depends(get_current_user_
 @router.put("/groups/{contact_id}/subject")
 async def update_group_subject(contact_id: str, body: GroupSubjectBody, ctx: dict = Depends(get_current_user_with_tenant)):
     db = ctx["db"]
-    contact = await _verify_contact_ownership(db, contact_id, ctx["sub"])
+    contact = await _verify_contact_ownership(db, contact_id, ctx["sub"], ctx.get("role", ""))
     if not contact.wa_jid.endswith("@g.us"):
         raise HTTPException(status_code=400, detail="Not a group chat")
     await wa_bridge.update_group_subject(str(contact.wa_account_id), contact.wa_jid, body.subject)
@@ -1563,7 +1571,7 @@ async def update_group_subject(contact_id: str, body: GroupSubjectBody, ctx: dic
 @router.put("/groups/{contact_id}/description")
 async def update_group_desc(contact_id: str, body: GroupDescriptionBody, ctx: dict = Depends(get_current_user_with_tenant)):
     db = ctx["db"]
-    contact = await _verify_contact_ownership(db, contact_id, ctx["sub"])
+    contact = await _verify_contact_ownership(db, contact_id, ctx["sub"], ctx.get("role", ""))
     if not contact.wa_jid.endswith("@g.us"):
         raise HTTPException(status_code=400, detail="Not a group chat")
     await wa_bridge.update_group_description(str(contact.wa_account_id), contact.wa_jid, body.description)
@@ -1573,7 +1581,7 @@ async def update_group_desc(contact_id: str, body: GroupDescriptionBody, ctx: di
 @router.put("/groups/{contact_id}/picture")
 async def update_group_pic(contact_id: str, body: GroupPictureBody, ctx: dict = Depends(get_current_user_with_tenant)):
     db = ctx["db"]
-    contact = await _verify_contact_ownership(db, contact_id, ctx["sub"])
+    contact = await _verify_contact_ownership(db, contact_id, ctx["sub"], ctx.get("role", ""))
     if not contact.wa_jid.endswith("@g.us"):
         raise HTTPException(status_code=400, detail="Not a group chat")
     await wa_bridge.update_group_picture(str(contact.wa_account_id), contact.wa_jid, body.image_url)
@@ -1583,7 +1591,7 @@ async def update_group_pic(contact_id: str, body: GroupPictureBody, ctx: dict = 
 @router.post("/groups/{contact_id}/participants/promote")
 async def promote_participants(contact_id: str, body: GroupParticipantsBody, ctx: dict = Depends(get_current_user_with_tenant)):
     db = ctx["db"]
-    contact = await _verify_contact_ownership(db, contact_id, ctx["sub"])
+    contact = await _verify_contact_ownership(db, contact_id, ctx["sub"], ctx.get("role", ""))
     await wa_bridge.promote_participant(str(contact.wa_account_id), contact.wa_jid, body.participants)
     return {"ok": True}
 
@@ -1591,7 +1599,7 @@ async def promote_participants(contact_id: str, body: GroupParticipantsBody, ctx
 @router.post("/groups/{contact_id}/participants/demote")
 async def demote_participants(contact_id: str, body: GroupParticipantsBody, ctx: dict = Depends(get_current_user_with_tenant)):
     db = ctx["db"]
-    contact = await _verify_contact_ownership(db, contact_id, ctx["sub"])
+    contact = await _verify_contact_ownership(db, contact_id, ctx["sub"], ctx.get("role", ""))
     await wa_bridge.demote_participant(str(contact.wa_account_id), contact.wa_jid, body.participants)
     return {"ok": True}
 
@@ -2105,7 +2113,7 @@ Be specific and actionable. Reference actual messages where relevant. Write in t
 @router.post("/conversations/{contact_id}/send-contact")
 async def send_contact(contact_id: str, body: SendContactBody, ctx: dict = Depends(get_current_user_with_tenant)):
     db = ctx["db"]
-    contact = await _verify_contact_ownership(db, contact_id, ctx["sub"])
+    contact = await _verify_contact_ownership(db, contact_id, ctx["sub"], ctx.get("role", ""))
     account_id = str(contact.wa_account_id)
 
     result = await wa_bridge.send_contact(account_id, contact.wa_jid, body.contact_name, body.contact_phone)
@@ -2134,7 +2142,7 @@ async def send_contact(contact_id: str, body: SendContactBody, ctx: dict = Depen
 @router.post("/conversations/{contact_id}/send-location")
 async def send_location(contact_id: str, body: SendLocationBody, ctx: dict = Depends(get_current_user_with_tenant)):
     db = ctx["db"]
-    contact = await _verify_contact_ownership(db, contact_id, ctx["sub"])
+    contact = await _verify_contact_ownership(db, contact_id, ctx["sub"], ctx.get("role", ""))
     account_id = str(contact.wa_account_id)
 
     result = await wa_bridge.send_location(account_id, contact.wa_jid, body.latitude, body.longitude, body.name, body.address)
@@ -2163,7 +2171,7 @@ async def send_location(contact_id: str, body: SendLocationBody, ctx: dict = Dep
 @router.post("/conversations/{contact_id}/send-voice-note")
 async def send_voice_note(contact_id: str, body: SendVoiceNoteBody, ctx: dict = Depends(get_current_user_with_tenant)):
     db = ctx["db"]
-    contact = await _verify_contact_ownership(db, contact_id, ctx["sub"])
+    contact = await _verify_contact_ownership(db, contact_id, ctx["sub"], ctx.get("role", ""))
     account_id = str(contact.wa_account_id)
 
     result = await wa_bridge.send_voice_note(account_id, contact.wa_jid, body.audio_url)
@@ -2190,7 +2198,7 @@ async def send_voice_note(contact_id: str, body: SendVoiceNoteBody, ctx: dict = 
 @router.post("/conversations/{contact_id}/send-sticker")
 async def send_sticker(contact_id: str, body: SendStickerBody, ctx: dict = Depends(get_current_user_with_tenant)):
     db = ctx["db"]
-    contact = await _verify_contact_ownership(db, contact_id, ctx["sub"])
+    contact = await _verify_contact_ownership(db, contact_id, ctx["sub"], ctx.get("role", ""))
     account_id = str(contact.wa_account_id)
 
     result = await wa_bridge.send_sticker(account_id, contact.wa_jid, body.sticker_url)
@@ -2219,7 +2227,7 @@ async def send_sticker(contact_id: str, body: SendStickerBody, ctx: dict = Depen
 @router.post("/conversations/{contact_id}/sync-history")
 async def sync_history(contact_id: str, body: SyncHistoryBody, ctx: dict = Depends(get_current_user_with_tenant)):
     db = ctx["db"]
-    contact = await _verify_contact_ownership(db, contact_id, ctx["sub"])
+    contact = await _verify_contact_ownership(db, contact_id, ctx["sub"], ctx.get("role", ""))
     account_id = str(contact.wa_account_id)
 
     result = await wa_bridge.find_messages(account_id, contact.wa_jid, body.count)
@@ -2273,7 +2281,7 @@ async def sync_history(contact_id: str, body: SyncHistoryBody, ctx: dict = Depen
 async def download_media(contact_id: str, message_id: str, ctx: dict = Depends(get_current_user_with_tenant)):
     import base64, os
     db = ctx["db"]
-    contact = await _verify_contact_ownership(db, contact_id, ctx["sub"])
+    contact = await _verify_contact_ownership(db, contact_id, ctx["sub"], ctx.get("role", ""))
     msg, wa_key = await _get_message_with_key(db, message_id, contact_id)
     account_id = str(contact.wa_account_id)
 
@@ -2374,7 +2382,7 @@ async def sync_contacts(account_id: str, ctx: dict = Depends(get_current_user_wi
 @router.post("/conversations/{contact_id}/mark-unread")
 async def mark_unread(contact_id: str, ctx: dict = Depends(get_current_user_with_tenant)):
     db = ctx["db"]
-    contact = await _verify_contact_ownership(db, contact_id, ctx["sub"])
+    contact = await _verify_contact_ownership(db, contact_id, ctx["sub"], ctx.get("role", ""))
     await wa_bridge.mark_chat_unread(str(contact.wa_account_id), contact.wa_jid)
     await db.execute(text(
         "UPDATE whatsapp_contacts SET unread_count = GREATEST(unread_count, 1), updated_at = NOW() WHERE id = :cid"
@@ -2386,7 +2394,7 @@ async def mark_unread(contact_id: str, ctx: dict = Depends(get_current_user_with
 @router.delete("/conversations/{contact_id}/delete-chat")
 async def delete_chat_endpoint(contact_id: str, ctx: dict = Depends(get_current_user_with_tenant)):
     db = ctx["db"]
-    contact = await _verify_contact_ownership(db, contact_id, ctx["sub"])
+    contact = await _verify_contact_ownership(db, contact_id, ctx["sub"], ctx.get("role", ""))
     await wa_bridge.delete_chat(str(contact.wa_account_id), contact.wa_jid)
     await db.execute(text(
         "UPDATE whatsapp_contacts SET is_archived = TRUE, updated_at = NOW() WHERE id = :cid"
@@ -2398,7 +2406,7 @@ async def delete_chat_endpoint(contact_id: str, ctx: dict = Depends(get_current_
 @router.get("/conversations/{contact_id}/profile")
 async def get_contact_profile(contact_id: str, ctx: dict = Depends(get_current_user_with_tenant)):
     db = ctx["db"]
-    contact = await _verify_contact_ownership(db, contact_id, ctx["sub"])
+    contact = await _verify_contact_ownership(db, contact_id, ctx["sub"], ctx.get("role", ""))
     account_id = str(contact.wa_account_id)
 
     profile = {}
@@ -2509,7 +2517,7 @@ async def list_all_groups(account_id: str, ctx: dict = Depends(get_current_user_
 @router.delete("/groups/{contact_id}/leave")
 async def leave_group(contact_id: str, ctx: dict = Depends(get_current_user_with_tenant)):
     db = ctx["db"]
-    contact = await _verify_contact_ownership(db, contact_id, ctx["sub"])
+    contact = await _verify_contact_ownership(db, contact_id, ctx["sub"], ctx.get("role", ""))
     if not contact.wa_jid.endswith("@g.us"):
         raise HTTPException(status_code=400, detail="Not a group chat")
     result = await wa_bridge.leave_group(str(contact.wa_account_id), contact.wa_jid)
@@ -2523,7 +2531,7 @@ async def leave_group(contact_id: str, ctx: dict = Depends(get_current_user_with
 @router.post("/groups/{contact_id}/revoke-invite")
 async def revoke_invite(contact_id: str, ctx: dict = Depends(get_current_user_with_tenant)):
     db = ctx["db"]
-    contact = await _verify_contact_ownership(db, contact_id, ctx["sub"])
+    contact = await _verify_contact_ownership(db, contact_id, ctx["sub"], ctx.get("role", ""))
     if not contact.wa_jid.endswith("@g.us"):
         raise HTTPException(status_code=400, detail="Not a group chat")
     return await wa_bridge.revoke_invite_code(str(contact.wa_account_id), contact.wa_jid)
@@ -2532,10 +2540,10 @@ async def revoke_invite(contact_id: str, ctx: dict = Depends(get_current_user_wi
 @router.post("/groups/{contact_id}/send-invite")
 async def send_invite(contact_id: str, body: GroupInviteBody, ctx: dict = Depends(get_current_user_with_tenant)):
     db = ctx["db"]
-    contact = await _verify_contact_ownership(db, contact_id, ctx["sub"])
+    contact = await _verify_contact_ownership(db, contact_id, ctx["sub"], ctx.get("role", ""))
     if not contact.wa_jid.endswith("@g.us"):
         raise HTTPException(status_code=400, detail="Not a group chat")
-    invitee = await _verify_contact_ownership(db, body.invitee_contact_id, ctx["sub"])
+    invitee = await _verify_contact_ownership(db, body.invitee_contact_id, ctx["sub"], ctx.get("role", ""))
     return await wa_bridge.send_group_invite(
         str(contact.wa_account_id), contact.wa_jid, invitee.wa_jid, body.description
     )
@@ -2544,7 +2552,7 @@ async def send_invite(contact_id: str, body: GroupInviteBody, ctx: dict = Depend
 @router.put("/groups/{contact_id}/ephemeral")
 async def set_ephemeral(contact_id: str, body: EphemeralBody, ctx: dict = Depends(get_current_user_with_tenant)):
     db = ctx["db"]
-    contact = await _verify_contact_ownership(db, contact_id, ctx["sub"])
+    contact = await _verify_contact_ownership(db, contact_id, ctx["sub"], ctx.get("role", ""))
     if not contact.wa_jid.endswith("@g.us"):
         raise HTTPException(status_code=400, detail="Not a group chat")
     return await wa_bridge.toggle_ephemeral(str(contact.wa_account_id), contact.wa_jid, body.expiration)
@@ -2553,7 +2561,7 @@ async def set_ephemeral(contact_id: str, body: EphemeralBody, ctx: dict = Depend
 @router.get("/groups/{contact_id}/participants")
 async def get_participants(contact_id: str, ctx: dict = Depends(get_current_user_with_tenant)):
     db = ctx["db"]
-    contact = await _verify_contact_ownership(db, contact_id, ctx["sub"])
+    contact = await _verify_contact_ownership(db, contact_id, ctx["sub"], ctx.get("role", ""))
     if not contact.wa_jid.endswith("@g.us"):
         raise HTTPException(status_code=400, detail="Not a group chat")
     return await wa_bridge.get_group_participants(str(contact.wa_account_id), contact.wa_jid)
@@ -2562,7 +2570,7 @@ async def get_participants(contact_id: str, ctx: dict = Depends(get_current_user
 @router.put("/groups/{contact_id}/settings")
 async def update_group_settings(contact_id: str, body: GroupSettingBody, ctx: dict = Depends(get_current_user_with_tenant)):
     db = ctx["db"]
-    contact = await _verify_contact_ownership(db, contact_id, ctx["sub"])
+    contact = await _verify_contact_ownership(db, contact_id, ctx["sub"], ctx.get("role", ""))
     if not contact.wa_jid.endswith("@g.us"):
         raise HTTPException(status_code=400, detail="Not a group chat")
     return await wa_bridge.update_group_setting(str(contact.wa_account_id), contact.wa_jid, body.action)
@@ -2585,7 +2593,7 @@ async def lookup_invite(body: LookupInviteBody, ctx: dict = Depends(get_current_
 @router.get("/conversations/{contact_id}/catalog")
 async def get_catalog(contact_id: str, ctx: dict = Depends(get_current_user_with_tenant)):
     db = ctx["db"]
-    contact = await _verify_contact_ownership(db, contact_id, ctx["sub"])
+    contact = await _verify_contact_ownership(db, contact_id, ctx["sub"], ctx.get("role", ""))
     result = await wa_bridge.fetch_catalogs(str(contact.wa_account_id), contact.wa_jid)
     # Update has_catalog flag
     has_items = bool(result) and (isinstance(result, list) and len(result) > 0 or isinstance(result, dict) and result.get("data"))
@@ -2600,7 +2608,7 @@ async def get_catalog(contact_id: str, ctx: dict = Depends(get_current_user_with
 @router.get("/conversations/{contact_id}/collections")
 async def get_collections(contact_id: str, ctx: dict = Depends(get_current_user_with_tenant)):
     db = ctx["db"]
-    contact = await _verify_contact_ownership(db, contact_id, ctx["sub"])
+    contact = await _verify_contact_ownership(db, contact_id, ctx["sub"], ctx.get("role", ""))
     return await wa_bridge.fetch_collections(str(contact.wa_account_id), contact.wa_jid)
 
 
@@ -2639,7 +2647,7 @@ async def get_my_collections(account_id: str, ctx: dict = Depends(get_current_us
 @router.post("/conversations/{contact_id}/call")
 async def send_call(contact_id: str, body: CallBody, ctx: dict = Depends(get_current_user_with_tenant)):
     db = ctx["db"]
-    contact = await _verify_contact_ownership(db, contact_id, ctx["sub"])
+    contact = await _verify_contact_ownership(db, contact_id, ctx["sub"], ctx.get("role", ""))
     account_id = str(contact.wa_account_id)
 
     result = await wa_bridge.send_call_offer(account_id, contact.wa_jid, body.is_video)
