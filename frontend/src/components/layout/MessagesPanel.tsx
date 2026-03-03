@@ -51,6 +51,7 @@ interface ListItem {
 interface WaConversation {
   id: string;
   wa_account_id: string;
+  wa_jid?: string;
   display_name?: string;
   push_name?: string;
   phone_number?: string;
@@ -58,8 +59,11 @@ interface WaConversation {
   lead_id?: string;
   lead_name?: string;
   lead_status?: string;
+  account_id?: string;
   account_name?: string;
   account_phone?: string;
+  crm_account_name?: string;
+  owner_wa_jid?: string;
   owner_name?: string;
   wa_labels?: { id: string; name: string; color?: string }[];
   last_message_at?: string;
@@ -160,6 +164,7 @@ export default function MessagesPanel({ label }: { label?: string }) {
   const [waFilterGroup, setWaFilterGroup]     = useState<'' | 'true' | 'false'>('');
   const [waFilterLabel, setWaFilterLabel]     = useState('');
   const [waSortBy, setWaSortBy]               = useState<'last_message' | 'unread'>('last_message');
+  const [linkingContact, setLinkingContact]   = useState<WaConversation | null>(null);
 
   // ── Unread badge polling ──────────────────────────────────────────────────
   useEffect(() => {
@@ -716,10 +721,13 @@ export default function MessagesPanel({ label }: { label?: string }) {
                       {waSearch ? t('noMatchingContacts') : t('noWhatsApp')}
                     </div>
                   ) : waFiltered.map(conv => {
-                    const name = conv.display_name || conv.push_name || conv.phone_number || 'Unknown';
+                    const contactName = conv.display_name || conv.push_name || conv.phone_number || 'Unknown';
+                    const crmName = conv.crm_account_name || conv.lead_name;
+                    const isLinked = !!(conv.crm_account_name || conv.lead_name);
                     const isActive = waSelected?.id === conv.id;
                     const statusColor = conv.lead_status ? LEAD_STATUS_COLORS[conv.lead_status] : null;
                     const labels = Array.isArray(conv.wa_labels) ? conv.wa_labels : [];
+                    const jidShort = conv.wa_jid?.replace(/@s\.whatsapp\.net$/, '') || '';
                     return (
                       <div key={conv.id}
                         onClick={() => {
@@ -729,7 +737,7 @@ export default function MessagesPanel({ label }: { label?: string }) {
                             setWaUnread(prev => Math.max(0, prev - conv.unread_count));
                           }
                         }}
-                        className="flex items-start gap-2.5 px-3 py-2 cursor-pointer"
+                        className="group flex items-start gap-2.5 px-3 py-2 cursor-pointer"
                         style={{
                           background: isActive ? 'var(--sb-selected)' : 'transparent',
                           borderLeft: isActive ? '2px solid #25D366' : '2px solid transparent',
@@ -743,7 +751,7 @@ export default function MessagesPanel({ label }: { label?: string }) {
                             style={{ background: conv.is_group ? '#128C7E' : '#25D366' }}>
                             {conv.profile_pic_url ? (
                               <img src={conv.profile_pic_url} alt="" className="w-full h-full object-cover" />
-                            ) : conv.is_group ? '\uD83D\uDC65' : name.charAt(0).toUpperCase()}
+                            ) : conv.is_group ? '\uD83D\uDC65' : contactName.charAt(0).toUpperCase()}
                           </div>
                           {conv.unread_count > 0 && (
                             <span className="absolute -top-0.5 -right-0.5 min-w-[16px] h-4 flex items-center justify-center rounded-full text-white font-bold"
@@ -752,10 +760,24 @@ export default function MessagesPanel({ label }: { label?: string }) {
                         </div>
 
                         <div className="flex-1 min-w-0">
-                          {/* Row 1: Name + group badge + time */}
+                          {/* Row 1: CRM name (if linked) or contact name + time */}
                           <div className="flex items-baseline justify-between gap-1">
                             <div className="flex items-center gap-1 min-w-0">
-                              <span className="text-xs font-semibold truncate" style={{ color: 'var(--sb-text)' }}>{name}</span>
+                              {isLinked ? (
+                                <>
+                                  <span className="text-xs font-semibold truncate" style={{ color: '#15803d' }}>{crmName}</span>
+                                  {statusColor && conv.lead_status && (
+                                    <span className="text-[9px] px-1 rounded flex-shrink-0"
+                                      style={{ background: statusColor.bg, color: statusColor.text }}>
+                                      {conv.lead_status}
+                                    </span>
+                                  )}
+                                </>
+                              ) : (
+                                <>
+                                  <span className="text-xs font-semibold truncate" style={{ color: 'var(--sb-text)' }}>{contactName}</span>
+                                </>
+                              )}
                               {conv.is_group && <span className="text-[9px] px-1 rounded" style={{ background: '#128C7E20', color: '#128C7E' }}>G</span>}
                             </div>
                             {conv.last_message_at && (
@@ -765,40 +787,64 @@ export default function MessagesPanel({ label }: { label?: string }) {
                             )}
                           </div>
 
-                          {/* Row 2: Lead info + status */}
-                          {(conv.lead_name || conv.lead_status) && (
-                            <div className="flex items-center gap-1 mt-0.5">
-                              {conv.lead_name && (
-                                <span className="text-[10px] truncate" style={{ color: '#25D366' }}>{conv.lead_name}</span>
-                              )}
-                              {statusColor && conv.lead_status && (
-                                <span className="text-[9px] px-1 rounded flex-shrink-0"
-                                  style={{ background: statusColor.bg, color: statusColor.text }}>
-                                  {conv.lead_status}
-                                </span>
-                              )}
-                            </div>
-                          )}
+                          {/* Row 2: owner_name → contact_name · wa_jid */}
+                          <div className="flex items-center gap-1 mt-0.5 min-w-0">
+                            {conv.owner_name && (
+                              <>
+                                <span className="text-[10px] truncate flex-shrink-0" style={{ color: 'var(--sb-text-muted)' }}>{conv.owner_name}</span>
+                                <span className="text-[10px]" style={{ color: 'var(--sb-text-faint)' }}>&rarr;</span>
+                              </>
+                            )}
+                            {isLinked && (
+                              <span className="text-[10px] truncate" style={{ color: 'var(--sb-text-muted)' }}>{contactName}</span>
+                            )}
+                            {jidShort && (
+                              <>
+                                {(conv.owner_name || isLinked) && <span className="text-[10px]" style={{ color: 'var(--sb-text-faint)' }}>&middot;</span>}
+                                <span className="text-[10px] truncate" style={{ color: 'var(--sb-text-faint)' }}>{jidShort}</span>
+                              </>
+                            )}
+                          </div>
 
                           {/* Row 3: Message preview */}
                           <span className="text-[11px] block truncate mt-0.5" style={{ color: 'var(--sb-text-muted)' }}>
                             {conv.last_message_preview || ''}
                           </span>
 
-                          {/* Row 4: Labels */}
-                          {labels.length > 0 && (
-                            <div className="flex items-center gap-1 mt-0.5 overflow-hidden">
-                              {labels.slice(0, 3).map((lb, i) => (
-                                <span key={i} className="text-[9px] px-1 rounded truncate max-w-[70px]"
-                                  style={{ background: 'var(--sb-hover)', color: 'var(--sb-text-muted)' }}>
-                                  {lb.name}
-                                </span>
-                              ))}
-                              {labels.length > 3 && (
-                                <span className="text-[9px]" style={{ color: 'var(--sb-text-faint)' }}>+{labels.length - 3}</span>
-                              )}
-                            </div>
-                          )}
+                          {/* Row 4: Labels + link button */}
+                          <div className="flex items-center gap-1 mt-0.5 overflow-hidden">
+                            {labels.slice(0, 3).map((lb, i) => (
+                              <span key={i} className="text-[9px] px-1 rounded truncate max-w-[70px]"
+                                style={{ background: 'var(--sb-hover)', color: 'var(--sb-text-muted)' }}>
+                                {lb.name}
+                              </span>
+                            ))}
+                            {labels.length > 3 && (
+                              <span className="text-[9px]" style={{ color: 'var(--sb-text-faint)' }}>+{labels.length - 3}</span>
+                            )}
+                            {!isLinked && (
+                              <button
+                                onClick={e => { e.stopPropagation(); setLinkingContact(conv); }}
+                                className="ml-auto text-[9px] px-1.5 py-0.5 rounded opacity-0 group-hover:opacity-100 transition-opacity"
+                                style={{ background: '#dbeafe', color: '#1d4ed8' }}
+                                title="Link to CRM"
+                              >
+                                <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="inline mr-0.5"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+                                Link
+                              </button>
+                            )}
+                            {isLinked && (
+                              <button
+                                onClick={e => { e.stopPropagation(); setLinkingContact(conv); }}
+                                className="ml-auto text-[9px] px-1.5 py-0.5 rounded opacity-0 group-hover:opacity-100 transition-opacity"
+                                style={{ background: '#f0fdf4', color: '#15803d' }}
+                                title="Manage CRM link"
+                              >
+                                <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="inline mr-0.5"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+                                Linked
+                              </button>
+                            )}
+                          </div>
                         </div>
                       </div>
                     );
@@ -830,6 +876,163 @@ export default function MessagesPanel({ label }: { label?: string }) {
           )}
         </div>
       </div>
+
+      {/* CRM Link Modal */}
+      {linkingContact && (
+        <LinkContactModal
+          contact={linkingContact}
+          onClose={() => setLinkingContact(null)}
+          onLinked={() => {
+            setLinkingContact(null);
+            loadWaConversations({ account_id: waFilterAccount, is_group: waFilterGroup, label_id: waFilterLabel, sort_by: waSortBy });
+          }}
+        />
+      )}
     </>
+  );
+}
+
+// ── Link Contact Modal ────────────────────────────────────────────────────────
+function LinkContactModal({ contact, onClose, onLinked }: {
+  contact: WaConversation;
+  onClose: () => void;
+  onLinked: () => void;
+}) {
+  const [tab, setTab] = useState<'lead' | 'account'>('lead');
+  const [search, setSearch] = useState('');
+  const [results, setResults] = useState<any[]>([]);
+  const [searching, setSearching] = useState(false);
+  const [linking, setLinking] = useState(false);
+  const debounceRef = useRef<NodeJS.Timeout>();
+
+  const isLinked = !!(contact.lead_id || contact.account_id);
+  const currentLink = contact.crm_account_name || contact.lead_name;
+
+  useEffect(() => {
+    setResults([]);
+    setSearch('');
+  }, [tab]);
+
+  useEffect(() => {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    if (!search.trim()) { setResults([]); return; }
+    debounceRef.current = setTimeout(async () => {
+      setSearching(true);
+      try {
+        const endpoint = tab === 'lead'
+          ? `/api/crm/leads?search=${encodeURIComponent(search)}&limit=20`
+          : `/api/crm/accounts?search=${encodeURIComponent(search)}&limit=20`;
+        const data = await api.get(endpoint);
+        setResults(Array.isArray(data) ? data : (data?.items || []));
+      } catch { setResults([]); }
+      finally { setSearching(false); }
+    }, 300);
+    return () => { if (debounceRef.current) clearTimeout(debounceRef.current); };
+  }, [search, tab]);
+
+  async function handleLink(targetId: string) {
+    setLinking(true);
+    try {
+      if (tab === 'lead') {
+        await api.post(`/api/whatsapp/contacts/${contact.id}/link-lead`, { lead_id: targetId });
+      } else {
+        await api.post(`/api/whatsapp/contacts/${contact.id}/link-account`, { account_id: targetId });
+      }
+      onLinked();
+    } catch (e: any) { alert(e.message || 'Link failed'); }
+    finally { setLinking(false); }
+  }
+
+  async function handleUnlink() {
+    setLinking(true);
+    try {
+      await api.post(`/api/whatsapp/contacts/${contact.id}/unlink`, {});
+      onLinked();
+    } catch (e: any) { alert(e.message || 'Unlink failed'); }
+    finally { setLinking(false); }
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-[9999]" onClick={onClose}>
+      <div className="rounded-xl w-full max-w-md shadow-xl border overflow-hidden"
+        style={{ background: 'var(--notion-card, white)', borderColor: 'var(--notion-border)' }}
+        onClick={e => e.stopPropagation()}>
+        {/* Header */}
+        <div className="px-5 py-3 border-b flex items-center justify-between" style={{ borderColor: 'var(--notion-border)' }}>
+          <div>
+            <h3 className="text-sm font-semibold" style={{ color: 'var(--notion-text)' }}>
+              Link to CRM
+            </h3>
+            <p className="text-[11px] mt-0.5" style={{ color: 'var(--notion-text-muted)' }}>
+              {contact.display_name || contact.push_name || contact.phone_number}
+            </p>
+          </div>
+          <button onClick={onClose} className="text-lg" style={{ color: 'var(--notion-text-muted)' }}>&times;</button>
+        </div>
+
+        {/* Current link info */}
+        {isLinked && (
+          <div className="px-5 py-2 border-b flex items-center justify-between" style={{ borderColor: 'var(--notion-border)', background: '#f0fdf4' }}>
+            <span className="text-xs" style={{ color: '#15803d' }}>
+              Currently linked to: <strong>{currentLink}</strong>
+            </span>
+            <button onClick={handleUnlink} disabled={linking}
+              className="text-[10px] px-2 py-0.5 rounded font-medium"
+              style={{ background: '#fef2f2', color: '#dc2626' }}>
+              Unlink
+            </button>
+          </div>
+        )}
+
+        {/* Tabs */}
+        <div className="flex border-b" style={{ borderColor: 'var(--notion-border)' }}>
+          {(['lead', 'account'] as const).map(t => (
+            <button key={t} onClick={() => setTab(t)}
+              className="flex-1 py-2 text-xs font-medium transition-colors"
+              style={{
+                color: tab === t ? '#1d4ed8' : 'var(--notion-text-muted)',
+                borderBottom: tab === t ? '2px solid #1d4ed8' : '2px solid transparent',
+              }}>
+              {t === 'lead' ? 'Link Lead' : 'Link Account'}
+            </button>
+          ))}
+        </div>
+
+        {/* Search */}
+        <div className="px-5 py-3">
+          <input type="text" value={search} onChange={e => setSearch(e.target.value)}
+            placeholder={tab === 'lead' ? 'Search leads by name, email, phone...' : 'Search accounts by name...'}
+            autoFocus
+            className="w-full px-3 py-2 rounded-md text-sm outline-none border"
+            style={{ borderColor: 'var(--notion-border)', color: 'var(--notion-text)' }} />
+        </div>
+
+        {/* Results */}
+        <div className="px-5 pb-4 max-h-[300px] overflow-y-auto">
+          {searching && <p className="text-xs text-center py-4" style={{ color: 'var(--notion-text-muted)' }}>Searching...</p>}
+          {!searching && search && results.length === 0 && (
+            <p className="text-xs text-center py-4" style={{ color: 'var(--notion-text-muted)' }}>No results found</p>
+          )}
+          {results.map(item => (
+            <button key={item.id} onClick={() => handleLink(item.id)} disabled={linking}
+              className="w-full text-left px-3 py-2 rounded-md text-sm flex items-center justify-between gap-2 hover:bg-gray-50 transition-colors"
+              style={{ color: 'var(--notion-text)' }}>
+              <div className="min-w-0">
+                <p className="text-xs font-medium truncate">{tab === 'lead' ? item.full_name : item.name}</p>
+                <p className="text-[10px] truncate" style={{ color: 'var(--notion-text-muted)' }}>
+                  {tab === 'lead'
+                    ? [item.company, item.email, item.phone].filter(Boolean).join(' · ')
+                    : [item.industry, item.phone_number].filter(Boolean).join(' · ')}
+                </p>
+              </div>
+              {tab === 'lead' && item.status && (
+                <span className="text-[9px] px-1.5 py-0.5 rounded flex-shrink-0"
+                  style={{ background: '#f3f4f6', color: '#6b7280' }}>{item.status}</span>
+              )}
+            </button>
+          ))}
+        </div>
+      </div>
+    </div>
   );
 }

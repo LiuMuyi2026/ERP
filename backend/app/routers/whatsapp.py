@@ -61,6 +61,9 @@ class SendMessageBody(BaseModel):
 class LinkLeadBody(BaseModel):
     lead_id: str
 
+class LinkAccountBody(BaseModel):
+    account_id: str
+
 class TransferBody(BaseModel):
     target_employee_id: str
 
@@ -718,13 +721,15 @@ async def dashboard(
 
     q = """
         SELECT c.*, a.display_name AS account_name, a.phone_number AS account_phone,
-               a.owner_user_id, u.full_name AS owner_name,
+               a.wa_jid AS owner_wa_jid, a.owner_user_id, u.full_name AS owner_name,
                l.full_name AS lead_name, l.status AS lead_status,
+               ca.name AS crm_account_name,
                (SELECT content FROM whatsapp_messages wm WHERE wm.wa_contact_id = c.id ORDER BY wm.timestamp DESC LIMIT 1) AS last_message_preview
         FROM whatsapp_contacts c
         JOIN whatsapp_accounts a ON a.id = c.wa_account_id AND a.is_active = TRUE
         LEFT JOIN users u ON u.id = a.owner_user_id
         LEFT JOIN leads l ON l.id = c.lead_id
+        LEFT JOIN crm_accounts ca ON ca.id = c.account_id
         WHERE 1=1
     """
     params: dict = {}
@@ -773,12 +778,15 @@ async def admin_list_conversations(
     db = ctx["db"]
     q = """
         SELECT c.*, a.display_name AS account_name, a.phone_number AS account_phone,
-               a.owner_user_id, u.full_name AS owner_name,
-               l.full_name AS lead_name, l.status AS lead_status
+               a.wa_jid AS owner_wa_jid, a.owner_user_id, u.full_name AS owner_name,
+               l.full_name AS lead_name, l.status AS lead_status,
+               ca.name AS crm_account_name,
+               (SELECT content FROM whatsapp_messages wm WHERE wm.wa_contact_id = c.id ORDER BY wm.timestamp DESC LIMIT 1) AS last_message_preview
         FROM whatsapp_contacts c
         JOIN whatsapp_accounts a ON a.id = c.wa_account_id AND a.is_active = TRUE
         LEFT JOIN users u ON u.id = a.owner_user_id
         LEFT JOIN leads l ON l.id = c.lead_id
+        LEFT JOIN crm_accounts ca ON ca.id = c.account_id
         WHERE 1=1
     """
     params: dict = {}
@@ -831,6 +839,36 @@ async def link_lead(contact_id: str, body: LinkLeadBody, ctx: dict = Depends(get
     await db.execute(
         text("UPDATE whatsapp_contacts SET lead_id = :lid, account_id = COALESCE(:aid, account_id), updated_at = NOW() WHERE id = :cid"),
         {"lid": body.lead_id, "cid": contact_id, "aid": account_id},
+    )
+    await db.commit()
+    return {"ok": True}
+
+
+@router.post("/contacts/{contact_id}/link-account")
+async def link_account(contact_id: str, body: LinkAccountBody, ctx: dict = Depends(get_current_user_with_tenant)):
+    db = ctx["db"]
+    await _verify_contact_ownership(db, contact_id, ctx["sub"])
+    # Verify the CRM account exists
+    acct_row = await db.execute(
+        text("SELECT id FROM crm_accounts WHERE id = :aid"), {"aid": body.account_id}
+    )
+    if not acct_row.fetchone():
+        raise HTTPException(status_code=404, detail="CRM account not found")
+    await db.execute(
+        text("UPDATE whatsapp_contacts SET account_id = :aid, updated_at = NOW() WHERE id = :cid"),
+        {"aid": body.account_id, "cid": contact_id},
+    )
+    await db.commit()
+    return {"ok": True}
+
+
+@router.post("/contacts/{contact_id}/unlink")
+async def unlink_contact(contact_id: str, ctx: dict = Depends(get_current_user_with_tenant)):
+    db = ctx["db"]
+    await _verify_contact_ownership(db, contact_id, ctx["sub"])
+    await db.execute(
+        text("UPDATE whatsapp_contacts SET lead_id = NULL, account_id = NULL, updated_at = NOW() WHERE id = :cid"),
+        {"cid": contact_id},
     )
     await db.commit()
     return {"ok": True}

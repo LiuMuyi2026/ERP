@@ -1743,33 +1743,35 @@ async def customer_360(lead_id: str, ctx: dict = Depends(get_current_user_with_t
     lead_dict["customer_score"] = _calc_understanding_score(lead_dict)
     lead_dict["score_label"] = _score_label(lead_dict["customer_score"])
 
-    # WhatsApp contact & messages linked to this lead
-    wa_contact_row = await db.execute(
+    # WhatsApp contacts & messages linked to this lead
+    wa_contacts_row = await db.execute(
         text("""
             SELECT c.id, c.wa_account_id, c.wa_jid, c.phone_number,
                    c.display_name, c.push_name, c.profile_pic_url,
                    c.is_group, c.last_message_at, c.unread_count
             FROM whatsapp_contacts c
             WHERE c.lead_id = :lead_id
-            LIMIT 1
+            ORDER BY c.last_message_at DESC NULLS LAST
         """),
         {"lead_id": lead_id},
     )
-    wa_contact = wa_contact_row.fetchone()
-    wa_contact_dict = dict(wa_contact._mapping) if wa_contact else None
+    wa_contacts_list = [dict(r._mapping) for r in wa_contacts_row.fetchall()]
+    wa_contact_dict = wa_contacts_list[0] if wa_contacts_list else None
     wa_messages: list = []
-    if wa_contact:
+    if wa_contacts_list:
+        contact_ids = [str(c["id"]) for c in wa_contacts_list]
+        # Fetch messages for all linked contacts
         wa_msg_q = await db.execute(
             text("""
                 SELECT id, wa_contact_id, direction, message_type, content,
                        media_url, media_mime_type, status, timestamp,
                        reply_to_message_id, is_deleted, is_edited, metadata
                 FROM whatsapp_messages
-                WHERE wa_contact_id = :cid AND is_deleted = FALSE
+                WHERE wa_contact_id = ANY(:cids) AND is_deleted = FALSE
                 ORDER BY timestamp DESC
                 LIMIT 200
             """),
-            {"cid": str(wa_contact.id)},
+            {"cids": contact_ids},
         )
         wa_messages = [dict(r._mapping) for r in wa_msg_q.fetchall()]
 
@@ -1780,6 +1782,7 @@ async def customer_360(lead_id: str, ctx: dict = Depends(get_current_user_with_t
         "audit_logs": audit_logs,
         "related_leads": related_leads,
         "wa_contact": wa_contact_dict,
+        "wa_contacts": wa_contacts_list,
         "wa_messages": wa_messages,
     }
 
