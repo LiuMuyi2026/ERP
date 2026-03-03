@@ -791,26 +791,34 @@ const FILTER_GRADES = ['A', 'B', 'C', 'D'];
 const FILTER_TYPES = ['贸易商', '终端用户', '制造商', '分销商', '政府机构'];
 const FILTER_SOURCES = ['官网', '展会', '引荐', '邮件开发', '平台', 'LinkedIn', '其他'];
 
-function FilterSection({ title, options, selected, onToggle }: {
-  title: string; options: { key: string; label: string }[];
-  selected: string[]; onToggle: (key: string) => void;
+function FSection({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <div>
+      <p className="text-[10px] font-bold uppercase tracking-wider mb-2" style={{ color: '#9B9A97' }}>{title}</p>
+      {children}
+    </div>
+  );
+}
+function CCheckGroup({ options, selected, onToggle }: {
+  options: { value: string; label: string }[];
+  selected: string[]; onToggle: (v: string) => void;
 }) {
   return (
-    <div style={{ marginBottom: 14 }}>
-      <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--notion-text-muted)', marginBottom: 6 }}>{title}</div>
-      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-        {options.map(o => {
-          const active = selected.includes(o.key);
-          return (
-            <button key={o.key} onClick={() => onToggle(o.key)}
-              style={{ padding: '4px 10px', borderRadius: 99, fontSize: 11, fontWeight: 500, cursor: 'pointer',
-                border: active ? '1px solid #7c3aed' : '1px solid var(--notion-border)',
-                background: active ? '#ede9fe' : 'var(--notion-card, white)',
-                color: active ? '#7c3aed' : 'var(--notion-text-muted)',
-              }}>{o.label}</button>
-          );
-        })}
-      </div>
+    <div className="flex flex-wrap gap-1.5">
+      {options.map(o => {
+        const on = selected.includes(o.value);
+        return (
+          <button key={o.value} type="button" onClick={() => onToggle(o.value)}
+            className="px-2.5 py-1 rounded-full text-xs font-medium border transition-all"
+            style={{
+              background: on ? '#7c3aed' : 'white',
+              color: on ? 'white' : '#555',
+              borderColor: on ? '#7c3aed' : '#ddd',
+            }}>
+            {o.label}
+          </button>
+        );
+      })}
     </div>
   );
 }
@@ -837,7 +845,21 @@ function CustomersTab() {
 
   // ── View mode ──
   const [viewMode, setViewMode] = useState<'table' | 'kanban' | 'map'>('table');
-  const groupBy = 'stage' as const;
+
+  // ── GroupBy ──
+  type CustGroupBy = 'none' | 'stage' | 'customer_grade' | 'customer_type' | 'source';
+  const [groupBy, setGroupBy] = useState<CustGroupBy>('none');
+  const [showGroupByMenu, setShowGroupByMenu] = useState(false);
+  const groupByRef = useRef<HTMLDivElement>(null);
+
+  // ── Sort dropdown ──
+  const [showSortMenu, setShowSortMenu] = useState(false);
+  const sortMenuRef = useRef<HTMLDivElement>(null);
+
+  // ── KPI panel ──
+  type KpiType = 'total' | 'converted' | 'contract_value' | 'score';
+  const [kpiPanel, setKpiPanel] = useState<KpiType | null>(null);
+  const [kpiSearch, setKpiSearch] = useState('');
 
   // ── Add Customer modal ──
   const [showAddCustomer, setShowAddCustomer] = useState(false);
@@ -868,6 +890,24 @@ function CustomersTab() {
 
   const activeFilterCount = fStatus.length + fGrade.length + fCustomerType.length + fAssignedTo.length + fSource.length + fCountry.length + (fContractCount ? 1 : 0) + (fScoreRange ? 1 : 0);
 
+  const SORT_OPTIONS: { key: SortKey; label: string; dir: 'asc' | 'desc' }[] = [
+    { key: 'updated_at', label: '最近更新', dir: 'desc' },
+    { key: 'full_name', label: '客户名 A-Z', dir: 'asc' },
+    { key: 'customer_score', label: '了解度 高→低', dir: 'desc' },
+    { key: 'contract_count', label: '合同数 多→少', dir: 'desc' },
+    { key: 'total_contract_value', label: '合同额 高→低', dir: 'desc' },
+    { key: 'customer_grade', label: '等级 高→低', dir: 'asc' },
+  ];
+  const currentSortLabel = SORT_OPTIONS.find(o => o.key === sortBy)?.label ?? '排序';
+
+  const CUST_GROUP_BY_OPTIONS: { key: CustGroupBy; label: string }[] = [
+    { key: 'none', label: '不分组' },
+    { key: 'stage', label: '按阶段' },
+    { key: 'customer_grade', label: '按等级' },
+    { key: 'customer_type', label: '按类型' },
+    { key: 'source', label: '按来源' },
+  ];
+
   // Load users for assigned_to filter
   useEffect(() => {
     (async () => {
@@ -883,14 +923,16 @@ function CustomersTab() {
     api.get('/api/crm/customers/countries').then(setCountryStats).catch(() => {});
   }, []);
 
-  // Close filter panel on outside click
+  // Close menus on outside click
   useEffect(() => {
     function handleClick(e: MouseEvent) {
       if (filterRef.current && !filterRef.current.contains(e.target as Node)) setShowFilterPanel(false);
+      if (sortMenuRef.current && !sortMenuRef.current.contains(e.target as Node)) setShowSortMenu(false);
+      if (groupByRef.current && !groupByRef.current.contains(e.target as Node)) setShowGroupByMenu(false);
     }
-    if (showFilterPanel) document.addEventListener('mousedown', handleClick);
+    document.addEventListener('mousedown', handleClick);
     return () => document.removeEventListener('mousedown', handleClick);
-  }, [showFilterPanel]);
+  }, []);
 
   function toggleFilter(arr: string[], set: Dispatch<SetStateAction<string[]>>, key: string) {
     set(prev => prev.includes(key) ? prev.filter(k => k !== key) : [...prev, key]);
@@ -937,245 +979,317 @@ function CustomersTab() {
   // Helper: get country from lead (column or custom_fields)
   const cf = (c: Customer, key: string) => c.custom_fields?.[key] || '';
 
+  // ── Filter chips (unified purple) ──
+  type Chip = { label: string; onRemove: () => void };
+  const chips: Chip[] = [
+    ...fStatus.map(s => ({ label: `阶段: ${FILTER_STAGES.find(x => x.key === s)?.label || s}`, onRemove: () => setFStatus(prev => prev.filter(x => x !== s)) })),
+    ...fGrade.map(g => ({ label: `等级: ${g}`, onRemove: () => setFGrade(prev => prev.filter(x => x !== g)) })),
+    ...fCustomerType.map(t => ({ label: `类型: ${t}`, onRemove: () => setFCustomerType(prev => prev.filter(x => x !== t)) })),
+    ...fAssignedTo.map(a => ({ label: `负责人: ${users.find(u => u.id === a)?.full_name || a}`, onRemove: () => setFAssignedTo(prev => prev.filter(x => x !== a)) })),
+    ...fSource.map(s => ({ label: `来源: ${s}`, onRemove: () => setFSource(prev => prev.filter(x => x !== s)) })),
+    ...fCountry.map(c => ({ label: `国家: ${c}`, onRemove: () => setFCountry(prev => prev.filter(x => x !== c)) })),
+    ...(fContractCount ? [{ label: `合同: ${fContractCount === 'none' ? '无合同' : fContractCount === '6+' ? '6份以上' : fContractCount + '份'}`, onRemove: () => setFContractCount('') }] : []),
+    ...(fScoreRange ? [{ label: `了解度: ${{ low: '了解不足', medium: '初步了解', high: '较为了解', expert: '深度了解' }[fScoreRange]}`, onRemove: () => setFScoreRange('') }] : []),
+  ];
+
+  function clearAllFilters() {
+    setFStatus([]); setFGrade([]); setFCustomerType([]); setFAssignedTo([]);
+    setFSource([]); setFCountry([]); setFContractCount(''); setFScoreRange('');
+  }
+
+  // ── KPI detail list ──
+  const kpiCustomers = useMemo(() => {
+    if (!kpiPanel) return [];
+    let list = [...customers];
+    switch (kpiPanel) {
+      case 'converted': list = list.filter(c => c.contract_count > 0 || c.status === 'converted'); break;
+      case 'contract_value': list.sort((a, b) => (Number(b.total_contract_value) || 0) - (Number(a.total_contract_value) || 0)); break;
+      case 'score': list.sort((a, b) => b.customer_score - a.customer_score); break;
+    }
+    if (kpiSearch) {
+      const q = kpiSearch.toLowerCase();
+      list = list.filter(c => c.full_name.toLowerCase().includes(q) || (c.company || '').toLowerCase().includes(q));
+    }
+    return list;
+  }, [kpiPanel, customers, kpiSearch]);
+
   return (
-    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-      {/* Stats + Search + Filter */}
-      <div style={{ padding: '16px 32px', display: 'flex', flexDirection: 'column', gap: 12, borderBottom: '1px solid var(--notion-border)' }}>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 12 }}>
-          {[
-            { label: '客户总数', value: total, color: '#4338ca', bg: '#e0e7ff', suffix: '' },
-            { label: '成交客户', value: convertedCount, color: '#059669', bg: '#d1fae5', suffix: '' },
-            { label: '合同总额', value: totalContractValue > 0 ? `$${totalContractValue.toLocaleString()}` : '$0', color: '#7c3aed', bg: '#ede9fe', suffix: '' },
-            { label: '平均了解度', value: avgScore, color: '#f59e0b', bg: '#fef3c7', suffix: '%' },
-          ].map((s, i) => (
-            <div key={i} style={{ padding: '10px 14px', borderRadius: 10, background: s.bg, border: `1px solid ${s.color}22`, minWidth: 0 }}>
-              <div style={{ fontSize: 11, color: s.color, fontWeight: 600, marginBottom: 4, whiteSpace: 'nowrap' }}>{s.label}</div>
-              <div style={{ fontSize: 22, fontWeight: 800, color: s.color, whiteSpace: 'nowrap' }}>{s.value}{s.suffix}</div>
-            </div>
-          ))}
-        </div>
-
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 14px', borderRadius: 8, border: '1px solid var(--notion-border)', background: 'var(--notion-card, white)', maxWidth: 260, width: '100%' }}>
-            <span style={{ color: 'var(--notion-text-muted)', display: 'flex', alignItems: 'center' }}><HandIcon name="magnifier" size={14} /></span>
-            <input value={search} onChange={e => setSearch(e.target.value)} placeholder="搜索客户名、公司..." style={{ flex: 1, border: 'none', outline: 'none', fontSize: 13, background: 'transparent', color: 'var(--notion-text)' }} />
-            {search && <button onClick={() => setSearch('')} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--notion-text-muted)' }}>✕</button>}
-          </div>
-
-          {/* Filter button */}
-          <div style={{ position: 'relative' }} ref={filterRef}>
-            <button onClick={() => setShowFilterPanel(!showFilterPanel)}
-              style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '8px 14px', borderRadius: 8, fontSize: 12, fontWeight: 500, cursor: 'pointer',
-                border: activeFilterCount > 0 ? '1px solid #7c3aed' : '1px solid var(--notion-border)',
-                background: activeFilterCount > 0 ? '#ede9fe' : 'var(--notion-card, white)',
-                color: activeFilterCount > 0 ? '#7c3aed' : 'var(--notion-text-muted)',
+    <div className="flex flex-col flex-1 overflow-hidden">
+      {/* ── KPI Row ── */}
+      <div className="px-8 pt-4 pb-3 grid grid-cols-4 gap-3">
+        {([
+          { label: '客户总数', value: total, kpiType: 'total' as KpiType, accent: '#4338ca', suffix: '' },
+          { label: '成交客户', value: convertedCount, kpiType: 'converted' as KpiType, accent: '#059669', suffix: '' },
+          { label: '合同总额', value: totalContractValue > 0 ? `$${totalContractValue.toLocaleString()}` : '$0', kpiType: 'contract_value' as KpiType, accent: '#7c3aed', suffix: '' },
+          { label: '平均了解度', value: avgScore, kpiType: 'score' as KpiType, accent: '#f59e0b', suffix: '%' },
+        ]).map(k => {
+          const isActive = kpiPanel === k.kpiType;
+          return (
+            <div key={k.label}
+              onClick={() => { setKpiPanel(isActive ? null : k.kpiType); setKpiSearch(''); }}
+              className="rounded-xl px-4 py-3 cursor-pointer transition-all group/kpi"
+              style={{
+                background: isActive ? `${k.accent}10` : '#f7f6f3',
+                border: isActive ? `2px solid ${k.accent}` : '1px solid var(--notion-border)',
               }}>
-              筛选
-              {activeFilterCount > 0 && (
-                <span style={{ minWidth: 18, height: 18, borderRadius: 99, background: '#7c3aed', color: 'white', fontSize: 10, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{activeFilterCount}</span>
-              )}
-            </button>
-            {/* Filter panel */}
-            {showFilterPanel && (
-              <div style={{ position: 'absolute', top: '100%', right: 0, marginTop: 6, width: 380, maxHeight: '70vh', overflowY: 'auto', padding: 16, borderRadius: 12, background: 'var(--notion-card, white)', border: '1px solid var(--notion-border)', boxShadow: '0 8px 24px rgba(0,0,0,0.12)', zIndex: 100 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-                  <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--notion-text)' }}>筛选条件</span>
-                  {activeFilterCount > 0 && (
-                    <button onClick={() => { setFStatus([]); setFGrade([]); setFCustomerType([]); setFAssignedTo([]); setFSource([]); setFCountry([]); setFContractCount(''); setFScoreRange(''); }}
-                      style={{ fontSize: 11, color: '#ef4444', background: 'none', border: 'none', cursor: 'pointer' }}>清除全部</button>
-                  )}
-                </div>
-                <FilterSection title="阶段" options={FILTER_STAGES} selected={fStatus} onToggle={k => toggleFilter(fStatus, setFStatus, k)} />
-                <FilterSection title="客户等级" options={FILTER_GRADES.map(g => ({ key: g, label: g }))} selected={fGrade} onToggle={k => toggleFilter(fGrade, setFGrade, k)} />
-                <FilterSection title="客户类型" options={FILTER_TYPES.map(t => ({ key: t, label: t }))} selected={fCustomerType} onToggle={k => toggleFilter(fCustomerType, setFCustomerType, k)} />
-                <FilterSection title="负责人" options={users.map(u => ({ key: u.id, label: u.full_name }))} selected={fAssignedTo} onToggle={k => toggleFilter(fAssignedTo, setFAssignedTo, k)} />
-                <FilterSection title="来源" options={FILTER_SOURCES.map(s => ({ key: s, label: s }))} selected={fSource} onToggle={k => toggleFilter(fSource, setFSource, k)} />
-                {countryStats.length > 0 && (
-                  <FilterSection title="国家/地区" options={countryStats.slice(0, 12).map(c => ({ key: c.country, label: `${c.country} (${c.count})` }))} selected={fCountry} onToggle={k => toggleFilter(fCountry, setFCountry, k)} />
-                )}
-                <FilterSection title="合同数量" options={[
-                  { key: 'none', label: '无合同' },
-                  { key: '1-2', label: '1-2 份' },
-                  { key: '3-5', label: '3-5 份' },
-                  { key: '6+', label: '6 份以上' },
-                ]} selected={fContractCount ? [fContractCount] : []} onToggle={k => setFContractCount(prev => prev === k ? '' : k)} />
-                <FilterSection title="了解度" options={[
-                  { key: 'low', label: '了解不足 (<40)' },
-                  { key: 'medium', label: '初步了解 (40-59)' },
-                  { key: 'high', label: '较为了解 (60-79)' },
-                  { key: 'expert', label: '深度了解 (≥80)' },
-                ]} selected={fScoreRange ? [fScoreRange] : []} onToggle={k => setFScoreRange(prev => prev === k ? '' : k)} />
-              </div>
-            )}
-          </div>
-
-          {/* View Mode Pill Switcher (inline) */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 2, padding: 2, borderRadius: 8, background: 'var(--notion-active)' }}>
-            {([
-              { mode: 'table' as const, icon: '☰', label: '表格' },
-              { mode: 'kanban' as const, icon: '⊞', label: '看板' },
-              { mode: 'map' as const, icon: '🗺', label: '地图' },
-            ]).map(item => {
-              const active = viewMode === item.mode;
-              return (
-                <button key={item.mode} onClick={() => setViewMode(item.mode)}
-                  style={{
-                    display: 'flex', alignItems: 'center', gap: 6,
-                    padding: '6px 12px', borderRadius: 6, fontSize: 12, fontWeight: 500, cursor: 'pointer',
-                    border: 'none',
-                    background: active ? 'white' : 'transparent',
-                    color: active ? 'var(--notion-text)' : 'var(--notion-text-muted)',
-                    boxShadow: active ? '0 1px 3px rgba(0,0,0,0.08)' : 'none',
-                    transition: 'all 0.15s ease',
-                  }}>
-                  <span style={{ fontSize: 14 }}>{item.icon}</span> {item.label}
-                </button>
-              );
-            })}
-          </div>
-
-          {/* Add Customer button */}
-          <button onClick={() => setShowAddCustomer(true)}
-            style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 16px', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer', border: 'none', background: '#7c3aed', color: 'white' }}>
-            <span style={{ fontSize: 16, lineHeight: 1 }}>+</span> {tCrm('addCustomer')}
-          </button>
-
-          <span style={{ fontSize: 12, color: 'var(--notion-text-muted)', whiteSpace: 'nowrap', marginLeft: 'auto' }}>{customers.length} 条记录</span>
-        </div>
+              <p className="text-xs font-medium" style={{ color: isActive ? k.accent : 'var(--notion-text-muted)' }}>{k.label}</p>
+              <p className="text-xl font-bold" style={{ color: isActive ? k.accent : 'var(--notion-text)' }}>{k.value}{k.suffix}</p>
+              <p className="text-[10px] mt-0.5 transition-opacity opacity-0 group-hover/kpi:opacity-100" style={{ color: k.accent }}>
+                点击查看详情 →
+              </p>
+            </div>
+          );
+        })}
       </div>
 
-      {/* Active filter chips */}
-      {activeFilterCount > 0 && (
-        <div style={{ padding: '8px 32px', display: 'flex', gap: 6, flexWrap: 'wrap', borderBottom: '1px solid var(--notion-border)' }}>
-          {fStatus.map(s => {
-            const lbl = FILTER_STAGES.find(x => x.key === s)?.label || s;
-            return <span key={`s-${s}`} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '3px 10px', borderRadius: 99, fontSize: 11, background: '#ede9fe', color: '#7c3aed', border: '1px solid #c4b5fd' }}>阶段: {lbl} <button onClick={() => setFStatus(prev => prev.filter(x => x !== s))} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#7c3aed', fontSize: 12, padding: 0 }}>✕</button></span>;
-          })}
-          {fGrade.map(g => (
-            <span key={`g-${g}`} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '3px 10px', borderRadius: 99, fontSize: 11, background: '#fef3c7', color: '#92400e', border: '1px solid #fde68a' }}>等级: {g} <button onClick={() => setFGrade(prev => prev.filter(x => x !== g))} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#92400e', fontSize: 12, padding: 0 }}>✕</button></span>
-          ))}
-          {fCustomerType.map(t => (
-            <span key={`t-${t}`} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '3px 10px', borderRadius: 99, fontSize: 11, background: '#dbeafe', color: '#1e40af', border: '1px solid #93c5fd' }}>类型: {t} <button onClick={() => setFCustomerType(prev => prev.filter(x => x !== t))} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#1e40af', fontSize: 12, padding: 0 }}>✕</button></span>
-          ))}
-          {fAssignedTo.map(a => {
-            const name = users.find(u => u.id === a)?.full_name || a;
-            return <span key={`a-${a}`} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '3px 10px', borderRadius: 99, fontSize: 11, background: '#d1fae5', color: '#065f46', border: '1px solid #6ee7b7' }}>负责人: {name} <button onClick={() => setFAssignedTo(prev => prev.filter(x => x !== a))} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#065f46', fontSize: 12, padding: 0 }}>✕</button></span>;
-          })}
-          {fSource.map(s => (
-            <span key={`src-${s}`} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '3px 10px', borderRadius: 99, fontSize: 11, background: '#f0f9ff', color: '#0c4a6e', border: '1px solid #bae6fd' }}>来源: {s} <button onClick={() => setFSource(prev => prev.filter(x => x !== s))} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#0c4a6e', fontSize: 12, padding: 0 }}>✕</button></span>
-          ))}
-          {fCountry.map(c => (
-            <span key={`co-${c}`} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '3px 10px', borderRadius: 99, fontSize: 11, background: '#e0f2fe', color: '#0369a1', border: '1px solid #7dd3fc' }}>国家: {c} <button onClick={() => setFCountry(prev => prev.filter(x => x !== c))} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#0369a1', fontSize: 12, padding: 0 }}>✕</button></span>
-          ))}
-          {fContractCount && (
-            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '3px 10px', borderRadius: 99, fontSize: 11, background: '#dcfce7', color: '#166534', border: '1px solid #86efac' }}>合同: {fContractCount === 'none' ? '无合同' : fContractCount === '6+' ? '6份以上' : fContractCount + '份'} <button onClick={() => setFContractCount('')} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#166534', fontSize: 12, padding: 0 }}>✕</button></span>
+      {/* ── KPI Detail Panel ── */}
+      {kpiPanel && (
+        <div className="mx-8 mb-3 rounded-xl border overflow-hidden" style={{ borderColor: 'var(--notion-border)', background: 'var(--notion-card, white)' }}>
+          <div className="flex items-center justify-between px-4 py-2.5 border-b" style={{ borderColor: 'var(--notion-border)' }}>
+            <span className="text-sm font-semibold" style={{ color: 'var(--notion-text)' }}>
+              {{ total: '全部客户', converted: '成交客户', contract_value: '合同金额排名', score: '了解度排名' }[kpiPanel]} ({kpiCustomers.length})
+            </span>
+            <div className="flex items-center gap-2">
+              <input className="px-2.5 py-1 rounded-lg text-xs border outline-none"
+                style={{ borderColor: 'var(--notion-border)', background: 'transparent', color: 'var(--notion-text)', width: 160 }}
+                placeholder="搜索..." value={kpiSearch} onChange={e => setKpiSearch(e.target.value)} />
+              <button onClick={() => setKpiPanel(null)} className="text-xs px-2 py-1 rounded-lg"
+                style={{ color: '#7c3aed', background: '#f5f3ff' }}>关闭</button>
+            </div>
+          </div>
+          <div className="max-h-60 overflow-y-auto">
+            {kpiCustomers.slice(0, 30).map(c => (
+              <div key={c.id}
+                onClick={() => router.push(`/${tenant}/crm/customer-360/${c.id}`)}
+                className="flex items-center justify-between px-4 py-2 cursor-pointer transition-colors hover:bg-gray-50 border-b"
+                style={{ borderColor: 'var(--notion-border)' }}>
+                <div className="flex items-center gap-2.5">
+                  <div className="w-7 h-7 rounded-lg flex items-center justify-center text-xs font-bold shrink-0"
+                    style={{ background: '#ede9fe', color: '#7c3aed' }}>{c.full_name.charAt(0)}</div>
+                  <div>
+                    <span className="text-xs font-semibold" style={{ color: 'var(--notion-text)' }}>{c.full_name}</span>
+                    {c.company && <span className="text-xs ml-2" style={{ color: 'var(--notion-text-muted)' }}>{c.company}</span>}
+                  </div>
+                </div>
+                <div className="flex items-center gap-3">
+                  {kpiPanel === 'contract_value' && <span className="text-xs font-semibold" style={{ color: '#059669' }}>${Number(c.total_contract_value).toLocaleString()}</span>}
+                  {kpiPanel === 'score' && <span className="text-xs font-semibold">{c.customer_score}%</span>}
+                  {kpiPanel === 'converted' && c.contract_count > 0 && <span className="text-xs" style={{ color: '#059669' }}>{c.contract_count} 份合同</span>}
+                  <span className="text-[10px]" style={{ color: '#7c3aed' }}>查看 →</span>
+                </div>
+              </div>
+            ))}
+            {kpiCustomers.length === 0 && <div className="text-center text-xs py-6" style={{ color: 'var(--notion-text-muted)' }}>暂无数据</div>}
+          </div>
+        </div>
+      )}
+
+      {/* ── Toolbar ── */}
+      <div className="px-8 pb-3 flex items-center gap-2 flex-wrap border-b" style={{ borderColor: 'var(--notion-border)' }}>
+        {/* Search */}
+        <div className="relative" style={{ minWidth: 200 }}>
+          <svg className="absolute left-2.5 top-1/2 -translate-y-1/2" width="13" height="13"
+            viewBox="0 0 24 24" fill="none" stroke="#9B9A97" strokeWidth="2">
+            <circle cx="11" cy="11" r="8" /><path d="m21 21-4.35-4.35" />
+          </svg>
+          <input className="w-full pl-8 pr-3 py-1.5 rounded-lg text-xs outline-none border"
+            style={{ borderColor: 'var(--notion-border)', background: 'var(--notion-card, white)', color: 'var(--notion-text)' }}
+            placeholder="搜索客户名、公司..."
+            value={search} onChange={e => setSearch(e.target.value)} />
+        </div>
+
+        {/* Filter button */}
+        <div className="relative" ref={filterRef}>
+          <button onClick={() => setShowFilterPanel(v => !v)}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border transition-all"
+            style={{
+              borderColor: activeFilterCount ? '#7c3aed' : 'var(--notion-border)',
+              color: activeFilterCount ? '#7c3aed' : '#555',
+              background: activeFilterCount ? '#f5f3ff' : 'white',
+            }}>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/>
+            </svg>
+            筛选
+            {activeFilterCount > 0 && (
+              <span className="ml-0.5 px-1.5 py-0.5 rounded-full text-[10px] font-bold text-white" style={{ background: '#7c3aed', minWidth: 18, textAlign: 'center' }}>
+                {activeFilterCount}
+              </span>
+            )}
+          </button>
+
+          {/* Filter Panel */}
+          {showFilterPanel && (
+            <div className="absolute top-full left-0 mt-2 z-50 bg-white rounded-2xl shadow-2xl p-4 space-y-4"
+              style={{ width: 380, maxHeight: '70vh', overflowY: 'auto', border: '1px solid var(--notion-border)' }}>
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-sm font-semibold" style={{ color: '#1a1a1a' }}>筛选条件</span>
+                {activeFilterCount > 0 && (
+                  <button onClick={clearAllFilters} className="text-xs px-2.5 py-1 rounded-lg" style={{ color: '#7c3aed', background: '#f5f3ff' }}>
+                    清除全部
+                  </button>
+                )}
+              </div>
+              <FSection title="阶段">
+                <CCheckGroup options={FILTER_STAGES.map(s => ({ value: s.key, label: s.label }))} selected={fStatus} onToggle={k => toggleFilter(fStatus, setFStatus, k)} />
+              </FSection>
+              <FSection title="客户等级">
+                <CCheckGroup options={FILTER_GRADES.map(g => ({ value: g, label: g }))} selected={fGrade} onToggle={k => toggleFilter(fGrade, setFGrade, k)} />
+              </FSection>
+              <FSection title="客户类型">
+                <CCheckGroup options={FILTER_TYPES.map(t => ({ value: t, label: t }))} selected={fCustomerType} onToggle={k => toggleFilter(fCustomerType, setFCustomerType, k)} />
+              </FSection>
+              <FSection title="负责人">
+                <CCheckGroup options={users.map(u => ({ value: u.id, label: u.full_name }))} selected={fAssignedTo} onToggle={k => toggleFilter(fAssignedTo, setFAssignedTo, k)} />
+              </FSection>
+              <FSection title="来源">
+                <CCheckGroup options={FILTER_SOURCES.map(s => ({ value: s, label: s }))} selected={fSource} onToggle={k => toggleFilter(fSource, setFSource, k)} />
+              </FSection>
+              {countryStats.length > 0 && (
+                <FSection title="国家/地区">
+                  <CCheckGroup options={countryStats.slice(0, 12).map(c => ({ value: c.country, label: `${c.country} (${c.count})` }))} selected={fCountry} onToggle={k => toggleFilter(fCountry, setFCountry, k)} />
+                </FSection>
+              )}
+              <FSection title="合同数量">
+                <CCheckGroup options={[
+                  { value: 'none', label: '无合同' }, { value: '1-2', label: '1-2 份' },
+                  { value: '3-5', label: '3-5 份' }, { value: '6+', label: '6 份以上' },
+                ]} selected={fContractCount ? [fContractCount] : []} onToggle={k => setFContractCount(prev => prev === k ? '' : k)} />
+              </FSection>
+              <FSection title="了解度">
+                <CCheckGroup options={[
+                  { value: 'low', label: '了解不足 (<40)' }, { value: 'medium', label: '初步了解 (40-59)' },
+                  { value: 'high', label: '较为了解 (60-79)' }, { value: 'expert', label: '深度了解 (≥80)' },
+                ]} selected={fScoreRange ? [fScoreRange] : []} onToggle={k => setFScoreRange(prev => prev === k ? '' : k)} />
+              </FSection>
+            </div>
           )}
-          {fScoreRange && (
-            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '3px 10px', borderRadius: 99, fontSize: 11, background: '#fef3c7', color: '#92400e', border: '1px solid #fde68a' }}>了解度: {{ low: '了解不足', medium: '初步了解', high: '较为了解', expert: '深度了解' }[fScoreRange]} <button onClick={() => setFScoreRange('')} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#92400e', fontSize: 12, padding: 0 }}>✕</button></span>
+        </div>
+
+        {/* Sort dropdown */}
+        <div className="relative" ref={sortMenuRef}>
+          <button onClick={() => setShowSortMenu(v => !v)}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border transition-all"
+            style={{ borderColor: 'var(--notion-border)', color: '#555', background: 'var(--notion-card, white)' }}>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="15" y2="12"/><line x1="3" y1="18" x2="9" y2="18"/>
+            </svg>
+            {currentSortLabel}
+            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <polyline points="6 9 12 15 18 9"/>
+            </svg>
+          </button>
+          {showSortMenu && (
+            <div className="absolute top-full left-0 mt-2 z-50 bg-white rounded-xl shadow-xl py-1.5 overflow-hidden"
+              style={{ minWidth: 180, border: '1px solid var(--notion-border)' }}>
+              {SORT_OPTIONS.map(o => (
+                <button key={o.key} onClick={() => { setSortBy(o.key); setSortDir(o.dir); setShowSortMenu(false); }}
+                  className="w-full text-left px-3 py-2 text-xs transition-colors flex items-center justify-between"
+                  style={{ background: sortBy === o.key ? '#f5f3ff' : 'transparent', color: sortBy === o.key ? '#7c3aed' : '#333' }}
+                  onMouseEnter={e => { if (sortBy !== o.key) e.currentTarget.style.background = 'var(--notion-hover)'; }}
+                  onMouseLeave={e => { if (sortBy !== o.key) e.currentTarget.style.background = 'transparent'; }}>
+                  {o.label}
+                  {sortBy === o.key && <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#7c3aed" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>}
+                </button>
+              ))}
+            </div>
           )}
+        </div>
+
+        {/* GroupBy selector */}
+        <div className="relative" ref={groupByRef}>
+          <button onClick={() => setShowGroupByMenu(v => !v)}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border transition-all"
+            style={{
+              borderColor: groupBy !== 'none' ? '#7c3aed' : 'var(--notion-border)',
+              color: groupBy !== 'none' ? '#7c3aed' : '#555',
+              background: groupBy !== 'none' ? '#f5f3ff' : 'var(--notion-card, white)',
+            }}>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/>
+            </svg>
+            {CUST_GROUP_BY_OPTIONS.find(o => o.key === groupBy)?.label ?? '分组'}
+            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <polyline points="6 9 12 15 18 9"/>
+            </svg>
+          </button>
+          {showGroupByMenu && (
+            <div className="absolute top-full left-0 mt-2 z-50 bg-white rounded-xl shadow-xl py-1.5 overflow-hidden"
+              style={{ minWidth: 150, border: '1px solid var(--notion-border)' }}>
+              {CUST_GROUP_BY_OPTIONS.map(o => (
+                <button key={o.key} onClick={() => { setGroupBy(o.key); setShowGroupByMenu(false); }}
+                  className="w-full text-left px-3 py-2 text-xs transition-colors flex items-center justify-between"
+                  style={{ background: groupBy === o.key ? '#f5f3ff' : 'transparent', color: groupBy === o.key ? '#7c3aed' : '#333' }}
+                  onMouseEnter={e => { if (groupBy !== o.key) e.currentTarget.style.background = 'var(--notion-hover)'; }}
+                  onMouseLeave={e => { if (groupBy !== o.key) e.currentTarget.style.background = 'transparent'; }}>
+                  {o.label}
+                  {groupBy === o.key && <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#7c3aed" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* View Mode Pill */}
+        <div className="flex items-center gap-0.5 p-0.5 rounded-lg" style={{ background: '#F0EFec' }}>
+          {([
+            { mode: 'table' as const, icon: '☰', label: '表格' },
+            { mode: 'kanban' as const, icon: '⊞', label: '看板' },
+            { mode: 'map' as const, icon: '🗺', label: '地图' },
+          ]).map(item => {
+            const active = viewMode === item.mode;
+            return (
+              <button key={item.mode} onClick={() => setViewMode(item.mode)}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all"
+                style={{
+                  background: active ? 'white' : 'transparent',
+                  color: active ? 'var(--notion-text)' : 'var(--notion-text-muted)',
+                  boxShadow: active ? '0 1px 3px rgba(0,0,0,0.08)' : 'none',
+                }}>
+                <span style={{ fontSize: 14 }}>{item.icon}</span> {item.label}
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Add Customer button */}
+        <button onClick={() => setShowAddCustomer(true)}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-white"
+          style={{ background: '#7c3aed' }}>
+          <span style={{ fontSize: 14, lineHeight: 1 }}>+</span> {tCrm('addCustomer')}
+        </button>
+
+        <span className="ml-auto text-xs font-medium" style={{ color: '#9B9A97' }}>{customers.length} 条记录</span>
+      </div>
+
+      {/* ── Active filter chips (unified purple) ── */}
+      {chips.length > 0 && (
+        <div className="px-8 py-2 flex flex-wrap gap-1.5 border-b" style={{ borderColor: 'var(--notion-border)' }}>
+          {chips.map((chip, i) => (
+            <span key={i} className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium"
+              style={{ background: '#f5f3ff', color: '#7c3aed' }}>
+              {chip.label}
+              <button onClick={chip.onRemove} className="ml-0.5 rounded-full hover:bg-purple-200 flex items-center" style={{ lineHeight: 1 }}>
+                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round">
+                  <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+                </svg>
+              </button>
+            </span>
+          ))}
         </div>
       )}
 
       {/* Content */}
-      <div style={{ flex: 1, overflowY: 'auto', padding: '0 32px 32px' }}>
+      <div className="flex-1 overflow-y-auto px-8 pb-8">
         {loading ? (
-          <div style={{ padding: '60px 0', textAlign: 'center', color: 'var(--notion-text-muted)' }}>加载中...</div>
+          <div className="py-16 text-center text-sm" style={{ color: 'var(--notion-text-muted)' }}>加载中...</div>
         ) : customers.length === 0 ? (
-          <div style={{ padding: '80px 0', textAlign: 'center' }}>
-            <div style={{ marginBottom: 16, color: 'var(--notion-text-muted)', opacity: 0.4 }}><HandIcon name="building" size={40} /></div>
-            <div style={{ fontSize: 16, fontWeight: 600, marginBottom: 8 }}>暂无客户数据</div>
-            <div style={{ fontSize: 13, color: 'var(--notion-text-muted)' }}>{search ? '没有找到匹配的客户' : '从线索管理中转化线索后，客户将出现在这里'}</div>
+          <div className="py-20 text-center">
+            <div className="mb-4 opacity-40" style={{ color: 'var(--notion-text-muted)' }}><HandIcon name="building" size={40} /></div>
+            <div className="text-base font-semibold mb-2">暂无客户数据</div>
+            <div className="text-sm" style={{ color: 'var(--notion-text-muted)' }}>{search ? '没有找到匹配的客户' : '从线索管理中转化线索后，客户将出现在这里'}</div>
           </div>
-        ) : viewMode === 'map' ? renderMap() : viewMode === 'kanban' ? renderKanban() : (
-          <table style={{ width: '100%', borderCollapse: 'collapse', marginTop: 16 }}>
-            <thead>
-              <tr style={{ borderBottom: '2px solid var(--notion-border)' }}>
-                {([
-                  { label: '客户名称', key: 'full_name' as SortKey },
-                  { label: '公司 / 职位', key: 'company' as SortKey },
-                  { label: '客户类型', key: 'customer_type' as SortKey },
-                  { label: '客户等级', key: 'customer_grade' as SortKey },
-                  { label: '客户了解度', key: 'customer_score' as SortKey },
-                  { label: '合同', key: 'contract_count' as SortKey },
-                  { label: '状态', key: 'status' as SortKey },
-                  { label: '更新时间', key: 'updated_at' as SortKey },
-                  { label: '操作', key: null },
-                ]).map((col) => (
-                  <th key={col.label}
-                    onClick={col.key ? () => toggleSort(col.key!) : undefined}
-                    style={{
-                      padding: '10px 12px', textAlign: 'left', fontSize: 12, fontWeight: 600,
-                      color: sortBy === col.key ? '#7c3aed' : 'var(--notion-text-muted)',
-                      cursor: col.key ? 'pointer' : 'default', userSelect: 'none', whiteSpace: 'nowrap',
-                    }}>
-                    {col.label}
-                    {col.key && sortBy === col.key && (
-                      <span style={{ marginLeft: 4, fontSize: 10 }}>{sortDir === 'asc' ? '▲' : '▼'}</span>
-                    )}
-                    {col.key && sortBy !== col.key && (
-                      <span style={{ marginLeft: 4, fontSize: 10, opacity: 0.3 }}>⇅</span>
-                    )}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {customers.map(c => (
-                <tr key={c.id} onClick={() => setSelected(c)} style={{ borderBottom: '1px solid var(--notion-border)', cursor: 'pointer' }}
-                  onMouseEnter={e => (e.currentTarget.style.background = 'var(--notion-hover)')}
-                  onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}>
-                  <td style={{ padding: '12px 12px' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                      <div style={{ width: 32, height: 32, borderRadius: 8, background: '#ede9fe', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, fontWeight: 700, color: '#7c3aed', flexShrink: 0 }}>{c.full_name.charAt(0)}</div>
-                      <span style={{ fontSize: 13, fontWeight: 600 }}>{c.full_name}</span>
-                    </div>
-                  </td>
-                  <td style={{ padding: '12px 12px' }}>
-                    <div style={{ fontSize: 13 }}>{c.company || '—'}</div>
-                    {c.title && <div style={{ fontSize: 11, color: 'var(--notion-text-muted)' }}>{c.title}</div>}
-                  </td>
-                  <td style={{ padding: '12px 12px' }}>
-                    <span style={{ fontSize: 12, color: 'var(--notion-text)' }}>{c.custom_fields?.customer_type || '—'}</span>
-                  </td>
-                  <td style={{ padding: '12px 12px' }}>
-                    {c.custom_fields?.customer_grade ? (
-                      <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 99, fontWeight: 600, background: c.custom_fields.customer_grade.startsWith('S') ? '#d1fae5' : c.custom_fields.customer_grade.startsWith('A') ? '#dbeafe' : c.custom_fields.customer_grade.startsWith('B') ? '#fef3c7' : '#f3f4f6', color: c.custom_fields.customer_grade.startsWith('S') ? '#065f46' : c.custom_fields.customer_grade.startsWith('A') ? '#1e40af' : c.custom_fields.customer_grade.startsWith('B') ? '#92400e' : '#6b7280' }}>{c.custom_fields.customer_grade}</span>
-                    ) : <span style={{ fontSize: 12, color: 'var(--notion-text-muted)' }}>—</span>}
-                  </td>
-                  <td style={{ padding: '12px 12px' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                      <div style={{ width: 80, height: 6, borderRadius: 99, background: '#e5e7eb', overflow: 'hidden' }}>
-                        <div style={{ height: '100%', width: `${c.customer_score}%`, borderRadius: 99, background: c.customer_score >= 80 ? '#10b981' : c.customer_score >= 60 ? '#f59e0b' : c.customer_score >= 40 ? '#3b82f6' : '#ef4444' }} />
-                      </div>
-                      <span style={{ fontSize: 12, fontWeight: 600, minWidth: 28 }}>{c.customer_score}%</span>
-                      <span style={{ fontSize: 10, padding: '2px 7px', borderRadius: 99, background: c.customer_score >= 80 ? '#d1fae5' : c.customer_score >= 60 ? '#fef3c7' : c.customer_score >= 40 ? '#dbeafe' : '#fee2e2', color: c.customer_score >= 80 ? '#065f46' : c.customer_score >= 60 ? '#92400e' : c.customer_score >= 40 ? '#1e40af' : '#991b1b' }}>{c.score_label}</span>
-                    </div>
-                  </td>
-                  <td style={{ padding: '12px 12px' }}>
-                    <div style={{ fontSize: 13, fontWeight: 600, color: c.contract_count > 0 ? '#059669' : 'var(--notion-text-muted)' }}>
-                      {c.contract_count > 0 ? `${c.contract_count} 份` : '—'}
-                    </div>
-                    {c.total_contract_value > 0 && <div style={{ fontSize: 11, color: 'var(--notion-text-muted)' }}>${Number(c.total_contract_value).toLocaleString()}</div>}
-                  </td>
-                  <td style={{ padding: '12px 12px' }}>
-                    <span style={{ fontSize: 11, padding: '3px 8px', borderRadius: 99, background: '#ede9fe', color: '#6d28d9' }}>{c.status}</span>
-                  </td>
-                  <td style={{ padding: '12px 12px' }}>
-                    <span style={{ fontSize: 12, color: 'var(--notion-text-muted)' }}>
-                      {c.updated_at ? new Date(c.updated_at).toLocaleDateString('zh-CN', { month: 'short', day: 'numeric' }) : '—'}
-                    </span>
-                  </td>
-                  <td style={{ padding: '12px 12px' }}>
-                    <button onClick={e => { e.stopPropagation(); router.push(`/${tenant}/crm/customer-360/${c.id}`); }}
-                      style={{ fontSize: 12, padding: '4px 10px', borderRadius: 6, border: '1px solid var(--notion-border)', background: 'none', cursor: 'pointer', color: 'var(--notion-text-muted)' }}>
-                      客户详情
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
+        ) : viewMode === 'map' ? renderMap() : viewMode === 'kanban' ? renderKanban() : renderTable()}
       </div>
       {selected && <CustomerDrawer customer={selected} onClose={() => setSelected(null)} onUpdated={() => load(search)} />}
       {showAddCustomer && (
@@ -1190,6 +1304,144 @@ function CustomersTab() {
       )}
     </div>
   );
+
+  // ── Table Rendering ──────────────────────────────────────────────────────────
+  function renderTable() {
+    const TABLE_COLS: { label: string; key: SortKey | null }[] = [
+      { label: '客户名称', key: 'full_name' },
+      { label: '公司 / 职位', key: 'company' },
+      { label: '客户类型', key: 'customer_type' },
+      { label: '客户等级', key: 'customer_grade' },
+      { label: '客户了解度', key: 'customer_score' },
+      { label: '合同', key: 'contract_count' },
+      { label: '状态', key: 'status' },
+      { label: '更新时间', key: 'updated_at' },
+      { label: '操作', key: null },
+    ];
+
+    function getGroupKeyForCustomer(c: Customer): string {
+      switch (groupBy) {
+        case 'stage': return c.status;
+        case 'customer_grade': return c.custom_fields?.customer_grade || '未评级';
+        case 'customer_type': return c.custom_fields?.customer_type || '未分类';
+        case 'source': return c.source || c.custom_fields?.source_channel || '未知来源';
+        default: return '';
+      }
+    }
+
+    // Group customers if groupBy !== 'none'
+    const grouped: { key: string; label: string; items: Customer[] }[] = [];
+    if (groupBy !== 'none') {
+      const map = new Map<string, Customer[]>();
+      for (const c of customers) {
+        const k = getGroupKeyForCustomer(c);
+        if (!map.has(k)) map.set(k, []);
+        map.get(k)!.push(c);
+      }
+      Array.from(map.entries()).forEach(([k, items]) => {
+        const label = groupBy === 'stage' ? (FILTER_STAGES.find(s => s.key === k)?.label || k) : k;
+        grouped.push({ key: k, label, items });
+      });
+    } else {
+      grouped.push({ key: '_all', label: '', items: customers });
+    }
+
+    function renderRow(c: Customer) {
+      return (
+        <tr key={c.id} onClick={() => setSelected(c)}
+          className="border-b cursor-pointer transition-colors hover:bg-gray-50"
+          style={{ borderColor: 'var(--notion-border)' }}>
+          <td className="px-3 py-3">
+            <div className="flex items-center gap-2.5">
+              <div className="w-8 h-8 rounded-lg flex items-center justify-center text-sm font-bold shrink-0"
+                style={{ background: '#ede9fe', color: '#7c3aed' }}>{c.full_name.charAt(0)}</div>
+              <span className="text-[13px] font-semibold">{c.full_name}</span>
+            </div>
+          </td>
+          <td className="px-3 py-3">
+            <div className="text-[13px]">{c.company || '—'}</div>
+            {c.title && <div className="text-[11px]" style={{ color: 'var(--notion-text-muted)' }}>{c.title}</div>}
+          </td>
+          <td className="px-3 py-3 text-xs" style={{ color: 'var(--notion-text)' }}>{c.custom_fields?.customer_type || '—'}</td>
+          <td className="px-3 py-3">
+            {c.custom_fields?.customer_grade ? (
+              <span className="text-[11px] px-2 py-0.5 rounded-full font-semibold"
+                style={{
+                  background: c.custom_fields.customer_grade.startsWith('S') ? '#d1fae5' : c.custom_fields.customer_grade.startsWith('A') ? '#dbeafe' : c.custom_fields.customer_grade.startsWith('B') ? '#fef3c7' : '#f3f4f6',
+                  color: c.custom_fields.customer_grade.startsWith('S') ? '#065f46' : c.custom_fields.customer_grade.startsWith('A') ? '#1e40af' : c.custom_fields.customer_grade.startsWith('B') ? '#92400e' : '#6b7280',
+                }}>{c.custom_fields.customer_grade}</span>
+            ) : <span className="text-xs" style={{ color: 'var(--notion-text-muted)' }}>—</span>}
+          </td>
+          <td className="px-3 py-3">
+            <div className="flex items-center gap-2">
+              <div className="w-20 h-1.5 rounded-full bg-gray-200 overflow-hidden">
+                <div className="h-full rounded-full" style={{ width: `${c.customer_score}%`, background: c.customer_score >= 80 ? '#10b981' : c.customer_score >= 60 ? '#f59e0b' : c.customer_score >= 40 ? '#3b82f6' : '#ef4444' }} />
+              </div>
+              <span className="text-xs font-semibold" style={{ minWidth: 28 }}>{c.customer_score}%</span>
+              <span className="text-[10px] px-1.5 py-0.5 rounded-full"
+                style={{
+                  background: c.customer_score >= 80 ? '#d1fae5' : c.customer_score >= 60 ? '#fef3c7' : c.customer_score >= 40 ? '#dbeafe' : '#fee2e2',
+                  color: c.customer_score >= 80 ? '#065f46' : c.customer_score >= 60 ? '#92400e' : c.customer_score >= 40 ? '#1e40af' : '#991b1b',
+                }}>{c.score_label}</span>
+            </div>
+          </td>
+          <td className="px-3 py-3">
+            <div className="text-[13px] font-semibold" style={{ color: c.contract_count > 0 ? '#059669' : 'var(--notion-text-muted)' }}>
+              {c.contract_count > 0 ? `${c.contract_count} 份` : '—'}
+            </div>
+            {c.total_contract_value > 0 && <div className="text-[11px]" style={{ color: 'var(--notion-text-muted)' }}>${Number(c.total_contract_value).toLocaleString()}</div>}
+          </td>
+          <td className="px-3 py-3">
+            <span className="text-[11px] px-2 py-1 rounded-full" style={{ background: '#ede9fe', color: '#6d28d9' }}>{c.status}</span>
+          </td>
+          <td className="px-3 py-3 text-xs" style={{ color: 'var(--notion-text-muted)' }}>
+            {c.updated_at ? new Date(c.updated_at).toLocaleDateString('zh-CN', { month: 'short', day: 'numeric' }) : '—'}
+          </td>
+          <td className="px-3 py-3">
+            <button onClick={e => { e.stopPropagation(); router.push(`/${tenant}/crm/customer-360/${c.id}`); }}
+              className="text-xs px-2.5 py-1 rounded-md border cursor-pointer"
+              style={{ borderColor: 'var(--notion-border)', background: 'none', color: 'var(--notion-text-muted)' }}>
+              客户详情
+            </button>
+          </td>
+        </tr>
+      );
+    }
+
+    return (
+      <table className="w-full border-collapse mt-4">
+        <thead>
+          <tr className="border-b-2" style={{ borderColor: 'var(--notion-border)' }}>
+            {TABLE_COLS.map(col => (
+              <th key={col.label}
+                onClick={col.key ? () => toggleSort(col.key!) : undefined}
+                className="px-3 py-2.5 text-left text-xs font-semibold whitespace-nowrap select-none"
+                style={{
+                  color: sortBy === col.key ? '#7c3aed' : 'var(--notion-text-muted)',
+                  cursor: col.key ? 'pointer' : 'default',
+                }}>
+                {col.label}
+                {col.key && sortBy === col.key && <span className="ml-1 text-[10px]">{sortDir === 'asc' ? '▲' : '▼'}</span>}
+                {col.key && sortBy !== col.key && <span className="ml-1 text-[10px] opacity-30">⇅</span>}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {grouped.map(group => (
+            <>{groupBy !== 'none' && (
+              <tr key={`gh-${group.key}`}>
+                <td colSpan={TABLE_COLS.length} className="px-3 py-2 text-xs font-bold" style={{ background: '#f7f6f3', color: 'var(--notion-text-muted)' }}>
+                  {group.label} ({group.items.length})
+                </td>
+              </tr>
+            )}
+            {group.items.map(renderRow)}</>
+          ))}
+        </tbody>
+      </table>
+    );
+  }
 
   // ── Map Rendering ────────────────────────────────────────────────────────────
   function renderMap() {
@@ -1335,58 +1587,76 @@ function CustomersTab() {
         { key: '政府机构', label: '政府机构', color: '#dc2626', bg: '#fef2f2' },
         { key: '_other', label: '其他', color: '#9B9A97', bg: '#f5f5f5' },
       ],
+      source: [
+        { key: '官网', label: '官网', color: '#7c3aed', bg: '#ede9fe' },
+        { key: '展会', label: '展会', color: '#0284c7', bg: '#e0f2fe' },
+        { key: '引荐', label: '引荐', color: '#059669', bg: '#d1fae5' },
+        { key: '邮件开发', label: '邮件开发', color: '#f59e0b', bg: '#fef3c7' },
+        { key: '平台', label: '平台', color: '#c2410c', bg: '#fff7ed' },
+        { key: 'LinkedIn', label: 'LinkedIn', color: '#0369a1', bg: '#e0f2fe' },
+        { key: '_other', label: '其他', color: '#9B9A97', bg: '#f5f5f5' },
+      ],
     };
 
-    // Fixed grouping by stage
-    const groups = KANBAN_GROUPS.stage;
+    // Determine kanban grouping based on groupBy state (default to stage)
+    const kanbanGroupKey = (groupBy === 'none' || groupBy === 'stage') ? 'stage' : groupBy;
+    const groups = KANBAN_GROUPS[kanbanGroupKey] || KANBAN_GROUPS.stage;
     const grouped: Record<string, Customer[]> = {};
     for (const g of groups) grouped[g.key] = [];
 
     for (const c of customers) {
-      const key = groups.some(g => g.key === c.status) ? c.status : '_other';
+      let val: string;
+      switch (kanbanGroupKey) {
+        case 'customer_grade': val = c.custom_fields?.customer_grade || '_unrated'; break;
+        case 'customer_type': val = c.custom_fields?.customer_type || '_other'; break;
+        case 'source': val = c.source || c.custom_fields?.source_channel || '_other'; break;
+        default: val = c.status; break;
+      }
+      const key = groups.some(g => g.key === val) ? val : (groups.find(g => g.key.startsWith('_'))?.key || '_other');
       (grouped[key] ??= []).push(c);
     }
 
     return (
-      <div style={{ display: 'flex', gap: 12, overflowX: 'auto', paddingBottom: 12, marginTop: 16, minHeight: 480 }}>
+      <div className="flex gap-3 overflow-x-auto pb-3 mt-4" style={{ minHeight: 480 }}>
         {groups.map(col => {
           const cards = grouped[col.key] || [];
           return (
-            <div key={col.key} style={{ flexShrink: 0, width: 240, display: 'flex', flexDirection: 'column', borderRadius: 12, overflow: 'hidden', border: '1px solid var(--notion-border)', background: 'var(--notion-hover)' }}>
+            <div key={col.key} className="shrink-0 flex flex-col rounded-xl overflow-hidden border" style={{ width: 220, borderColor: 'var(--notion-border)', background: 'var(--notion-hover)' }}>
               {/* Column header */}
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 12px', borderBottom: '1px solid var(--notion-border)', background: col.bg }}>
-                <span style={{ fontSize: 12, fontWeight: 600, color: col.color }}>{col.label}</span>
-                <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 99, background: col.color + '22', color: col.color }}>{cards.length}</span>
+              <div className="flex items-center justify-between px-3 py-2.5 border-b" style={{ borderColor: 'var(--notion-border)', background: col.bg }}>
+                <span className="text-xs font-semibold" style={{ color: col.color }}>{col.label}</span>
+                <span className="text-[11px] font-bold px-2 py-0.5 rounded-full" style={{ background: col.color + '22', color: col.color }}>{cards.length}</span>
               </div>
               {/* Cards */}
-              <div style={{ flex: 1, overflowY: 'auto', padding: 8, display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <div className="flex-1 overflow-y-auto p-2 flex flex-col gap-2">
                 {cards.map(c => (
                   <div key={c.id}
                     onClick={() => setSelected(c)}
-                    style={{ padding: 12, borderRadius: 10, background: 'var(--notion-card, white)', border: '1px solid var(--notion-border)', cursor: 'pointer', transition: 'box-shadow 0.15s' }}
-                    onMouseEnter={e => (e.currentTarget.style.boxShadow = '0 2px 8px rgba(0,0,0,0.10)')}
-                    onMouseLeave={e => (e.currentTarget.style.boxShadow = 'none')}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-                      <div style={{ width: 28, height: 28, borderRadius: 8, background: '#ede9fe', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 700, color: '#7c3aed', flexShrink: 0 }}>{c.full_name.charAt(0)}</div>
-                      <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--notion-text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.full_name}</span>
+                    className="p-3 rounded-lg border cursor-pointer transition-shadow hover:shadow-md"
+                    style={{ background: 'var(--notion-card, white)', borderColor: 'var(--notion-border)' }}>
+                    <div className="flex items-center gap-2 mb-1.5">
+                      <div className="w-7 h-7 rounded-lg flex items-center justify-center text-xs font-bold shrink-0"
+                        style={{ background: '#ede9fe', color: '#7c3aed' }}>{c.full_name.charAt(0)}</div>
+                      <span className="text-xs font-semibold truncate" style={{ color: 'var(--notion-text)' }}>{c.full_name}</span>
                     </div>
-                    {c.company && <div style={{ fontSize: 11, color: 'var(--notion-text-muted)', marginBottom: 6, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.company}</div>}
+                    {c.company && <div className="text-[11px] truncate mb-1.5" style={{ color: 'var(--notion-text-muted)' }}>{c.company}</div>}
                     {/* Score bar */}
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
-                      <div style={{ flex: 1, height: 4, borderRadius: 99, background: '#e5e7eb', overflow: 'hidden' }}>
-                        <div style={{ height: '100%', width: `${c.customer_score}%`, borderRadius: 99, background: c.customer_score >= 80 ? '#10b981' : c.customer_score >= 60 ? '#f59e0b' : c.customer_score >= 40 ? '#3b82f6' : '#ef4444' }} />
+                    <div className="flex items-center gap-1.5 mb-1.5">
+                      <div className="flex-1 h-1 rounded-full bg-gray-200 overflow-hidden">
+                        <div className="h-full rounded-full" style={{ width: `${c.customer_score}%`, background: c.customer_score >= 80 ? '#10b981' : c.customer_score >= 60 ? '#f59e0b' : c.customer_score >= 40 ? '#3b82f6' : '#ef4444' }} />
                       </div>
-                      <span style={{ fontSize: 10, fontWeight: 600, color: 'var(--notion-text-muted)' }}>{c.customer_score}%</span>
+                      <span className="text-[10px] font-semibold" style={{ color: 'var(--notion-text-muted)' }}>{c.customer_score}%</span>
                     </div>
-                    <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                    <div className="flex justify-end">
                       <button onClick={e => { e.stopPropagation(); router.push(`/${tenant}/crm/customer-360/${c.id}`); }}
-                        style={{ fontSize: 10, padding: '3px 8px', borderRadius: 6, border: '1px solid var(--notion-border)', background: 'none', cursor: 'pointer', color: 'var(--notion-text-muted)' }}>
+                        className="text-[10px] px-2 py-0.5 rounded-md border cursor-pointer"
+                        style={{ borderColor: 'var(--notion-border)', background: 'none', color: 'var(--notion-text-muted)' }}>
                         客户详情
                       </button>
                     </div>
                   </div>
                 ))}
-                {cards.length === 0 && <div style={{ fontSize: 11, color: '#ccc', textAlign: 'center', padding: '20px 0', fontStyle: 'italic' }}>暂无</div>}
+                {cards.length === 0 && <div className="text-[11px] text-center py-5 italic" style={{ color: '#ccc' }}>暂无</div>}
               </div>
             </div>
           );
