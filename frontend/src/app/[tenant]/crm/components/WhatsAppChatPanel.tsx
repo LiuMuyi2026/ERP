@@ -162,6 +162,48 @@ export default function WhatsAppChatPanel({
   const [groupMeta, setGroupMeta] = useState<any>(null);
   const [inviteCode, setInviteCode] = useState('');
 
+  // ── Phase 4+5 states ──
+
+  // 4.1 Contact card
+  const [showContactModal, setShowContactModal] = useState(false);
+  const [contactCardName, setContactCardName] = useState('');
+  const [contactCardPhone, setContactCardPhone] = useState('');
+
+  // 4.2 Location
+  const [showLocationModal, setShowLocationModal] = useState(false);
+  const [locLat, setLocLat] = useState('');
+  const [locLng, setLocLng] = useState('');
+  const [locName, setLocName] = useState('');
+  const [locAddress, setLocAddress] = useState('');
+
+  // 4.3 Voice recording
+  const [isRecording, setIsRecording] = useState(false);
+  const [recordDuration, setRecordDuration] = useState(0);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const recordChunksRef = useRef<Blob[]>([]);
+  const recordTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  // 4.4 Sync history
+  const [syncing, setSyncing] = useState(false);
+  const [syncCount, setSyncCount] = useState<number | null>(null);
+
+  // 4.5 Contact profile
+  const [showProfilePanel, setShowProfilePanel] = useState(false);
+  const [profileData, setProfileData] = useState<any>(null);
+
+  // 5.3 Group advanced
+  const [groupParticipants, setGroupParticipants] = useState<any[]>([]);
+  const [showGroupInviteModal, setShowGroupInviteModal] = useState(false);
+  const [groupInviteContacts, setGroupInviteContacts] = useState<any[]>([]);
+  const [groupInviteSearch, setGroupInviteSearch] = useState('');
+
+  // 5.4 Catalog
+  const [catalogData, setCatalogData] = useState<any[] | null>(null);
+  const [showCatalogTab, setShowCatalogTab] = useState(false);
+
+  // 5.5 Call
+  const [showCallMenu, setShowCallMenu] = useState(false);
+
   const effectiveContactId = contactId || resolvedContactId;
 
   // ── Load messages ──
@@ -440,6 +482,203 @@ export default function WhatsAppChatPanel({
       const inv = await api.get(`/api/whatsapp/groups/${effectiveContactId}/invite-code`);
       setInviteCode(inv.inviteCode || inv.code || '');
     } catch {}
+    loadGroupParticipants();
+  }
+
+  // ── 4.1 Send contact card ──
+  async function handleSendContact() {
+    if (!effectiveContactId || !contactCardName.trim() || !contactCardPhone.trim()) return;
+    try {
+      await api.post(`/api/whatsapp/conversations/${effectiveContactId}/send-contact`, {
+        contact_name: contactCardName, contact_phone: contactCardPhone,
+      });
+      setShowContactModal(false);
+      setContactCardName(''); setContactCardPhone('');
+      loadMessages();
+    } catch {}
+  }
+
+  // ── 4.2 Send location ──
+  async function handleSendLocation() {
+    if (!effectiveContactId || !locLat || !locLng) return;
+    try {
+      await api.post(`/api/whatsapp/conversations/${effectiveContactId}/send-location`, {
+        latitude: parseFloat(locLat), longitude: parseFloat(locLng),
+        name: locName || undefined, address: locAddress || undefined,
+      });
+      setShowLocationModal(false);
+      setLocLat(''); setLocLng(''); setLocName(''); setLocAddress('');
+      loadMessages();
+    } catch {}
+  }
+
+  // ── 4.3 Voice recording ──
+  async function startRecording() {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const recorder = new MediaRecorder(stream);
+      recordChunksRef.current = [];
+      recorder.ondataavailable = (e) => { if (e.data.size > 0) recordChunksRef.current.push(e.data); };
+      recorder.start();
+      mediaRecorderRef.current = recorder;
+      setIsRecording(true);
+      setRecordDuration(0);
+      recordTimerRef.current = setInterval(() => setRecordDuration(d => d + 1), 1000);
+    } catch {}
+  }
+
+  async function stopRecordingAndSend() {
+    if (!mediaRecorderRef.current || !effectiveContactId) return;
+    const recorder = mediaRecorderRef.current;
+    if (recordTimerRef.current) clearInterval(recordTimerRef.current);
+
+    return new Promise<void>((resolve) => {
+      recorder.onstop = async () => {
+        const blob = new Blob(recordChunksRef.current, { type: 'audio/ogg; codecs=opus' });
+        const file = new File([blob], 'voice_note.ogg', { type: 'audio/ogg' });
+        try {
+          const uploadRes = await api.upload('/api/whatsapp/upload-media', file);
+          await api.post(`/api/whatsapp/conversations/${effectiveContactId}/send-voice-note`, {
+            audio_url: uploadRes.media_url,
+          });
+          loadMessages();
+        } catch {}
+        recorder.stream.getTracks().forEach(t => t.stop());
+        setIsRecording(false);
+        setRecordDuration(0);
+        mediaRecorderRef.current = null;
+        resolve();
+      };
+      recorder.stop();
+    });
+  }
+
+  function cancelRecording() {
+    if (mediaRecorderRef.current) {
+      mediaRecorderRef.current.stream.getTracks().forEach(t => t.stop());
+      mediaRecorderRef.current.stop();
+    }
+    if (recordTimerRef.current) clearInterval(recordTimerRef.current);
+    setIsRecording(false);
+    setRecordDuration(0);
+    mediaRecorderRef.current = null;
+  }
+
+  // ── 4.4 Sync history ──
+  async function handleSyncHistory() {
+    if (!effectiveContactId) return;
+    setSyncing(true);
+    setSyncCount(null);
+    try {
+      const res = await api.post(`/api/whatsapp/conversations/${effectiveContactId}/sync-history`, { count: 100 });
+      setSyncCount(res.imported || 0);
+      loadMessages();
+    } catch {}
+    finally { setSyncing(false); }
+  }
+
+  // ── 4.4 Download media ──
+  async function handleDownloadMedia(msgId: string) {
+    if (!effectiveContactId) return;
+    try {
+      await api.post(`/api/whatsapp/conversations/${effectiveContactId}/messages/${msgId}/download-media`, {});
+      loadMessages();
+    } catch {}
+  }
+
+  // ── 4.5 Mark unread ──
+  async function handleMarkUnread() {
+    if (!effectiveContactId) return;
+    try { await api.post(`/api/whatsapp/conversations/${effectiveContactId}/mark-unread`, {}); } catch {}
+  }
+
+  // ── 4.5 Delete chat ──
+  async function handleDeleteChat() {
+    if (!effectiveContactId || !confirm('Delete this entire chat? This action cannot be undone.')) return;
+    try { await api.delete(`/api/whatsapp/conversations/${effectiveContactId}/delete-chat`); } catch {}
+  }
+
+  // ── 4.5 Fetch profile ──
+  async function handleFetchProfile() {
+    if (!effectiveContactId) return;
+    setShowProfilePanel(true);
+    try {
+      const data = await api.get(`/api/whatsapp/conversations/${effectiveContactId}/profile`);
+      setProfileData(data);
+    } catch { setProfileData(null); }
+  }
+
+  // ── 5.5 Call ──
+  async function handleCall(isVideo: boolean) {
+    if (!effectiveContactId) return;
+    try {
+      await api.post(`/api/whatsapp/conversations/${effectiveContactId}/call`, { is_video: isVideo });
+      loadMessages();
+    } catch {}
+    setShowCallMenu(false);
+  }
+
+  // ── 5.3 Group operations ──
+  async function handleLeaveGroup() {
+    if (!effectiveContactId || !confirm('Leave this group? You will no longer receive messages.')) return;
+    try {
+      await api.delete(`/api/whatsapp/groups/${effectiveContactId}/leave`);
+      setShowGroupInfo(false);
+    } catch {}
+  }
+
+  async function handleRevokeInvite() {
+    if (!effectiveContactId || !confirm('Revoke the current invite link? A new one will be generated.')) return;
+    try {
+      const result = await api.post(`/api/whatsapp/groups/${effectiveContactId}/revoke-invite`, {});
+      setInviteCode(result.inviteCode || result.code || '');
+    } catch {}
+  }
+
+  async function openGroupInviteModal() {
+    setShowGroupInviteModal(true);
+    try {
+      const contacts = await api.get('/api/whatsapp/conversations?is_group=false');
+      setGroupInviteContacts(Array.isArray(contacts) ? contacts : []);
+    } catch { setGroupInviteContacts([]); }
+  }
+
+  async function handleSendGroupInvite(inviteeContactId: string) {
+    if (!effectiveContactId) return;
+    try {
+      await api.post(`/api/whatsapp/groups/${effectiveContactId}/send-invite`, {
+        invitee_contact_id: inviteeContactId,
+      });
+      setShowGroupInviteModal(false);
+    } catch {}
+  }
+
+  async function handleGroupSetting(action: string) {
+    if (!effectiveContactId) return;
+    try { await api.put(`/api/whatsapp/groups/${effectiveContactId}/settings`, { action }); } catch {}
+  }
+
+  async function handleGroupEphemeral(expiration: number) {
+    if (!effectiveContactId) return;
+    try { await api.put(`/api/whatsapp/groups/${effectiveContactId}/ephemeral`, { expiration }); } catch {}
+  }
+
+  async function loadGroupParticipants() {
+    if (!effectiveContactId) return;
+    try {
+      const data = await api.get(`/api/whatsapp/groups/${effectiveContactId}/participants`);
+      setGroupParticipants(Array.isArray(data) ? data : (data?.participants || []));
+    } catch { setGroupParticipants([]); }
+  }
+
+  // ── 5.4 Catalog ──
+  async function loadCatalog() {
+    if (!effectiveContactId) return;
+    setShowCatalogTab(true);
+    try {
+      const data = await api.get(`/api/whatsapp/conversations/${effectiveContactId}/catalog`);
+      setCatalogData(Array.isArray(data) ? data : (data?.data || data?.products || []));
+    } catch { setCatalogData([]); }
   }
 
   // ── Find quoted message ──
@@ -500,6 +739,89 @@ export default function WhatsAppChatPanel({
     );
   }
 
+  // ── Render contact card message ──
+  function renderContactMessage(msg: Message) {
+    const meta = typeof msg.metadata === 'string' ? JSON.parse(msg.metadata) : (msg.metadata || {});
+    return (
+      <div className="flex items-center gap-2 p-2 rounded-lg" style={{ background: 'rgba(0,0,0,0.04)' }}>
+        <div className="w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-bold" style={{ background: '#128C7E' }}>
+          {(meta.contact_name || msg.content || '?').charAt(0).toUpperCase()}
+        </div>
+        <div className="flex-1 min-w-0">
+          <p className="text-xs font-semibold truncate" style={{ color: 'var(--notion-text)' }}>{meta.contact_name || msg.content}</p>
+          <p className="text-[10px]" style={{ color: 'var(--notion-text-muted)' }}>{meta.contact_phone || ''}</p>
+        </div>
+      </div>
+    );
+  }
+
+  // ── Render location message ──
+  function renderLocationMessage(msg: Message) {
+    const meta = typeof msg.metadata === 'string' ? JSON.parse(msg.metadata) : (msg.metadata || {});
+    const lat = meta.latitude || msg.content?.split(',')[0] || '0';
+    const lng = meta.longitude || msg.content?.split(',')[1] || '0';
+    const mapUrl = `https://www.openstreetmap.org/?mlat=${lat}&mlon=${lng}#map=15/${lat}/${lng}`;
+    return (
+      <div className="rounded-lg overflow-hidden" style={{ background: 'rgba(0,0,0,0.04)' }}>
+        <a href={mapUrl} target="_blank" rel="noopener noreferrer"
+          className="block p-2 hover:opacity-80">
+          <div className="flex items-center gap-2 mb-1">
+            <span className="text-lg">📍</span>
+            <span className="text-xs font-semibold" style={{ color: 'var(--notion-text)' }}>{meta.place_name || 'Location'}</span>
+          </div>
+          {meta.address && <p className="text-[10px] mb-1" style={{ color: 'var(--notion-text-muted)' }}>{meta.address}</p>}
+          <p className="text-[10px]" style={{ color: '#1d4ed8' }}>View on map →</p>
+        </a>
+      </div>
+    );
+  }
+
+  // ── Render voice note message ──
+  function renderVoiceNoteMessage(msg: Message) {
+    return (
+      <div className="flex items-center gap-2">
+        <div className="w-8 h-8 rounded-full flex items-center justify-center" style={{ background: '#25D366' }}>
+          <span className="text-white text-sm">🎤</span>
+        </div>
+        {msg.media_url ? (
+          <audio src={msg.media_url} controls className="max-w-[200px] h-8" />
+        ) : (
+          <button onClick={() => handleDownloadMedia(msg.id)}
+            className="text-[10px] px-2 py-1 rounded" style={{ background: 'rgba(0,0,0,0.06)' }}>
+            Download audio
+          </button>
+        )}
+      </div>
+    );
+  }
+
+  // ── Render sticker message ──
+  function renderStickerMessage(msg: Message) {
+    if (msg.media_url) {
+      return <img src={msg.media_url} alt="sticker" className="w-32 h-32 object-contain" />;
+    }
+    return (
+      <button onClick={() => handleDownloadMedia(msg.id)}
+        className="text-[10px] px-2 py-1 rounded" style={{ background: 'rgba(0,0,0,0.06)' }}>
+        Download sticker
+      </button>
+    );
+  }
+
+  // ── Render call message ──
+  function renderCallMessage(msg: Message) {
+    const meta = typeof msg.metadata === 'string' ? JSON.parse(msg.metadata) : (msg.metadata || {});
+    const isVideo = meta.call_type === 'video';
+    return (
+      <div className="flex items-center gap-2 p-2 rounded-lg" style={{ background: 'rgba(0,0,0,0.04)' }}>
+        <span className="text-lg">{isVideo ? '📹' : '📞'}</span>
+        <span className="text-xs font-medium" style={{ color: 'var(--notion-text)' }}>
+          {isVideo ? 'Video call' : 'Voice call'}
+        </span>
+      </div>
+    );
+  }
+
   const groups = groupByDate(messages);
   const hasMessages = messages.length > 0;
   const presenceText = presence?.status === 'composing' ? 'typing...'
@@ -529,11 +851,41 @@ export default function WhatsAppChatPanel({
           </p>
         </div>
         <div className="flex items-center gap-1">
+          {/* Call */}
+          {effectiveContactId && !isGroup && (
+            <div className="relative">
+              <button onClick={() => setShowCallMenu(!showCallMenu)}
+                className="p-1.5 rounded hover:bg-gray-100" title="Call">
+                <span className="text-sm">📞</span>
+              </button>
+              {showCallMenu && (
+                <div className="absolute right-0 top-8 z-50 rounded-lg shadow-lg border py-1 min-w-[130px]"
+                  style={{ background: 'var(--notion-card, white)', borderColor: 'var(--notion-border)' }}>
+                  <button onClick={() => handleCall(false)} className="block w-full text-left px-3 py-1.5 text-xs hover:bg-gray-50">📞 Voice call</button>
+                  <button onClick={() => handleCall(true)} className="block w-full text-left px-3 py-1.5 text-xs hover:bg-gray-50">📹 Video call</button>
+                </div>
+              )}
+            </div>
+          )}
+          {/* Sync history */}
+          {effectiveContactId && (
+            <button onClick={handleSyncHistory} disabled={syncing}
+              className="p-1.5 rounded hover:bg-gray-100" title="Sync history">
+              {syncing ? <span className="inline-block w-4 h-4 border-2 border-green-400 border-t-transparent rounded-full animate-spin" /> : '🔄'}
+            </button>
+          )}
           {/* Search */}
           <button onClick={() => setShowSearch(!showSearch)}
             className="p-1.5 rounded hover:bg-gray-100" title="Search messages">
             <HandIcon name="search" size={16} />
           </button>
+          {/* Profile */}
+          {effectiveContactId && !isGroup && (
+            <button onClick={handleFetchProfile}
+              className="p-1.5 rounded hover:bg-gray-100 text-xs" title="Contact profile">
+              <HandIcon name="person" size={16} />
+            </button>
+          )}
           {/* Block */}
           <button onClick={handleBlock}
             className="p-1.5 rounded hover:bg-gray-100 text-xs" title={isBlocked ? 'Unblock' : 'Block'}
@@ -564,6 +916,9 @@ export default function WhatsAppChatPanel({
                     {opt.label} {currentDisappearing === opt.value && '✓'}
                   </button>
                 ))}
+                <div className="border-t my-1" style={{ borderColor: 'var(--notion-border)' }} />
+                <button onClick={handleMarkUnread} className="block w-full text-left px-3 py-1.5 text-xs hover:bg-gray-50">Mark as unread</button>
+                <button onClick={handleDeleteChat} className="block w-full text-left px-3 py-1.5 text-xs hover:bg-gray-50 text-red-500">Delete chat</button>
               </div>
             )}
           </div>
@@ -582,6 +937,14 @@ export default function WhatsAppChatPanel({
       {isBlocked && (
         <div className="px-4 py-2 text-xs text-center font-medium" style={{ background: '#fef2f2', color: '#dc2626' }}>
           This contact is blocked. <button onClick={handleBlock} className="underline">Unblock</button>
+        </div>
+      )}
+
+      {/* ── Sync result banner ── */}
+      {syncCount !== null && (
+        <div className="px-4 py-2 text-xs text-center font-medium" style={{ background: '#f0fdf4', color: '#15803d' }}>
+          Synced {syncCount} messages from WhatsApp
+          <button onClick={() => setSyncCount(null)} className="ml-2 underline">Dismiss</button>
         </div>
       )}
 
@@ -647,9 +1010,9 @@ export default function WhatsAppChatPanel({
         </div>
       )}
 
-      {/* ── Group info panel ── */}
+      {/* ── Group info panel (enhanced) ── */}
       {showGroupInfo && isGroup && groupMeta && (
-        <div className="border-b px-4 py-3" style={{ borderColor: 'var(--notion-border)', background: 'var(--notion-card, white)' }}>
+        <div className="border-b px-4 py-3 max-h-[400px] overflow-y-auto" style={{ borderColor: 'var(--notion-border)', background: 'var(--notion-card, white)' }}>
           <div className="flex items-center justify-between mb-2">
             <span className="text-xs font-semibold" style={{ color: 'var(--notion-text)' }}>Group Info</span>
             <button onClick={() => setShowGroupInfo(false)} className="text-xs" style={{ color: 'var(--notion-text-muted)' }}>✕</button>
@@ -660,21 +1023,68 @@ export default function WhatsAppChatPanel({
           <p className="text-[10px] mb-1" style={{ color: 'var(--notion-text-muted)' }}>
             {groupMeta.size || (groupMeta.participants || []).length} members
           </p>
+
+          {/* Invite link */}
           {inviteCode && (
             <div className="flex items-center gap-2 mt-1">
-              <span className="text-[10px] truncate" style={{ color: 'var(--notion-text-muted)' }}>
-                Invite: https://chat.whatsapp.com/{inviteCode}
+              <span className="text-[10px] truncate flex-1" style={{ color: 'var(--notion-text-muted)' }}>
+                https://chat.whatsapp.com/{inviteCode}
               </span>
               <button onClick={() => navigator.clipboard.writeText(`https://chat.whatsapp.com/${inviteCode}`)}
                 className="text-[9px] px-1.5 py-0.5 rounded" style={{ background: '#dbeafe', color: '#1d4ed8' }}>
                 Copy
               </button>
+              <button onClick={handleRevokeInvite}
+                className="text-[9px] px-1.5 py-0.5 rounded" style={{ background: '#fef2f2', color: '#dc2626' }}>
+                Revoke
+              </button>
             </div>
           )}
-          {/* Participants */}
-          {(groupMeta.participants || []).length > 0 && (
-            <div className="mt-2 max-h-[120px] overflow-y-auto">
-              {(groupMeta.participants || []).slice(0, 50).map((p: any, i: number) => {
+
+          {/* Group settings toggles */}
+          <div className="mt-3 space-y-1.5">
+            <p className="text-[10px] font-semibold" style={{ color: 'var(--notion-text-muted)' }}>Group Settings</p>
+            <label className="flex items-center gap-2 text-[11px]" style={{ color: 'var(--notion-text)' }}>
+              <input type="checkbox"
+                onChange={e => handleGroupSetting(e.target.checked ? 'announcement' : 'not_announcement')} />
+              Admin-only messages
+            </label>
+            <label className="flex items-center gap-2 text-[11px]" style={{ color: 'var(--notion-text)' }}>
+              <input type="checkbox"
+                onChange={e => handleGroupSetting(e.target.checked ? 'locked' : 'unlocked')} />
+              Lock group info editing
+            </label>
+            <div className="flex items-center gap-2">
+              <span className="text-[11px]" style={{ color: 'var(--notion-text)' }}>Disappearing:</span>
+              <select onChange={e => handleGroupEphemeral(Number(e.target.value))}
+                className="text-[10px] border rounded px-1 py-0.5" style={{ borderColor: 'var(--notion-border)' }}>
+                <option value="0">Off</option>
+                <option value="86400">24 hours</option>
+                <option value="604800">7 days</option>
+                <option value="7776000">90 days</option>
+              </select>
+            </div>
+          </div>
+
+          {/* Action buttons */}
+          <div className="mt-3 flex flex-wrap gap-2">
+            <button onClick={openGroupInviteModal}
+              className="text-[10px] px-2 py-1 rounded font-medium" style={{ background: '#dbeafe', color: '#1d4ed8' }}>
+              Send Invite
+            </button>
+            <button onClick={handleLeaveGroup}
+              className="text-[10px] px-2 py-1 rounded font-medium" style={{ background: '#fef2f2', color: '#dc2626' }}>
+              Leave Group
+            </button>
+          </div>
+
+          {/* Participants (from API) */}
+          <div className="mt-3">
+            <p className="text-[10px] font-semibold mb-1" style={{ color: 'var(--notion-text-muted)' }}>
+              Members ({groupParticipants.length || (groupMeta.participants || []).length})
+            </p>
+            <div className="max-h-[150px] overflow-y-auto">
+              {(groupParticipants.length > 0 ? groupParticipants : (groupMeta.participants || [])).map((p: any, i: number) => {
                 const pid = typeof p === 'string' ? p : (p.id || '');
                 const isAdmin = typeof p === 'object' && (p.admin === 'admin' || p.admin === 'superadmin');
                 return (
@@ -685,6 +1095,100 @@ export default function WhatsAppChatPanel({
                 );
               })}
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Group invite modal ── */}
+      {showGroupInviteModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={() => setShowGroupInviteModal(false)}>
+          <div className="bg-white rounded-xl shadow-xl w-80 max-h-96 overflow-hidden" onClick={e => e.stopPropagation()}>
+            <div className="px-4 py-3 border-b font-semibold text-sm">Send Group Invite To...</div>
+            <div className="px-4 py-2">
+              <input value={groupInviteSearch} onChange={e => setGroupInviteSearch(e.target.value)}
+                placeholder="Search contacts..." className="w-full text-xs border rounded px-2 py-1.5" />
+            </div>
+            <div className="overflow-y-auto max-h-64">
+              {groupInviteContacts.filter(c => !groupInviteSearch || (c.display_name || c.push_name || '').toLowerCase().includes(groupInviteSearch.toLowerCase()))
+                .map(c => (
+                  <button key={c.id} onClick={() => handleSendGroupInvite(c.id)}
+                    className="block w-full text-left px-4 py-2 text-xs hover:bg-gray-50 border-b" style={{ borderColor: 'var(--notion-border)' }}>
+                    {c.display_name || c.push_name || c.phone_number || c.wa_jid}
+                  </button>
+                ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Contact profile panel ── */}
+      {showProfilePanel && (
+        <div className="border-b px-4 py-3" style={{ borderColor: 'var(--notion-border)', background: 'var(--notion-card, white)' }}>
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-xs font-semibold" style={{ color: 'var(--notion-text)' }}>Contact Profile</span>
+            <button onClick={() => setShowProfilePanel(false)} className="text-xs" style={{ color: 'var(--notion-text-muted)' }}>✕</button>
+          </div>
+          {profileData ? (
+            <div className="space-y-1">
+              {profileData.name && <p className="text-[11px]"><span className="font-semibold">Name:</span> {profileData.name}</p>}
+              {profileData.status && <p className="text-[11px]"><span className="font-semibold">Status:</span> {profileData.status}</p>}
+              {profileData.picture && <img src={profileData.picture} alt="" className="w-12 h-12 rounded-full mt-1" />}
+              {profileData.business && Object.keys(profileData.business).length > 0 && (
+                <div className="mt-2 p-2 rounded" style={{ background: 'rgba(0,0,0,0.03)' }}>
+                  <p className="text-[10px] font-semibold mb-1" style={{ color: '#128C7E' }}>Business Profile</p>
+                  {profileData.business.description && <p className="text-[10px]">{profileData.business.description}</p>}
+                  {profileData.business.category && <p className="text-[10px]">Category: {profileData.business.category}</p>}
+                  {profileData.business.website && (
+                    <a href={profileData.business.website} target="_blank" rel="noopener noreferrer"
+                      className="text-[10px] underline" style={{ color: '#1d4ed8' }}>{profileData.business.website}</a>
+                  )}
+                  {profileData.business.email && <p className="text-[10px]">Email: {profileData.business.email}</p>}
+                </div>
+              )}
+              {/* Product Catalog tab */}
+              <div className="mt-2">
+                {!showCatalogTab ? (
+                  <button onClick={loadCatalog} className="text-[10px] font-medium px-2 py-1 rounded"
+                    style={{ background: '#e0f2f1', color: '#00796b' }}>
+                    View Product Catalog
+                  </button>
+                ) : (
+                  <div className="p-2 rounded" style={{ background: 'rgba(0,0,0,0.03)' }}>
+                    <p className="text-[10px] font-semibold mb-1" style={{ color: '#128C7E' }}>Product Catalog</p>
+                    {catalogData === null ? (
+                      <p className="text-[10px]" style={{ color: 'var(--notion-text-muted)' }}>Loading...</p>
+                    ) : catalogData.length === 0 ? (
+                      <p className="text-[10px]" style={{ color: 'var(--notion-text-muted)' }}>No products found</p>
+                    ) : (
+                      <div className="space-y-2 max-h-[200px] overflow-y-auto">
+                        {catalogData.map((product: any, idx: number) => (
+                          <div key={idx} className="flex gap-2 p-1.5 rounded border" style={{ borderColor: 'var(--notion-border)' }}>
+                            {product.productImage?.imageUrl && (
+                              <img src={product.productImage.imageUrl} alt="" className="w-10 h-10 rounded object-cover flex-shrink-0" />
+                            )}
+                            <div className="min-w-0 flex-1">
+                              <p className="text-[10px] font-medium truncate" style={{ color: 'var(--notion-text)' }}>
+                                {product.name || product.title || 'Product'}
+                              </p>
+                              {(product.price || product.priceAmount) && (
+                                <p className="text-[10px] font-semibold" style={{ color: '#15803d' }}>
+                                  {product.currency || ''} {product.price || product.priceAmount}
+                                </p>
+                              )}
+                              {product.description && (
+                                <p className="text-[9px] truncate" style={{ color: 'var(--notion-text-muted)' }}>{product.description}</p>
+                              )}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+          ) : (
+            <p className="text-[10px]" style={{ color: 'var(--notion-text-muted)' }}>Loading...</p>
           )}
         </div>
       )}
@@ -765,6 +1269,13 @@ export default function WhatsAppChatPanel({
                       {/* Interactive message types */}
                       {msg.message_type === 'buttons' && renderButtonsMessage(msg)}
                       {msg.message_type === 'list' && renderListMessage(msg)}
+                      {msg.message_type === 'contact' && renderContactMessage(msg)}
+                      {msg.message_type === 'location' && renderLocationMessage(msg)}
+                      {msg.message_type === 'voice_note' && renderVoiceNoteMessage(msg)}
+                      {msg.message_type === 'call' && renderCallMessage(msg)}
+
+                      {/* Sticker — no bubble background */}
+                      {msg.message_type === 'sticker' && renderStickerMessage(msg)}
 
                       {/* Media rendering */}
                       {msg.message_type === 'image' && msg.media_url && (
@@ -790,8 +1301,16 @@ export default function WhatsAppChatPanel({
                         </div>
                       )}
 
+                      {/* Media download button for missing media */}
+                      {['image', 'video', 'audio', 'document'].includes(msg.message_type) && !msg.media_url && (
+                        <button onClick={() => handleDownloadMedia(msg.id)}
+                          className="text-[10px] px-2 py-1 rounded mb-1" style={{ background: 'rgba(0,0,0,0.06)', color: 'var(--notion-text)' }}>
+                          Download media
+                        </button>
+                      )}
+
                       {/* Text content (not for special types) */}
-                      {msg.content && !['document', 'poll', 'buttons', 'list'].includes(msg.message_type) && (
+                      {msg.content && !['document', 'poll', 'buttons', 'list', 'contact', 'location', 'voice_note', 'sticker', 'call'].includes(msg.message_type) && (
                         <p className="text-sm whitespace-pre-wrap" style={{ color: 'var(--notion-text)', lineHeight: 1.5 }}>
                           {msg.content}
                         </p>
@@ -910,6 +1429,33 @@ export default function WhatsAppChatPanel({
             className="p-2 rounded-lg hover:bg-gray-100 text-xs" title="Templates">
             <HandIcon name="bookmark" size={16} />
           </button>
+
+          {/* Contact card */}
+          <button type="button" onClick={() => setShowContactModal(true)}
+            className="p-2 rounded-lg hover:bg-gray-100 text-xs" title="Send contact">
+            👤
+          </button>
+
+          {/* Location */}
+          <button type="button" onClick={() => setShowLocationModal(true)}
+            className="p-2 rounded-lg hover:bg-gray-100 text-xs" title="Send location">
+            📍
+          </button>
+
+          {/* Voice note */}
+          {isRecording ? (
+            <div className="flex items-center gap-2 px-2 py-1 rounded-lg" style={{ background: '#fef2f2' }}>
+              <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
+              <span className="text-xs font-mono" style={{ color: '#dc2626' }}>{Math.floor(recordDuration / 60)}:{String(recordDuration % 60).padStart(2, '0')}</span>
+              <button type="button" onClick={cancelRecording} className="text-xs px-1.5 py-0.5 rounded" style={{ background: '#fee2e2', color: '#dc2626' }}>✕</button>
+              <button type="button" onClick={stopRecordingAndSend} className="text-xs px-1.5 py-0.5 rounded text-white" style={{ background: '#25D366' }}>Send</button>
+            </div>
+          ) : (
+            <button type="button" onClick={startRecording}
+              className="p-2 rounded-lg hover:bg-gray-100 text-xs" title="Record voice note">
+              🎤
+            </button>
+          )}
 
           <input type="text" value={input}
             onChange={e => handleInputChange(e.target.value)}
@@ -1079,6 +1625,46 @@ export default function WhatsAppChatPanel({
                     <p className="text-[11px] mt-0.5 truncate" style={{ color: 'var(--notion-text-muted)' }}>{tpl.content}</p>
                   </button>
                 ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Contact card modal ── */}
+      {showContactModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={() => setShowContactModal(false)}>
+          <div className="bg-white rounded-xl shadow-xl w-80 p-4" onClick={e => e.stopPropagation()}>
+            <h3 className="text-sm font-semibold mb-3">Send Contact Card</h3>
+            <input value={contactCardName} onChange={e => setContactCardName(e.target.value)}
+              placeholder="Contact name" className="w-full text-xs border rounded px-2 py-1.5 mb-2" autoFocus />
+            <input value={contactCardPhone} onChange={e => setContactCardPhone(e.target.value)}
+              placeholder="Phone number (e.g. +1234567890)" className="w-full text-xs border rounded px-2 py-1.5 mb-3" />
+            <div className="flex gap-2">
+              <button onClick={handleSendContact} className="flex-1 px-3 py-1.5 rounded text-xs font-medium text-white" style={{ background: '#25D366' }}>Send</button>
+              <button onClick={() => setShowContactModal(false)} className="flex-1 px-3 py-1.5 rounded text-xs border">Cancel</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Location modal ── */}
+      {showLocationModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={() => setShowLocationModal(false)}>
+          <div className="bg-white rounded-xl shadow-xl w-80 p-4" onClick={e => e.stopPropagation()}>
+            <h3 className="text-sm font-semibold mb-3">Send Location</h3>
+            <div className="flex gap-2 mb-2">
+              <input value={locLat} onChange={e => setLocLat(e.target.value)}
+                placeholder="Latitude" className="flex-1 text-xs border rounded px-2 py-1.5" type="number" step="any" />
+              <input value={locLng} onChange={e => setLocLng(e.target.value)}
+                placeholder="Longitude" className="flex-1 text-xs border rounded px-2 py-1.5" type="number" step="any" />
+            </div>
+            <input value={locName} onChange={e => setLocName(e.target.value)}
+              placeholder="Place name (optional)" className="w-full text-xs border rounded px-2 py-1.5 mb-2" />
+            <input value={locAddress} onChange={e => setLocAddress(e.target.value)}
+              placeholder="Address (optional)" className="w-full text-xs border rounded px-2 py-1.5 mb-3" />
+            <div className="flex gap-2">
+              <button onClick={handleSendLocation} className="flex-1 px-3 py-1.5 rounded text-xs font-medium text-white" style={{ background: '#25D366' }}>Send</button>
+              <button onClick={() => setShowLocationModal(false)} className="flex-1 px-3 py-1.5 rounded text-xs border">Cancel</button>
             </div>
           </div>
         </div>

@@ -432,5 +432,164 @@ class WABridgeClient:
     async def list_bot_sessions(self, account_id: str, bot_id: str) -> dict:
         return await self._get(f"/openai/fetchSessions/{bot_id}/{account_id}")
 
+    # ══════════════════════════════════════════════════════════════════════════
+    # Phase 4: Rich message types + Chat data
+    # ══════════════════════════════════════════════════════════════════════════
+
+    # ── 4.1 Contact card ──
+
+    async def send_contact(self, account_id: str, jid: str, contact_name: str,
+                           contact_phone: str) -> dict:
+        result = await self._post(f"/message/sendContact/{account_id}", {
+            "number": jid,
+            "contact": [{"fullName": contact_name, "wuid": contact_phone.replace("+", ""),
+                          "phoneNumber": contact_phone}]
+        })
+        key = result.get("key", {})
+        return {"wa_message_id": key.get("id"), "wa_key": key}
+
+    # ── 4.2 Location ──
+
+    async def send_location(self, account_id: str, jid: str, latitude: float,
+                            longitude: float, name: str = None, address: str = None) -> dict:
+        payload: dict = {"number": jid, "latitude": latitude, "longitude": longitude}
+        if name:
+            payload["name"] = name
+        if address:
+            payload["address"] = address
+        result = await self._post(f"/message/sendLocation/{account_id}", payload)
+        key = result.get("key", {})
+        return {"wa_message_id": key.get("id"), "wa_key": key}
+
+    # ── 4.3 Voice note + Sticker ──
+
+    async def send_voice_note(self, account_id: str, jid: str, audio_url: str) -> dict:
+        result = await self._post(f"/message/sendWhatsAppAudio/{account_id}", {
+            "number": jid, "audio": audio_url
+        })
+        key = result.get("key", {})
+        return {"wa_message_id": key.get("id"), "wa_key": key}
+
+    async def send_sticker(self, account_id: str, jid: str, sticker_url: str) -> dict:
+        result = await self._post(f"/message/sendSticker/{account_id}", {
+            "number": jid, "sticker": sticker_url
+        })
+        key = result.get("key", {})
+        return {"wa_message_id": key.get("id"), "wa_key": key}
+
+    # ── 4.4 Chat history sync + Media download ──
+
+    async def find_messages(self, account_id: str, jid: str, count: int = 50) -> dict:
+        return await self._post(f"/chat/findMessages/{account_id}", {
+            "where": {"key": {"remoteJid": jid}}, "limit": count
+        })
+
+    async def find_chats(self, account_id: str) -> dict:
+        return await self._get(f"/chat/findChats/{account_id}")
+
+    async def find_contacts(self, account_id: str) -> dict:
+        return await self._post(f"/chat/findContacts/{account_id}", {"where": {}})
+
+    async def download_media_base64(self, account_id: str, message_key: dict) -> dict:
+        return await self._post(f"/chat/getBase64FromMediaMessage/{account_id}", {
+            "key": message_key
+        })
+
+    # ── 4.5 Chat operations ──
+
+    async def mark_chat_unread(self, account_id: str, jid: str) -> dict:
+        return await self._post(f"/chat/markChatUnread/{account_id}", {
+            "lastMessage": {"key": {"remoteJid": jid}}, "chat": "unread"
+        })
+
+    async def delete_chat(self, account_id: str, jid: str) -> dict:
+        return await self._delete(f"/chat/deleteChat/{account_id}", {
+            "lastMessage": {"key": {"remoteJid": jid}}
+        })
+
+    async def fetch_contact_profile(self, account_id: str, jid: str) -> dict:
+        return await self._post(f"/chat/fetchProfile/{account_id}", {"number": jid})
+
+    async def fetch_business_profile(self, account_id: str, jid: str) -> dict:
+        return await self._post(f"/chat/fetchBusinessProfile/{account_id}", {"number": jid})
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # Phase 5: Admin / Ops + Business tools
+    # ══════════════════════════════════════════════════════════════════════════
+
+    # ── 5.1 Instance settings ──
+
+    async def restart_instance(self, account_id: str) -> dict:
+        return await self._put(f"/instance/restart/{account_id}")
+
+    async def get_instance_settings(self, account_id: str) -> dict:
+        return await self._get(f"/settings/find/{account_id}")
+
+    async def update_instance_settings(self, account_id: str, settings: dict) -> dict:
+        return await self._post(f"/settings/set/{account_id}", settings)
+
+    # ── 5.2 Webhook management ──
+
+    async def get_webhook(self, account_id: str) -> dict:
+        return await self._get(f"/webhook/find/{account_id}")
+
+    async def set_webhook(self, account_id: str, url: str, enabled: bool = True,
+                          events: list[str] = None) -> dict:
+        payload: dict = {"url": url, "enabled": enabled, "webhookByEvents": False}
+        if events:
+            payload["events"] = events
+        return await self._post(f"/webhook/set/{account_id}", payload)
+
+    # ── 5.3 Advanced group management ──
+
+    async def fetch_all_groups(self, account_id: str) -> dict:
+        return await self._get(f"/group/fetchAllGroups/{account_id}")
+
+    async def leave_group(self, account_id: str, group_jid: str) -> dict:
+        return await self._delete(f"/group/leaveGroup/{account_id}", {"groupJid": group_jid})
+
+    async def revoke_invite_code(self, account_id: str, group_jid: str) -> dict:
+        return await self._put(f"/group/revokeInviteCode/{account_id}", {"groupJid": group_jid})
+
+    async def send_group_invite(self, account_id: str, group_jid: str,
+                                invitee_jid: str, description: str = "") -> dict:
+        return await self._post(f"/group/sendInvite/{account_id}", {
+            "groupJid": group_jid, "number": invitee_jid, "description": description
+        })
+
+    async def toggle_ephemeral(self, account_id: str, group_jid: str, expiration: int) -> dict:
+        return await self._put(f"/group/toggleEphemeral/{account_id}", {
+            "groupJid": group_jid, "expiration": expiration
+        })
+
+    async def get_group_participants(self, account_id: str, group_jid: str) -> dict:
+        return await self._get(f"/group/participants/{account_id}?groupJid={group_jid}")
+
+    async def update_group_setting(self, account_id: str, group_jid: str, action: str) -> dict:
+        return await self._put(f"/group/updateSetting/{account_id}", {
+            "groupJid": group_jid, "action": action
+        })
+
+    async def get_invite_info(self, account_id: str, invite_code: str) -> dict:
+        return await self._get(f"/group/inviteInfo/{account_id}?inviteCode={invite_code}")
+
+    # ── 5.4 Business product catalog ──
+
+    async def fetch_catalogs(self, account_id: str, jid: str) -> dict:
+        return await self._get(f"/chat/fetchCatalogs/{account_id}?number={jid}")
+
+    async def fetch_collections(self, account_id: str, jid: str) -> dict:
+        return await self._get(f"/chat/fetchCollections/{account_id}?number={jid}")
+
+    # ── 5.5 Calls + Instance monitoring ──
+
+    async def send_call_offer(self, account_id: str, jid: str, is_video: bool = False) -> dict:
+        return await self._post(f"/call/offer/{account_id}", {
+            "number": jid, "isVideo": is_video, "callDuration": 5
+        })
+
+    async def fetch_all_instances(self) -> dict:
+        return await self._get("/instance/fetchInstances")
+
 
 wa_bridge = WABridgeClient()

@@ -204,6 +204,59 @@ class BroadcastCreateBody(BaseModel):
     media_url: Optional[str] = None
     target_contacts: List[str] = []  # list of contact IDs
 
+# ── Phase 4 schemas ──
+
+class SendContactBody(BaseModel):
+    contact_name: str
+    contact_phone: str
+
+class SendLocationBody(BaseModel):
+    latitude: float
+    longitude: float
+    name: Optional[str] = None
+    address: Optional[str] = None
+
+class SendVoiceNoteBody(BaseModel):
+    audio_url: str
+
+class SendStickerBody(BaseModel):
+    sticker_url: str
+
+class SyncHistoryBody(BaseModel):
+    count: int = 100
+
+# ── Phase 5 schemas ──
+
+class InstanceSettingsBody(BaseModel):
+    reject_call: Optional[bool] = None
+    msg_call: Optional[str] = None
+    groups_ignore: Optional[bool] = None
+    always_online: Optional[bool] = None
+    read_messages: Optional[bool] = None
+    read_status: Optional[bool] = None
+    sync_full_history: Optional[bool] = None
+
+class WebhookConfigBody(BaseModel):
+    url: Optional[str] = None
+    enabled: Optional[bool] = None
+    events: Optional[List[str]] = None
+
+class GroupInviteBody(BaseModel):
+    invitee_contact_id: str
+    description: str = ""
+
+class EphemeralBody(BaseModel):
+    expiration: int  # 0 | 86400 | 604800 | 7776000
+
+class GroupSettingBody(BaseModel):
+    action: str  # announcement | not_announcement | locked | unlocked
+
+class LookupInviteBody(BaseModel):
+    invite_code: str
+
+class CallBody(BaseModel):
+    is_video: bool = False
+
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -1794,6 +1847,622 @@ Be specific and actionable. Reference actual messages where relevant. Write in t
     except Exception as e:
         logger.error("AI analyze failed: %s", e)
         raise HTTPException(status_code=500, detail="AI analysis failed")
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Phase 4: Rich message types + Chat data
+# ══════════════════════════════════════════════════════════════════════════════
+
+# ── 4.1 Contact card sharing ──
+
+@router.post("/conversations/{contact_id}/send-contact")
+async def send_contact(contact_id: str, body: SendContactBody, ctx: dict = Depends(get_current_user_with_tenant)):
+    db = ctx["db"]
+    contact = await _verify_contact_ownership(db, contact_id, ctx["sub"])
+    account_id = str(contact.wa_account_id)
+
+    result = await wa_bridge.send_contact(account_id, contact.wa_jid, body.contact_name, body.contact_phone)
+    wa_message_id = result.get("wa_message_id")
+    wa_key = result.get("wa_key")
+
+    msg_id = str(uuid.uuid4())
+    now = datetime.now(timezone.utc)
+    metadata = {"wa_key": wa_key, "contact_name": body.contact_name, "contact_phone": body.contact_phone}
+    await db.execute(text("""
+        INSERT INTO whatsapp_messages (id, wa_account_id, wa_contact_id, wa_message_id, direction, message_type,
+            content, status, timestamp, created_at, created_by, metadata)
+        VALUES (:id, :aid, :cid, :wmid, 'outbound', 'contact', :content, 'sent', :ts, :ts, :created_by, :meta)
+    """), {
+        "id": msg_id, "aid": account_id, "cid": contact_id, "wmid": wa_message_id,
+        "content": body.contact_name, "ts": now, "created_by": ctx["sub"],
+        "meta": json.dumps(metadata),
+    })
+    await db.execute(text("UPDATE whatsapp_contacts SET last_message_at = :ts, updated_at = :ts WHERE id = :cid"), {"ts": now, "cid": contact_id})
+    await db.commit()
+    return {"id": msg_id, "wa_message_id": wa_message_id, "status": "sent"}
+
+
+# ── 4.2 Location messages ──
+
+@router.post("/conversations/{contact_id}/send-location")
+async def send_location(contact_id: str, body: SendLocationBody, ctx: dict = Depends(get_current_user_with_tenant)):
+    db = ctx["db"]
+    contact = await _verify_contact_ownership(db, contact_id, ctx["sub"])
+    account_id = str(contact.wa_account_id)
+
+    result = await wa_bridge.send_location(account_id, contact.wa_jid, body.latitude, body.longitude, body.name, body.address)
+    wa_message_id = result.get("wa_message_id")
+    wa_key = result.get("wa_key")
+
+    msg_id = str(uuid.uuid4())
+    now = datetime.now(timezone.utc)
+    metadata = {"wa_key": wa_key, "latitude": body.latitude, "longitude": body.longitude, "place_name": body.name, "address": body.address}
+    await db.execute(text("""
+        INSERT INTO whatsapp_messages (id, wa_account_id, wa_contact_id, wa_message_id, direction, message_type,
+            content, status, timestamp, created_at, created_by, metadata)
+        VALUES (:id, :aid, :cid, :wmid, 'outbound', 'location', :content, 'sent', :ts, :ts, :created_by, :meta)
+    """), {
+        "id": msg_id, "aid": account_id, "cid": contact_id, "wmid": wa_message_id,
+        "content": f"{body.latitude},{body.longitude}", "ts": now, "created_by": ctx["sub"],
+        "meta": json.dumps(metadata),
+    })
+    await db.execute(text("UPDATE whatsapp_contacts SET last_message_at = :ts, updated_at = :ts WHERE id = :cid"), {"ts": now, "cid": contact_id})
+    await db.commit()
+    return {"id": msg_id, "wa_message_id": wa_message_id, "status": "sent"}
+
+
+# ── 4.3 Voice note + Sticker ──
+
+@router.post("/conversations/{contact_id}/send-voice-note")
+async def send_voice_note(contact_id: str, body: SendVoiceNoteBody, ctx: dict = Depends(get_current_user_with_tenant)):
+    db = ctx["db"]
+    contact = await _verify_contact_ownership(db, contact_id, ctx["sub"])
+    account_id = str(contact.wa_account_id)
+
+    result = await wa_bridge.send_voice_note(account_id, contact.wa_jid, body.audio_url)
+    wa_message_id = result.get("wa_message_id")
+    wa_key = result.get("wa_key")
+
+    msg_id = str(uuid.uuid4())
+    now = datetime.now(timezone.utc)
+    metadata = {"wa_key": wa_key}
+    await db.execute(text("""
+        INSERT INTO whatsapp_messages (id, wa_account_id, wa_contact_id, wa_message_id, direction, message_type,
+            content, media_url, media_mime_type, status, timestamp, created_at, created_by, metadata)
+        VALUES (:id, :aid, :cid, :wmid, 'outbound', 'voice_note', '', :murl, 'audio/ogg', 'sent', :ts, :ts, :created_by, :meta)
+    """), {
+        "id": msg_id, "aid": account_id, "cid": contact_id, "wmid": wa_message_id,
+        "murl": body.audio_url, "ts": now, "created_by": ctx["sub"],
+        "meta": json.dumps(metadata),
+    })
+    await db.execute(text("UPDATE whatsapp_contacts SET last_message_at = :ts, updated_at = :ts WHERE id = :cid"), {"ts": now, "cid": contact_id})
+    await db.commit()
+    return {"id": msg_id, "wa_message_id": wa_message_id, "status": "sent"}
+
+
+@router.post("/conversations/{contact_id}/send-sticker")
+async def send_sticker(contact_id: str, body: SendStickerBody, ctx: dict = Depends(get_current_user_with_tenant)):
+    db = ctx["db"]
+    contact = await _verify_contact_ownership(db, contact_id, ctx["sub"])
+    account_id = str(contact.wa_account_id)
+
+    result = await wa_bridge.send_sticker(account_id, contact.wa_jid, body.sticker_url)
+    wa_message_id = result.get("wa_message_id")
+    wa_key = result.get("wa_key")
+
+    msg_id = str(uuid.uuid4())
+    now = datetime.now(timezone.utc)
+    metadata = {"wa_key": wa_key}
+    await db.execute(text("""
+        INSERT INTO whatsapp_messages (id, wa_account_id, wa_contact_id, wa_message_id, direction, message_type,
+            content, media_url, media_mime_type, status, timestamp, created_at, created_by, metadata)
+        VALUES (:id, :aid, :cid, :wmid, 'outbound', 'sticker', '', :murl, 'image/webp', 'sent', :ts, :ts, :created_by, :meta)
+    """), {
+        "id": msg_id, "aid": account_id, "cid": contact_id, "wmid": wa_message_id,
+        "murl": body.sticker_url, "ts": now, "created_by": ctx["sub"],
+        "meta": json.dumps(metadata),
+    })
+    await db.execute(text("UPDATE whatsapp_contacts SET last_message_at = :ts, updated_at = :ts WHERE id = :cid"), {"ts": now, "cid": contact_id})
+    await db.commit()
+    return {"id": msg_id, "wa_message_id": wa_message_id, "status": "sent"}
+
+
+# ── 4.4 Chat history sync + Media download ──
+
+@router.post("/conversations/{contact_id}/sync-history")
+async def sync_history(contact_id: str, body: SyncHistoryBody, ctx: dict = Depends(get_current_user_with_tenant)):
+    db = ctx["db"]
+    contact = await _verify_contact_ownership(db, contact_id, ctx["sub"])
+    account_id = str(contact.wa_account_id)
+
+    result = await wa_bridge.find_messages(account_id, contact.wa_jid, body.count)
+    messages = result if isinstance(result, list) else result.get("messages", result.get("data", []))
+    imported = 0
+
+    for msg_data in messages:
+        key = msg_data.get("key", {})
+        wa_message_id = key.get("id")
+        if not wa_message_id:
+            continue
+
+        from_me = key.get("fromMe", False)
+        direction = "outbound" if from_me else "inbound"
+        message_obj = msg_data.get("message", {})
+        if not message_obj:
+            continue
+
+        extracted = _extract_evo_message_content(message_obj)
+        if extracted["type"] == "reaction":
+            continue
+
+        timestamp = msg_data.get("messageTimestamp")
+        if timestamp and isinstance(timestamp, (int, float)):
+            ts = datetime.fromtimestamp(timestamp, tz=timezone.utc)
+        elif timestamp and isinstance(timestamp, str) and timestamp.isdigit():
+            ts = datetime.fromtimestamp(int(timestamp), tz=timezone.utc)
+        else:
+            ts = datetime.now(timezone.utc)
+
+        metadata = {"wa_key": key}
+        res = await db.execute(text("""
+            INSERT INTO whatsapp_messages (wa_account_id, wa_contact_id, wa_message_id, direction, message_type,
+                content, media_url, media_mime_type, status, timestamp, created_at, metadata)
+            VALUES (:aid, :cid, :mid, :dir, :mtype, :content, :murl, :mmime, 'received', :ts, NOW(), :meta)
+            ON CONFLICT DO NOTHING
+        """), {
+            "aid": account_id, "cid": contact_id, "mid": wa_message_id,
+            "dir": direction, "mtype": extracted["type"], "content": extracted["text"],
+            "murl": extracted.get("media_url"), "mmime": extracted.get("media_mime"),
+            "ts": ts, "meta": json.dumps(metadata),
+        })
+        if res.rowcount > 0:
+            imported += 1
+
+    await db.commit()
+    return {"ok": True, "imported": imported}
+
+
+@router.post("/conversations/{contact_id}/messages/{message_id}/download-media")
+async def download_media(contact_id: str, message_id: str, ctx: dict = Depends(get_current_user_with_tenant)):
+    import base64, os
+    db = ctx["db"]
+    contact = await _verify_contact_ownership(db, contact_id, ctx["sub"])
+    msg, wa_key = await _get_message_with_key(db, message_id, contact_id)
+    account_id = str(contact.wa_account_id)
+
+    result = await wa_bridge.download_media_base64(account_id, wa_key)
+    b64_data = result.get("base64") or result.get("data", "")
+    mime_type = result.get("mimetype") or result.get("mimeType", "application/octet-stream")
+
+    if not b64_data:
+        raise HTTPException(status_code=404, detail="Media not available")
+
+    ext_map = {"image/jpeg": ".jpg", "image/png": ".png", "image/webp": ".webp",
+               "video/mp4": ".mp4", "audio/ogg": ".ogg", "audio/mpeg": ".mp3",
+               "application/pdf": ".pdf"}
+    ext = ext_map.get(mime_type, ".bin")
+    upload_dir = os.path.join("data", "wa-media", ctx["tenant_slug"])
+    os.makedirs(upload_dir, exist_ok=True)
+    filename = f"{uuid.uuid4()}{ext}"
+    filepath = os.path.join(upload_dir, filename)
+
+    with open(filepath, "wb") as f:
+        f.write(base64.b64decode(b64_data))
+
+    media_url = f"/wa-media/{ctx['tenant_slug']}/{filename}"
+    await db.execute(text(
+        "UPDATE whatsapp_messages SET media_url = :url, media_mime_type = :mime WHERE id = :id"
+    ), {"url": media_url, "mime": mime_type, "id": message_id})
+    await db.commit()
+    return {"media_url": media_url, "mime_type": mime_type}
+
+
+@router.post("/accounts/{account_id}/sync-chats")
+async def sync_chats(account_id: str, ctx: dict = Depends(get_current_user_with_tenant)):
+    db = ctx["db"]
+    acc = await db.execute(text(
+        "SELECT id FROM whatsapp_accounts WHERE id = :id AND owner_user_id = :uid AND is_active = TRUE"
+    ), {"id": account_id, "uid": ctx["sub"]})
+    if not acc.fetchone():
+        raise HTTPException(status_code=404, detail="Account not found")
+
+    result = await wa_bridge.find_chats(account_id)
+    chats = result if isinstance(result, list) else result.get("chats", result.get("data", []))
+    synced = 0
+
+    for chat in chats:
+        jid = chat.get("id") or chat.get("jid", "")
+        if not jid or jid == "status@broadcast":
+            continue
+        is_group = jid.endswith("@g.us")
+        name = chat.get("name") or chat.get("subject") or chat.get("pushName", "")
+        await db.execute(text("""
+            INSERT INTO whatsapp_contacts (wa_account_id, wa_jid, display_name, push_name, is_group, created_at)
+            VALUES (:aid, :jid, :name, :name, :ig, NOW())
+            ON CONFLICT (wa_account_id, wa_jid) DO UPDATE SET
+                display_name = COALESCE(NULLIF(EXCLUDED.display_name, ''), whatsapp_contacts.display_name),
+                updated_at = NOW()
+        """), {"aid": account_id, "jid": jid, "name": name or None, "ig": is_group})
+        synced += 1
+
+    await db.commit()
+    return {"ok": True, "synced": synced}
+
+
+@router.post("/accounts/{account_id}/sync-contacts")
+async def sync_contacts(account_id: str, ctx: dict = Depends(get_current_user_with_tenant)):
+    db = ctx["db"]
+    acc = await db.execute(text(
+        "SELECT id FROM whatsapp_accounts WHERE id = :id AND owner_user_id = :uid AND is_active = TRUE"
+    ), {"id": account_id, "uid": ctx["sub"]})
+    if not acc.fetchone():
+        raise HTTPException(status_code=404, detail="Account not found")
+
+    result = await wa_bridge.find_contacts(account_id)
+    contacts = result if isinstance(result, list) else result.get("contacts", result.get("data", []))
+    synced = 0
+
+    for c in contacts:
+        jid = c.get("id") or c.get("jid", "")
+        if not jid or jid == "status@broadcast" or jid.endswith("@g.us"):
+            continue
+        name = c.get("pushName") or c.get("name", "")
+        phone = c.get("number") or (jid.split("@")[0] if "@" in jid else "")
+        await db.execute(text("""
+            INSERT INTO whatsapp_contacts (wa_account_id, wa_jid, display_name, push_name, phone_number, is_group, created_at)
+            VALUES (:aid, :jid, :name, :name, :phone, FALSE, NOW())
+            ON CONFLICT (wa_account_id, wa_jid) DO UPDATE SET
+                display_name = COALESCE(NULLIF(EXCLUDED.display_name, ''), whatsapp_contacts.display_name),
+                phone_number = COALESCE(NULLIF(EXCLUDED.phone_number, ''), whatsapp_contacts.phone_number),
+                updated_at = NOW()
+        """), {"aid": account_id, "jid": jid, "name": name or None, "phone": phone or None})
+        synced += 1
+
+    await db.commit()
+    return {"ok": True, "synced": synced}
+
+
+# ── 4.5 Chat operations ──
+
+@router.post("/conversations/{contact_id}/mark-unread")
+async def mark_unread(contact_id: str, ctx: dict = Depends(get_current_user_with_tenant)):
+    db = ctx["db"]
+    contact = await _verify_contact_ownership(db, contact_id, ctx["sub"])
+    await wa_bridge.mark_chat_unread(str(contact.wa_account_id), contact.wa_jid)
+    await db.execute(text(
+        "UPDATE whatsapp_contacts SET unread_count = GREATEST(unread_count, 1), updated_at = NOW() WHERE id = :cid"
+    ), {"cid": contact_id})
+    await db.commit()
+    return {"ok": True}
+
+
+@router.delete("/conversations/{contact_id}/delete-chat")
+async def delete_chat_endpoint(contact_id: str, ctx: dict = Depends(get_current_user_with_tenant)):
+    db = ctx["db"]
+    contact = await _verify_contact_ownership(db, contact_id, ctx["sub"])
+    await wa_bridge.delete_chat(str(contact.wa_account_id), contact.wa_jid)
+    await db.execute(text(
+        "UPDATE whatsapp_contacts SET is_archived = TRUE, updated_at = NOW() WHERE id = :cid"
+    ), {"cid": contact_id})
+    await db.commit()
+    return {"ok": True}
+
+
+@router.get("/conversations/{contact_id}/profile")
+async def get_contact_profile(contact_id: str, ctx: dict = Depends(get_current_user_with_tenant)):
+    db = ctx["db"]
+    contact = await _verify_contact_ownership(db, contact_id, ctx["sub"])
+    account_id = str(contact.wa_account_id)
+
+    profile = {}
+    try:
+        profile = await wa_bridge.fetch_contact_profile(account_id, contact.wa_jid)
+    except BridgeError:
+        pass
+
+    business = {}
+    try:
+        business = await wa_bridge.fetch_business_profile(account_id, contact.wa_jid)
+    except BridgeError:
+        pass
+
+    combined = {**profile, "business": business}
+
+    # Update local DB with business profile
+    if business:
+        await db.execute(text(
+            "UPDATE whatsapp_contacts SET business_profile = :bp, updated_at = NOW() WHERE id = :cid"
+        ), {"bp": json.dumps(business), "cid": contact_id})
+        await db.commit()
+
+    return combined
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Phase 5: Admin / Ops + Business tools
+# ══════════════════════════════════════════════════════════════════════════════
+
+# ── 5.1 Instance settings ──
+
+@router.post("/accounts/{account_id}/restart")
+async def restart_instance(account_id: str, ctx: dict = Depends(get_current_user_with_tenant)):
+    db = ctx["db"]
+    acc = await db.execute(text(
+        "SELECT id FROM whatsapp_accounts WHERE id = :id AND owner_user_id = :uid AND is_active = TRUE"
+    ), {"id": account_id, "uid": ctx["sub"]})
+    if not acc.fetchone():
+        raise HTTPException(status_code=404, detail="Account not found")
+    result = await wa_bridge.restart_instance(account_id)
+    return result
+
+
+@router.get("/accounts/{account_id}/settings")
+async def get_settings(account_id: str, ctx: dict = Depends(get_current_user_with_tenant)):
+    db = ctx["db"]
+    acc = await db.execute(text(
+        "SELECT id FROM whatsapp_accounts WHERE id = :id AND owner_user_id = :uid AND is_active = TRUE"
+    ), {"id": account_id, "uid": ctx["sub"]})
+    if not acc.fetchone():
+        raise HTTPException(status_code=404, detail="Account not found")
+    return await wa_bridge.get_instance_settings(account_id)
+
+
+@router.put("/accounts/{account_id}/settings")
+async def update_settings(account_id: str, body: InstanceSettingsBody, ctx: dict = Depends(get_current_user_with_tenant)):
+    db = ctx["db"]
+    acc = await db.execute(text(
+        "SELECT id FROM whatsapp_accounts WHERE id = :id AND owner_user_id = :uid AND is_active = TRUE"
+    ), {"id": account_id, "uid": ctx["sub"]})
+    if not acc.fetchone():
+        raise HTTPException(status_code=404, detail="Account not found")
+    settings_dict = {k: v for k, v in body.model_dump().items() if v is not None}
+    # Map to Evolution API field names
+    evo_settings: dict = {}
+    field_map = {
+        "reject_call": "rejectCall", "msg_call": "msgCall",
+        "groups_ignore": "groupsIgnore", "always_online": "alwaysOnline",
+        "read_messages": "readMessages", "read_status": "readStatus",
+        "sync_full_history": "syncFullHistory",
+    }
+    for k, v in settings_dict.items():
+        evo_key = field_map.get(k, k)
+        evo_settings[evo_key] = v
+    result = await wa_bridge.update_instance_settings(account_id, evo_settings)
+    return result
+
+
+# ── 5.2 Webhook management ──
+
+@router.get("/admin/accounts/{account_id}/webhook")
+async def get_webhook(account_id: str, ctx: dict = Depends(require_admin_with_tenant)):
+    return await wa_bridge.get_webhook(account_id)
+
+
+@router.put("/admin/accounts/{account_id}/webhook")
+async def set_webhook(account_id: str, body: WebhookConfigBody, ctx: dict = Depends(require_admin_with_tenant)):
+    url = body.url or f"{wa_bridge.backend_url}/api/whatsapp/evo-webhook"
+    enabled = body.enabled if body.enabled is not None else True
+    result = await wa_bridge.set_webhook(account_id, url, enabled, body.events)
+    return result
+
+
+# ── 5.3 Advanced group management ──
+
+@router.get("/accounts/{account_id}/groups")
+async def list_all_groups(account_id: str, ctx: dict = Depends(get_current_user_with_tenant)):
+    db = ctx["db"]
+    acc = await db.execute(text(
+        "SELECT id FROM whatsapp_accounts WHERE id = :id AND owner_user_id = :uid AND is_active = TRUE"
+    ), {"id": account_id, "uid": ctx["sub"]})
+    if not acc.fetchone():
+        raise HTTPException(status_code=404, detail="Account not found")
+    return await wa_bridge.fetch_all_groups(account_id)
+
+
+@router.delete("/groups/{contact_id}/leave")
+async def leave_group(contact_id: str, ctx: dict = Depends(get_current_user_with_tenant)):
+    db = ctx["db"]
+    contact = await _verify_contact_ownership(db, contact_id, ctx["sub"])
+    if not contact.wa_jid.endswith("@g.us"):
+        raise HTTPException(status_code=400, detail="Not a group chat")
+    result = await wa_bridge.leave_group(str(contact.wa_account_id), contact.wa_jid)
+    await db.execute(text(
+        "UPDATE whatsapp_contacts SET is_archived = TRUE, updated_at = NOW() WHERE id = :cid"
+    ), {"cid": contact_id})
+    await db.commit()
+    return result
+
+
+@router.post("/groups/{contact_id}/revoke-invite")
+async def revoke_invite(contact_id: str, ctx: dict = Depends(get_current_user_with_tenant)):
+    db = ctx["db"]
+    contact = await _verify_contact_ownership(db, contact_id, ctx["sub"])
+    if not contact.wa_jid.endswith("@g.us"):
+        raise HTTPException(status_code=400, detail="Not a group chat")
+    return await wa_bridge.revoke_invite_code(str(contact.wa_account_id), contact.wa_jid)
+
+
+@router.post("/groups/{contact_id}/send-invite")
+async def send_invite(contact_id: str, body: GroupInviteBody, ctx: dict = Depends(get_current_user_with_tenant)):
+    db = ctx["db"]
+    contact = await _verify_contact_ownership(db, contact_id, ctx["sub"])
+    if not contact.wa_jid.endswith("@g.us"):
+        raise HTTPException(status_code=400, detail="Not a group chat")
+    invitee = await _verify_contact_ownership(db, body.invitee_contact_id, ctx["sub"])
+    return await wa_bridge.send_group_invite(
+        str(contact.wa_account_id), contact.wa_jid, invitee.wa_jid, body.description
+    )
+
+
+@router.put("/groups/{contact_id}/ephemeral")
+async def set_ephemeral(contact_id: str, body: EphemeralBody, ctx: dict = Depends(get_current_user_with_tenant)):
+    db = ctx["db"]
+    contact = await _verify_contact_ownership(db, contact_id, ctx["sub"])
+    if not contact.wa_jid.endswith("@g.us"):
+        raise HTTPException(status_code=400, detail="Not a group chat")
+    return await wa_bridge.toggle_ephemeral(str(contact.wa_account_id), contact.wa_jid, body.expiration)
+
+
+@router.get("/groups/{contact_id}/participants")
+async def get_participants(contact_id: str, ctx: dict = Depends(get_current_user_with_tenant)):
+    db = ctx["db"]
+    contact = await _verify_contact_ownership(db, contact_id, ctx["sub"])
+    if not contact.wa_jid.endswith("@g.us"):
+        raise HTTPException(status_code=400, detail="Not a group chat")
+    return await wa_bridge.get_group_participants(str(contact.wa_account_id), contact.wa_jid)
+
+
+@router.put("/groups/{contact_id}/settings")
+async def update_group_settings(contact_id: str, body: GroupSettingBody, ctx: dict = Depends(get_current_user_with_tenant)):
+    db = ctx["db"]
+    contact = await _verify_contact_ownership(db, contact_id, ctx["sub"])
+    if not contact.wa_jid.endswith("@g.us"):
+        raise HTTPException(status_code=400, detail="Not a group chat")
+    return await wa_bridge.update_group_setting(str(contact.wa_account_id), contact.wa_jid, body.action)
+
+
+@router.post("/groups/lookup-invite")
+async def lookup_invite(body: LookupInviteBody, ctx: dict = Depends(get_current_user_with_tenant)):
+    db = ctx["db"]
+    acc = await db.execute(text(
+        "SELECT id FROM whatsapp_accounts WHERE owner_user_id = :uid AND is_active = TRUE AND status = 'connected' LIMIT 1"
+    ), {"uid": ctx["sub"]})
+    acc_row = acc.fetchone()
+    if not acc_row:
+        raise HTTPException(status_code=400, detail="No connected WhatsApp account")
+    return await wa_bridge.get_invite_info(str(acc_row.id), body.invite_code)
+
+
+# ── 5.4 Business product catalog ──
+
+@router.get("/conversations/{contact_id}/catalog")
+async def get_catalog(contact_id: str, ctx: dict = Depends(get_current_user_with_tenant)):
+    db = ctx["db"]
+    contact = await _verify_contact_ownership(db, contact_id, ctx["sub"])
+    result = await wa_bridge.fetch_catalogs(str(contact.wa_account_id), contact.wa_jid)
+    # Update has_catalog flag
+    has_items = bool(result) and (isinstance(result, list) and len(result) > 0 or isinstance(result, dict) and result.get("data"))
+    if has_items:
+        await db.execute(text(
+            "UPDATE whatsapp_contacts SET has_catalog = TRUE, updated_at = NOW() WHERE id = :cid"
+        ), {"cid": contact_id})
+        await db.commit()
+    return result
+
+
+@router.get("/conversations/{contact_id}/collections")
+async def get_collections(contact_id: str, ctx: dict = Depends(get_current_user_with_tenant)):
+    db = ctx["db"]
+    contact = await _verify_contact_ownership(db, contact_id, ctx["sub"])
+    return await wa_bridge.fetch_collections(str(contact.wa_account_id), contact.wa_jid)
+
+
+@router.get("/accounts/{account_id}/my-catalog")
+async def get_my_catalog(account_id: str, ctx: dict = Depends(get_current_user_with_tenant)):
+    db = ctx["db"]
+    acc = await db.execute(text(
+        "SELECT id, wa_jid FROM whatsapp_accounts WHERE id = :id AND owner_user_id = :uid AND is_active = TRUE"
+    ), {"id": account_id, "uid": ctx["sub"]})
+    acc_row = acc.fetchone()
+    if not acc_row:
+        raise HTTPException(status_code=404, detail="Account not found")
+    jid = acc_row.wa_jid or ""
+    if not jid:
+        raise HTTPException(status_code=400, detail="Account JID not available")
+    return await wa_bridge.fetch_catalogs(account_id, jid)
+
+
+@router.get("/accounts/{account_id}/my-collections")
+async def get_my_collections(account_id: str, ctx: dict = Depends(get_current_user_with_tenant)):
+    db = ctx["db"]
+    acc = await db.execute(text(
+        "SELECT id, wa_jid FROM whatsapp_accounts WHERE id = :id AND owner_user_id = :uid AND is_active = TRUE"
+    ), {"id": account_id, "uid": ctx["sub"]})
+    acc_row = acc.fetchone()
+    if not acc_row:
+        raise HTTPException(status_code=404, detail="Account not found")
+    jid = acc_row.wa_jid or ""
+    if not jid:
+        raise HTTPException(status_code=400, detail="Account JID not available")
+    return await wa_bridge.fetch_collections(account_id, jid)
+
+
+# ── 5.5 Calls + Instance monitoring ──
+
+@router.post("/conversations/{contact_id}/call")
+async def send_call(contact_id: str, body: CallBody, ctx: dict = Depends(get_current_user_with_tenant)):
+    db = ctx["db"]
+    contact = await _verify_contact_ownership(db, contact_id, ctx["sub"])
+    account_id = str(contact.wa_account_id)
+
+    result = await wa_bridge.send_call_offer(account_id, contact.wa_jid, body.is_video)
+
+    # Store call event as message
+    msg_id = str(uuid.uuid4())
+    now = datetime.now(timezone.utc)
+    call_type = "video" if body.is_video else "voice"
+    await db.execute(text("""
+        INSERT INTO whatsapp_messages (id, wa_account_id, wa_contact_id, direction, message_type,
+            content, status, timestamp, created_at, created_by, metadata)
+        VALUES (:id, :aid, :cid, 'outbound', 'call', :content, 'sent', :ts, :ts, :created_by, :meta)
+    """), {
+        "id": msg_id, "aid": account_id, "cid": contact_id,
+        "content": f"{call_type} call", "ts": now, "created_by": ctx["sub"],
+        "meta": json.dumps({"call_type": call_type}),
+    })
+    await db.execute(text("UPDATE whatsapp_contacts SET last_message_at = :ts, updated_at = :ts WHERE id = :cid"), {"ts": now, "cid": contact_id})
+    await db.commit()
+    return {"id": msg_id, "call_type": call_type, "result": result}
+
+
+@router.get("/admin/instances")
+async def list_all_instances(ctx: dict = Depends(require_admin_with_tenant)):
+    db = ctx["db"]
+    evo_instances = await wa_bridge.fetch_all_instances()
+    instances = evo_instances if isinstance(evo_instances, list) else evo_instances.get("instances", evo_instances.get("data", []))
+
+    # Cross-reference with local DB
+    local_accts = await db.execute(text("""
+        SELECT a.id, a.status, a.phone_number, a.display_name, a.wa_jid, u.full_name AS owner_name
+        FROM whatsapp_accounts a
+        LEFT JOIN users u ON u.id = a.owner_user_id
+        WHERE a.is_active = TRUE
+    """))
+    local_map = {str(r.id): dict(r._mapping) for r in local_accts.fetchall()}
+
+    result = []
+    for inst in instances:
+        inst_name = inst.get("instanceName") or inst.get("instance", {}).get("instanceName", "")
+        local = local_map.get(inst_name, {})
+        result.append({
+            "instance_name": inst_name,
+            "evo_state": inst.get("instance", {}).get("state") or inst.get("state", "unknown"),
+            "local_status": local.get("status", "not_in_db"),
+            "phone_number": local.get("phone_number") or inst.get("instance", {}).get("number", ""),
+            "display_name": local.get("display_name", ""),
+            "owner_name": local.get("owner_name", ""),
+            "in_local_db": bool(local),
+        })
+
+    return result
+
+
+@router.get("/admin/instances/{account_id}/health")
+async def instance_health(account_id: str, ctx: dict = Depends(require_admin_with_tenant)):
+    status = {}
+    try:
+        status["connection"] = await wa_bridge.get_status(account_id)
+    except BridgeError as e:
+        status["connection"] = {"error": str(e)}
+    try:
+        status["settings"] = await wa_bridge.get_instance_settings(account_id)
+    except BridgeError as e:
+        status["settings"] = {"error": str(e)}
+    try:
+        status["webhook"] = await wa_bridge.get_webhook(account_id)
+    except BridgeError as e:
+        status["webhook"] = {"error": str(e)}
+    return status
 
 
 # ══════════════════════════════════════════════════════════════════════════════

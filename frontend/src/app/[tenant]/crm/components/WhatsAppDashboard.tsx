@@ -72,6 +72,15 @@ export default function WhatsAppDashboard() {
   const [qrData, setQrData] = useState<{ accountId: string; qr: string } | null>(null);
   const [qrPolling, setQrPolling] = useState(false);
 
+  // Dashboard tabs
+  const [dashboardTab, setDashboardTab] = useState<'conversations' | 'groups' | 'monitor'>('conversations');
+  const [allGroups, setAllGroups] = useState<any[]>([]);
+  const [groupsLoading, setGroupsLoading] = useState(false);
+  const [inviteCodeInput, setInviteCodeInput] = useState('');
+  const [inviteInfo, setInviteInfo] = useState<any>(null);
+  const [allInstances, setAllInstances] = useState<any[]>([]);
+  const [instancesLoading, setInstancesLoading] = useState(false);
+
   // Filters
   const [search, setSearch] = useState('');
   const [filterAccount, setFilterAccount] = useState('');
@@ -170,6 +179,53 @@ export default function WhatsAppDashboard() {
       );
     }
   }
+
+  async function loadAllGroups() {
+    setGroupsLoading(true);
+    try {
+      const groupsByAccount = await Promise.all(
+        accounts.filter(a => a.status === 'connected').map(async (acc) => {
+          try {
+            const data = await api.get(`/api/whatsapp/accounts/${acc.id}/groups`);
+            return (Array.isArray(data) ? data : []).map((g: any) => ({ ...g, accountId: acc.id, accountLabel: acc.label || acc.phone_number }));
+          } catch { return []; }
+        })
+      );
+      setAllGroups(groupsByAccount.flat());
+    } catch { setAllGroups([]); }
+    finally { setGroupsLoading(false); }
+  }
+
+  async function lookupInviteCode() {
+    if (!inviteCodeInput.trim()) return;
+    const accountId = accounts.find(a => a.status === 'connected')?.id;
+    if (!accountId) { alert('No connected account'); return; }
+    try {
+      const data = await api.post(`/api/whatsapp/groups/lookup-invite`, { invite_code: inviteCodeInput.trim(), account_id: accountId });
+      setInviteInfo(data);
+    } catch { setInviteInfo({ error: 'Failed to lookup invite code' }); }
+  }
+
+  async function loadAllInstances() {
+    setInstancesLoading(true);
+    try {
+      const data = await api.get('/api/whatsapp/admin/instances');
+      setAllInstances(Array.isArray(data) ? data : (data?.instances || []));
+    } catch { setAllInstances([]); }
+    finally { setInstancesLoading(false); }
+  }
+
+  async function healthCheck(accountId: string) {
+    try {
+      const data = await api.get(`/api/whatsapp/admin/instances/${accountId}/health`);
+      alert(JSON.stringify(data, null, 2));
+    } catch (e: any) { alert(e.message || 'Health check failed'); }
+  }
+
+  useEffect(() => {
+    if (dashboardTab === 'groups' && allGroups.length === 0 && accounts.length > 0) loadAllGroups();
+    if (dashboardTab === 'monitor' && allInstances.length === 0) loadAllInstances();
+  }, [dashboardTab, accounts.length]);
 
   const filtered = search
     ? conversations.filter(c =>
@@ -326,7 +382,40 @@ export default function WhatsAppDashboard() {
                             Show QR Code
                           </button>
                         )}
+                        {acc.status === 'connected' && (
+                          <>
+                            <button onClick={async () => {
+                              try { const r = await api.post(`/api/whatsapp/accounts/${acc.id}/sync-chats`, {}); alert(`Synced ${r.synced} chats`); loadData(); } catch {}
+                            }} className="text-xs px-3 py-1 rounded font-medium" style={{ background: '#e0f2f1', color: '#00796b' }}>
+                              Sync Chats
+                            </button>
+                            <button onClick={async () => {
+                              try { const r = await api.post(`/api/whatsapp/accounts/${acc.id}/sync-contacts`, {}); alert(`Synced ${r.synced} contacts`); loadData(); } catch {}
+                            }} className="text-xs px-3 py-1 rounded font-medium" style={{ background: '#e8eaf6', color: '#3f51b5' }}>
+                              Sync Contacts
+                            </button>
+                            <button onClick={async () => {
+                              if (!confirm('Restart this instance?')) return;
+                              try { await api.post(`/api/whatsapp/accounts/${acc.id}/restart`, {}); alert('Instance restarted'); loadData(); } catch {}
+                            }} className="text-xs px-3 py-1 rounded font-medium" style={{ background: '#fff3e0', color: '#e65100' }}>
+                              Restart
+                            </button>
+                          </>
+                        )}
                       </div>
+
+                      {/* Instance Settings (Phase 5.1) */}
+                      {acc.status === 'connected' && (
+                        <AccountSettingsPanel accountId={acc.id} />
+                      )}
+                      {/* Webhook Configuration (Phase 5.2) */}
+                      {acc.status === 'connected' && (
+                        <WebhookConfigPanel accountId={acc.id} />
+                      )}
+                      {/* My Product Catalog (Phase 5.4) */}
+                      {acc.status === 'connected' && (
+                        <AccountCatalogPanel accountId={acc.id} />
+                      )}
                     </div>
                   );
                 })}
@@ -336,6 +425,22 @@ export default function WhatsAppDashboard() {
         </div>
       </SlideOver>
 
+      {/* Dashboard Tabs */}
+      <div className="flex gap-1 mb-4 border-b" style={{ borderColor: 'var(--notion-border)' }}>
+        {(['conversations', 'groups', 'monitor'] as const).map(tab => (
+          <button key={tab} onClick={() => setDashboardTab(tab)}
+            className="px-4 py-2 text-sm font-medium transition-colors"
+            style={{
+              color: dashboardTab === tab ? '#25D366' : 'var(--notion-text-muted)',
+              borderBottom: dashboardTab === tab ? '2px solid #25D366' : '2px solid transparent',
+            }}>
+            {tab === 'conversations' ? 'Conversations' : tab === 'groups' ? 'Groups' : 'Instance Monitor'}
+          </button>
+        ))}
+      </div>
+
+      {/* ── Conversations Tab ── */}
+      {dashboardTab === 'conversations' && <>
       {/* Toolbar */}
       <div className="flex flex-wrap gap-3 mb-4">
         {/* Search */}
@@ -515,6 +620,165 @@ export default function WhatsAppDashboard() {
         </div>
       )}
 
+      </>}
+
+      {/* ── Groups Tab ── */}
+      {dashboardTab === 'groups' && (
+        <div>
+          {/* Invite code lookup */}
+          <div className="flex gap-2 mb-4">
+            <input value={inviteCodeInput} onChange={e => setInviteCodeInput(e.target.value)}
+              placeholder="Paste invite code to lookup..."
+              className="flex-1 px-3 py-2 rounded-lg text-sm outline-none border"
+              style={{ borderColor: 'var(--notion-border)', color: 'var(--notion-text)', background: 'var(--notion-bg)' }} />
+            <button onClick={lookupInviteCode}
+              className="px-4 py-2 rounded-lg text-sm font-medium text-white"
+              style={{ background: '#25D366' }}>
+              Lookup
+            </button>
+            <button onClick={loadAllGroups} disabled={groupsLoading}
+              className="px-4 py-2 rounded-lg text-sm font-medium border"
+              style={{ borderColor: 'var(--notion-border)', color: 'var(--notion-text)' }}>
+              {groupsLoading ? 'Loading...' : 'Refresh'}
+            </button>
+          </div>
+
+          {/* Invite lookup result */}
+          {inviteInfo && (
+            <div className="mb-4 p-3 rounded-lg border" style={{ borderColor: 'var(--notion-border)', background: 'var(--notion-card, white)' }}>
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-xs font-semibold" style={{ color: 'var(--notion-text)' }}>Invite Lookup Result</span>
+                <button onClick={() => setInviteInfo(null)} className="text-xs" style={{ color: 'var(--notion-text-muted)' }}>✕</button>
+              </div>
+              {inviteInfo.error ? (
+                <p className="text-xs" style={{ color: '#dc2626' }}>{inviteInfo.error}</p>
+              ) : (
+                <div className="text-xs space-y-0.5" style={{ color: 'var(--notion-text)' }}>
+                  {inviteInfo.subject && <p><span className="font-medium">Name:</span> {inviteInfo.subject}</p>}
+                  {inviteInfo.size && <p><span className="font-medium">Members:</span> {inviteInfo.size}</p>}
+                  {inviteInfo.owner && <p><span className="font-medium">Owner:</span> {inviteInfo.owner}</p>}
+                  {inviteInfo.desc && <p><span className="font-medium">Description:</span> {inviteInfo.desc}</p>}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Groups list */}
+          {groupsLoading ? (
+            <div className="text-center py-8 text-sm" style={{ color: 'var(--notion-text-muted)' }}>Loading groups...</div>
+          ) : allGroups.length === 0 ? (
+            <div className="text-center py-12">
+              <p className="text-sm" style={{ color: 'var(--notion-text-muted)' }}>No groups found</p>
+            </div>
+          ) : (
+            <div className="space-y-1">
+              {allGroups.map((group: any, idx: number) => (
+                <div key={idx} className="flex items-center gap-3 px-4 py-3 rounded-lg border"
+                  style={{ background: 'var(--notion-card, white)', borderColor: 'var(--notion-border)' }}>
+                  <div className="w-10 h-10 rounded-full flex items-center justify-center text-white text-sm font-bold flex-shrink-0"
+                    style={{ background: '#128C7E' }}>
+                    {group.profilePictureUrl ? (
+                      <img src={group.profilePictureUrl} alt="" className="w-full h-full rounded-full object-cover" />
+                    ) : '👥'}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-semibold truncate" style={{ color: 'var(--notion-text)' }}>
+                      {group.subject || group.id || 'Group'}
+                    </p>
+                    <p className="text-[11px]" style={{ color: 'var(--notion-text-muted)' }}>
+                      {group.size ? `${group.size} members` : ''}{group.accountLabel ? ` · ${group.accountLabel}` : ''}
+                    </p>
+                    {group.desc && <p className="text-[10px] truncate" style={{ color: 'var(--notion-text-muted)' }}>{group.desc}</p>}
+                  </div>
+                  <div className="flex items-center gap-1">
+                    {group.inviteCode && (
+                      <button onClick={() => { navigator.clipboard.writeText(group.inviteCode); }}
+                        className="text-[10px] px-2 py-0.5 rounded"
+                        style={{ background: '#e0f2f1', color: '#00796b' }}>
+                        Copy Invite
+                      </button>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── Instance Monitor Tab ── */}
+      {dashboardTab === 'monitor' && (
+        <div>
+          <div className="flex items-center justify-between mb-4">
+            <span className="text-sm font-semibold" style={{ color: 'var(--notion-text)' }}>All Instances</span>
+            <button onClick={loadAllInstances} disabled={instancesLoading}
+              className="px-4 py-2 rounded-lg text-sm font-medium border"
+              style={{ borderColor: 'var(--notion-border)', color: 'var(--notion-text)' }}>
+              {instancesLoading ? 'Loading...' : 'Refresh'}
+            </button>
+          </div>
+          {instancesLoading ? (
+            <div className="text-center py-8 text-sm" style={{ color: 'var(--notion-text-muted)' }}>Loading instances...</div>
+          ) : allInstances.length === 0 ? (
+            <div className="text-center py-12">
+              <p className="text-sm" style={{ color: 'var(--notion-text-muted)' }}>No instances found</p>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {allInstances.map((inst: any, idx: number) => {
+                const status = inst.connectionStatus || inst.status || 'unknown';
+                const statusColor = status === 'open' || status === 'connected'
+                  ? '#15803d' : status === 'close' || status === 'disconnected'
+                  ? '#dc2626' : '#a16207';
+                const statusBg = status === 'open' || status === 'connected'
+                  ? '#dcfce7' : status === 'close' || status === 'disconnected'
+                  ? '#fef2f2' : '#fef9c3';
+                return (
+                  <div key={idx} className="rounded-lg px-4 py-3 border"
+                    style={{ borderColor: 'var(--notion-border)', background: 'var(--notion-card, white)' }}>
+                    <div className="flex items-center justify-between mb-1">
+                      <div className="flex items-center gap-2">
+                        <span className="w-2.5 h-2.5 rounded-full" style={{ background: statusColor }} />
+                        <span className="text-sm font-semibold" style={{ color: 'var(--notion-text)' }}>
+                          {inst.instanceName || inst.name || 'Instance'}
+                        </span>
+                      </div>
+                      <span className="text-[10px] px-2 py-0.5 rounded-full font-medium"
+                        style={{ background: statusBg, color: statusColor }}>
+                        {status}
+                      </span>
+                    </div>
+                    <div className="text-[11px] space-y-0.5" style={{ color: 'var(--notion-text-muted)' }}>
+                      {inst.owner && <p>Owner: {inst.owner}</p>}
+                      {inst.profileName && <p>Name: {inst.profileName}</p>}
+                      {inst.number && <p>Phone: {inst.number}</p>}
+                      {inst.local_account_id && <p>Local ID: {inst.local_account_id}</p>}
+                      {inst.webhook_status && <p>Webhook: {inst.webhook_status}</p>}
+                    </div>
+                    <div className="flex gap-2 mt-2">
+                      <button onClick={() => healthCheck(inst.local_account_id || inst.instanceName)}
+                        className="text-[10px] px-3 py-1 rounded font-medium"
+                        style={{ background: '#e0f2f1', color: '#00796b' }}>
+                        Health Check
+                      </button>
+                      {inst.local_account_id && (
+                        <button onClick={async () => {
+                          if (!confirm('Restart this instance?')) return;
+                          try { await api.post(`/api/whatsapp/accounts/${inst.local_account_id}/restart`, {}); alert('Restarted'); loadAllInstances(); } catch {}
+                        }} className="text-[10px] px-3 py-1 rounded font-medium"
+                          style={{ background: '#fff3e0', color: '#e65100' }}>
+                          Restart
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Chat SlideOver */}
       <SlideOver open={!!selectedContact} onClose={() => { setSelectedContact(null); loadData(); }}
         title={selectedContact?.display_name || selectedContact?.push_name || selectedContact?.phone_number || 'Chat'}
@@ -537,6 +801,196 @@ export default function WhatsAppDashboard() {
           onClose={() => setLinkingContact(null)}
           onLinked={() => { setLinkingContact(null); loadData(); }}
         />
+      )}
+    </div>
+  );
+}
+
+// ── Account Instance Settings Panel (Phase 5.1) ──────────────────────────────
+function AccountSettingsPanel({ accountId }: { accountId: string }) {
+  const [expanded, setExpanded] = useState(false);
+  const [settings, setSettings] = useState<any>(null);
+  const [saving, setSaving] = useState(false);
+
+  async function loadSettings() {
+    try {
+      const data = await api.get(`/api/whatsapp/accounts/${accountId}/settings`);
+      setSettings(data);
+    } catch { setSettings({}); }
+  }
+
+  useEffect(() => { if (expanded && !settings) loadSettings(); }, [expanded]);
+
+  async function saveSetting(key: string, value: any) {
+    setSaving(true);
+    try {
+      await api.put(`/api/whatsapp/accounts/${accountId}/settings`, { [key]: value });
+      setSettings((prev: any) => ({ ...prev, [key]: value }));
+    } catch {}
+    finally { setSaving(false); }
+  }
+
+  const toggles: { key: string; label: string; evoKey: string }[] = [
+    { key: 'always_online', label: 'Always Online', evoKey: 'alwaysOnline' },
+    { key: 'read_messages', label: 'Auto-read Messages', evoKey: 'readMessages' },
+    { key: 'read_status', label: 'Auto-read Status', evoKey: 'readStatus' },
+    { key: 'reject_call', label: 'Reject Calls', evoKey: 'rejectCall' },
+    { key: 'groups_ignore', label: 'Ignore Group Messages', evoKey: 'groupsIgnore' },
+    { key: 'sync_full_history', label: 'Sync Full History', evoKey: 'syncFullHistory' },
+  ];
+
+  return (
+    <div className="mt-2">
+      <button onClick={() => setExpanded(!expanded)}
+        className="text-[10px] font-medium" style={{ color: 'var(--notion-text-muted)' }}>
+        {expanded ? '▼' : '▶'} Instance Settings
+      </button>
+      {expanded && settings && (
+        <div className="mt-1 space-y-1 pl-2">
+          {toggles.map(t => (
+            <label key={t.key} className="flex items-center gap-2 text-[11px]" style={{ color: 'var(--notion-text)' }}>
+              <input type="checkbox" checked={!!settings[t.evoKey]}
+                onChange={e => saveSetting(t.key, e.target.checked)}
+                disabled={saving} />
+              {t.label}
+            </label>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Webhook Configuration Panel (Phase 5.2) ──────────────────────────────────
+const WEBHOOK_EVENTS = [
+  'QRCODE_UPDATED', 'MESSAGES_UPSERT', 'MESSAGES_UPDATE', 'MESSAGES_DELETE',
+  'CONNECTION_UPDATE', 'PRESENCE_UPDATE', 'GROUPS_UPSERT', 'GROUP_PARTICIPANTS_UPDATE',
+  'CHATS_SET', 'CHATS_UPSERT', 'CHATS_UPDATE', 'CHATS_DELETE',
+  'CONTACTS_SET', 'CONTACTS_UPSERT', 'CONTACTS_UPDATE',
+  'LABELS_EDIT', 'LABELS_ASSOCIATION', 'CALL',
+];
+
+function WebhookConfigPanel({ accountId }: { accountId: string }) {
+  const [expanded, setExpanded] = useState(false);
+  const [config, setConfig] = useState<any>(null);
+  const [saving, setSaving] = useState(false);
+  const [url, setUrl] = useState('');
+
+  async function loadConfig() {
+    try {
+      const data = await api.get(`/api/whatsapp/admin/accounts/${accountId}/webhook`);
+      setConfig(data);
+      setUrl(data?.url || '');
+    } catch { setConfig({}); }
+  }
+
+  useEffect(() => { if (expanded && !config) loadConfig(); }, [expanded]);
+
+  async function saveWebhook(updates: any) {
+    setSaving(true);
+    try {
+      const result = await api.put(`/api/whatsapp/admin/accounts/${accountId}/webhook`, updates);
+      setConfig(result);
+    } catch {}
+    finally { setSaving(false); }
+  }
+
+  function toggleEvent(event: string) {
+    const current = config?.events || [];
+    const updated = current.includes(event)
+      ? current.filter((e: string) => e !== event)
+      : [...current, event];
+    saveWebhook({ events: updated });
+  }
+
+  return (
+    <div className="mt-2">
+      <button onClick={() => setExpanded(!expanded)}
+        className="text-[10px] font-medium" style={{ color: 'var(--notion-text-muted)' }}>
+        {expanded ? '▼' : '▶'} Webhook Configuration
+      </button>
+      {expanded && config && (
+        <div className="mt-1 pl-2 space-y-2">
+          <div className="flex gap-1">
+            <input value={url} onChange={e => setUrl(e.target.value)}
+              placeholder="Webhook URL"
+              className="flex-1 text-[10px] px-2 py-1 rounded border outline-none"
+              style={{ borderColor: 'var(--notion-border)', color: 'var(--notion-text)' }} />
+            <button onClick={() => saveWebhook({ url })} disabled={saving}
+              className="text-[10px] px-2 py-1 rounded font-medium text-white"
+              style={{ background: '#25D366' }}>Save</button>
+          </div>
+          <label className="flex items-center gap-2 text-[11px]" style={{ color: 'var(--notion-text)' }}>
+            <input type="checkbox" checked={!!config.enabled}
+              onChange={e => saveWebhook({ enabled: e.target.checked })} disabled={saving} />
+            Enabled
+          </label>
+          <div>
+            <p className="text-[10px] font-medium mb-1" style={{ color: 'var(--notion-text)' }}>Subscribed Events:</p>
+            <div className="grid grid-cols-2 gap-0.5">
+              {WEBHOOK_EVENTS.map(evt => (
+                <label key={evt} className="flex items-center gap-1 text-[9px]" style={{ color: 'var(--notion-text)' }}>
+                  <input type="checkbox" checked={(config.events || []).includes(evt)}
+                    onChange={() => toggleEvent(evt)} disabled={saving} />
+                  {evt}
+                </label>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Account Catalog Panel (Phase 5.4) ────────────────────────────────────────
+function AccountCatalogPanel({ accountId }: { accountId: string }) {
+  const [expanded, setExpanded] = useState(false);
+  const [products, setProducts] = useState<any[] | null>(null);
+
+  async function loadCatalog() {
+    try {
+      const data = await api.get(`/api/whatsapp/accounts/${accountId}/my-catalog`);
+      setProducts(Array.isArray(data) ? data : (data?.data || data?.products || []));
+    } catch { setProducts([]); }
+  }
+
+  useEffect(() => { if (expanded && !products) loadCatalog(); }, [expanded]);
+
+  return (
+    <div className="mt-2">
+      <button onClick={() => setExpanded(!expanded)}
+        className="text-[10px] font-medium" style={{ color: 'var(--notion-text-muted)' }}>
+        {expanded ? '▼' : '▶'} My Product Catalog
+      </button>
+      {expanded && (
+        <div className="mt-1 pl-2">
+          {products === null ? (
+            <p className="text-[10px]" style={{ color: 'var(--notion-text-muted)' }}>Loading...</p>
+          ) : products.length === 0 ? (
+            <p className="text-[10px]" style={{ color: 'var(--notion-text-muted)' }}>No products found</p>
+          ) : (
+            <div className="space-y-1 max-h-[200px] overflow-y-auto">
+              {products.map((product: any, idx: number) => (
+                <div key={idx} className="flex gap-2 p-1.5 rounded border" style={{ borderColor: 'var(--notion-border)' }}>
+                  {product.productImage?.imageUrl && (
+                    <img src={product.productImage.imageUrl} alt="" className="w-8 h-8 rounded object-cover flex-shrink-0" />
+                  )}
+                  <div className="min-w-0 flex-1">
+                    <p className="text-[10px] font-medium truncate" style={{ color: 'var(--notion-text)' }}>
+                      {product.name || product.title || 'Product'}
+                    </p>
+                    {(product.price || product.priceAmount) && (
+                      <p className="text-[9px] font-semibold" style={{ color: '#15803d' }}>
+                        {product.currency || ''} {product.price || product.priceAmount}
+                      </p>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       )}
     </div>
   );

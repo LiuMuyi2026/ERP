@@ -57,6 +57,7 @@ type NameDupResult = {
 // ── Helpers shared with parent pages ──────────────────────────────────────────
 export function getLeadStatusOptions(tCrm: any) {
   return [
+    { value: 'contact',     label: tCrm('statusContact'),     group: tCrm('groupCustomer') },
     { value: 'inquiry',     label: tCrm('statusInquiry'),     group: tCrm('groupSales') },
     { value: 'replied',     label: tCrm('statusReplied'),     group: tCrm('groupSales') },
     { value: 'qualified',   label: tCrm('statusQualified'),   group: tCrm('groupSales') },
@@ -115,9 +116,15 @@ export interface LeadModalProps {
   customSubmitLabel?: string;
   /** Override default status (defaults to 'inquiry') */
   defaultStatus?: string;
+  /** Pre-fill form fields (e.g. when creating a lead from customer-360) */
+  prefillData?: {
+    full_name?: string; email?: string; phone?: string;
+    whatsapp?: string; company?: string; title?: string;
+    country?: string; custom_fields?: Record<string, any>;
+  };
 }
 
-export default function LeadModal({ users, onClose, onSave, isLeadContext, customTitle, customSubmitLabel, defaultStatus }: LeadModalProps) {
+export default function LeadModal({ users, onClose, onSave, isLeadContext, customTitle, customSubmitLabel, defaultStatus, prefillData }: LeadModalProps) {
   const tCrm = useTranslations('crm');
   const tCommon = useTranslations('common');
   const LEAD_STATUS_OPTIONS = getLeadStatusOptions(tCrm);
@@ -126,7 +133,17 @@ export default function LeadModal({ users, onClose, onSave, isLeadContext, custo
 
   const [form, setForm] = useState<LeadFormState>(() => {
     const me = getCurrentUser();
-    return { ...EMPTY_LEAD, status: defaultStatus || 'inquiry', assigned_to: me?.sub || '' };
+    const base = { ...EMPTY_LEAD, status: defaultStatus || 'inquiry', assigned_to: me?.sub || '' };
+    if (prefillData) {
+      if (prefillData.full_name) base.full_name = prefillData.full_name;
+      if (prefillData.email) base.email = prefillData.email;
+      if (prefillData.phone) base.phone = prefillData.phone;
+      if (prefillData.whatsapp) base.whatsapp = prefillData.whatsapp;
+      if (prefillData.company) base.company = prefillData.company;
+      if (prefillData.title) base.title = prefillData.title;
+      if (prefillData.country) base.country = prefillData.country;
+    }
+    return base;
   });
   const [saving, setSaving] = useState(false);
   const [dupCheck, setDupCheck] = useState<DupCheck | null>(null);
@@ -648,6 +665,9 @@ export default function LeadModal({ users, onClose, onSave, isLeadContext, custo
                         follow_up_status, assigned_to, ...rest } = form;
                 const custom_fields: Record<string, any> = {};
                 for (const [k, v] of Object.entries(rest)) { if (v) custom_fields[k] = v; }
+                if (prefillData?.custom_fields) {
+                  Object.assign(custom_fields, prefillData.custom_fields);
+                }
                 await api.post('/api/crm/leads', {
                   full_name, email: email || null, phone: phone || null,
                   whatsapp: whatsapp || null, company: company || null,

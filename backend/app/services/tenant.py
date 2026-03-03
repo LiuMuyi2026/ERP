@@ -1315,6 +1315,10 @@ TENANT_MIGRATION_DDL = [
 
     "CREATE EXTENSION IF NOT EXISTS pg_trgm",
     "CREATE INDEX IF NOT EXISTS idx_wa_messages_content_trgm ON whatsapp_messages USING gin (content gin_trgm_ops)",
+
+    # ── Phase 8: WhatsApp Evolution API Phase 4+5 ──────────────────────────
+    "ALTER TABLE whatsapp_contacts ADD COLUMN IF NOT EXISTS business_profile JSONB DEFAULT '{}'",
+    "ALTER TABLE whatsapp_contacts ADD COLUMN IF NOT EXISTS has_catalog BOOLEAN DEFAULT FALSE",
 ]
 
 

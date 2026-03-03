@@ -71,6 +71,8 @@
     "collapseSidebar": "收起側邊欄"
   },
   "crm": {
+    "statusContact": "聯絡人",
+    "groupCustomer": "客戶管理",
     "title": "客戶管理",
     "leadsCount": "{n} 條線索",
     "leads": "線索",

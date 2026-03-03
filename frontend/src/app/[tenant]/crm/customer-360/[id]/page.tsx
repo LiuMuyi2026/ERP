@@ -8,6 +8,7 @@ import { WorkflowTab } from './WorkflowTab';
 import { HandIcon } from '@/components/ui/HandIcon';
 import WhatsAppChatPanel from '../../components/WhatsAppChatPanel';
 import SlideOver from '@/components/ui/SlideOver';
+import LeadModal, { TenantUser } from '../../components/LeadModal';
 
 // ── Types ───────────────────────────────────────────────────────────────────
 type Interaction = {
@@ -121,6 +122,7 @@ function getCH(t: any): CHConfig {
 
 function getLeadStatus(t: any): Record<string, { label: string; color: string; bg: string }> {
   return {
+    contact:     { label: t('lsContact'),     color: '#3b82f6', bg: '#eff6ff' },
     inquiry:     { label: t('lsInquiry'),     color: '#818cf8', bg: '#eef2ff' },
     new:         { label: t('lsNew'),         color: '#60a5fa', bg: '#eff6ff' },
     replied:     { label: t('lsReplied'),     color: '#34d399', bg: '#ecfdf5' },
@@ -1540,6 +1542,8 @@ export default function Customer360Page() {
   const [tab, setTab] = useState<'comms' | 'profile' | 'business' | 'timeline' | 'workflow'>(tabParam || 'workflow');
   const [advancing, setAdvancing] = useState(false);
   const [showColdModal, setShowColdModal] = useState(false);
+  const [showNewLeadModal, setShowNewLeadModal] = useState(false);
+  const [tenantUsers, setTenantUsers] = useState<TenantUser[]>([]);
   const [changingStage, setChangingStage] = useState(false);
   const [waSlideOpen, setWaSlideOpen] = useState(false);
   const [waSlideContact, setWaSlideContact] = useState<WaContact | null>(null);
@@ -1568,6 +1572,12 @@ export default function Customer360Page() {
 
   useEffect(() => { load(); }, [load]);
 
+  useEffect(() => {
+    api.get('/api/admin/users').then((res: any) => {
+      const list = Array.isArray(res) ? res : res.users ?? [];
+      setTenantUsers(list.map((u: any) => ({ id: u.id, email: u.email || '', full_name: u.full_name || u.email || '', role: u.role || '', position_name: u.position_name })));
+    }).catch(() => {});
+  }, []);
 
   async function advanceStage() {
     setAdvancing(true);
@@ -1885,6 +1895,13 @@ export default function Customer360Page() {
         {/* Actions */}
         <SideSection title={t('actionsLabel')}>
           <div className="space-y-2">
+            <button onClick={() => setShowNewLeadModal(true)}
+              className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-xl text-xs font-semibold text-white transition-all"
+              style={{ background: '#7c3aed' }}
+              onMouseEnter={e => (e.currentTarget.style.opacity = '0.9')}
+              onMouseLeave={e => (e.currentTarget.style.opacity = '1')}>
+              <HandIcon name="plus" size={14} /> {t('createNewLead')}
+            </button>
             {!isCold && (
               <button onClick={() => setShowColdModal(true)}
                 className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-xl text-xs font-medium transition-all"
@@ -2057,6 +2074,26 @@ export default function Customer360Page() {
           leadId={id}
           onClose={() => setShowColdModal(false)}
           onSaved={() => { setShowColdModal(false); load(); }}
+        />
+      )}
+
+      {showNewLeadModal && (
+        <LeadModal
+          users={tenantUsers}
+          onClose={() => setShowNewLeadModal(false)}
+          onSave={() => { setShowNewLeadModal(false); load(); }}
+          defaultStatus="new"
+          customTitle={t('createNewLead')}
+          prefillData={{
+            full_name: lead.full_name || '',
+            email: lead.email || '',
+            phone: lead.phone || '',
+            whatsapp: lead.whatsapp || '',
+            company: lead.company || '',
+            title: lead.title || '',
+            country: (lead as any).country || lead.custom_fields?.country || '',
+            custom_fields: { customer_origin_id: lead.id },
+          }}
         />
       )}
 

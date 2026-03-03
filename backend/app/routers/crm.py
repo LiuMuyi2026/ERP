@@ -449,7 +449,7 @@ async def list_leads(
     if role not in ("tenant_admin", "platform_admin"):
         user_id = ctx["sub"]
 
-    where = ["duplicate_of IS NULL"]
+    where = ["duplicate_of IS NULL", "status != 'contact'"]
     params: dict = {"skip": skip, "limit": limit}
     if pool == "public":
         where.append("is_cold = TRUE")
@@ -2164,7 +2164,7 @@ async def list_customers(
     """
     db = ctx["db"]
     where_parts = [
-        "(l.status IN ('new','replied','converted','payment','fulfillment','booking','procuring','quoted','negotiating') OR c.contract_count > 0)",
+        "(l.status IN ('contact','new','replied','converted','payment','fulfillment','booking','procuring','quoted','negotiating') OR c.contract_count > 0)",
         "l.duplicate_of IS NULL",
         "(l.is_cold IS NULL OR l.is_cold = FALSE)",
     ]
@@ -2323,7 +2323,7 @@ async def customer_countries(ctx: dict = Depends(get_current_user_with_tenant)):
             SELECT lead_id, COUNT(*) AS contract_count
             FROM crm_contracts GROUP BY lead_id
         ) c ON c.lead_id = l.id
-        WHERE (l.status IN ('new','replied','converted','payment','fulfillment','booking','procuring','quoted','negotiating')
+        WHERE (l.status IN ('contact','new','replied','converted','payment','fulfillment','booking','procuring','quoted','negotiating')
                OR c.contract_count > 0)
           AND l.duplicate_of IS NULL
           AND (l.is_cold IS NULL OR l.is_cold = FALSE)

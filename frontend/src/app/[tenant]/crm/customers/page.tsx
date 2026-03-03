@@ -780,6 +780,7 @@ function CustomerDrawer({ customer, onClose, onUpdated }: { customer: Customer; 
 
 // ── Filter constants ──────────────────────────────────────────────────────────
 const FILTER_STAGES = [
+  { key: 'contact', label: '联系人' },
   { key: 'new', label: '新线索' }, { key: 'replied', label: '取得回复' },
   { key: 'quoted', label: '初次报价' }, { key: 'engaged', label: '增加粘度' },
   { key: 'qualified', label: '知己知彼' }, { key: 'negotiating', label: '实单谈判' },
@@ -1299,7 +1300,7 @@ function CustomersTab() {
           onSave={() => { setShowAddCustomer(false); load(search); }}
           customTitle={tCrm('addCustomer')}
           customSubmitLabel={tCrm('addCustomer')}
-          defaultStatus="quoted"
+          defaultStatus="contact"
         />
       )}
     </div>
@@ -1563,6 +1564,7 @@ function CustomersTab() {
   function renderKanban() {
     const KANBAN_GROUPS: Record<string, { key: string; label: string; color: string; bg: string }[]> = {
       stage: [
+        { key: 'contact', label: '联系人', color: '#3b82f6', bg: '#eff6ff' },
         { key: 'new', label: '新线索', color: '#60a5fa', bg: '#eff6ff' },
         { key: 'replied', label: '取得回复', color: '#34d399', bg: '#ecfdf5' },
         { key: 'quoted', label: '初次报价', color: '#fbbf24', bg: '#fffbeb' },
