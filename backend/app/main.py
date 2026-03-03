@@ -9,7 +9,7 @@ import os
 
 from app.config import settings
 from app.database import init_db, engine
-from app.routers import auth, platform, workspace, crm, hr, accounting, inventory, ai, integrations, admin, notifications, messages, orders, ai_providers, automation, ai_finder, whisper_ws, workflow_templates, whatsapp
+from app.routers import auth, platform, workspace, crm, hr, accounting, inventory, ai, integrations, admin, notifications, messages, orders, ai_providers, automation, ai_finder, whisper_ws, workflow_templates, whatsapp, ws_whatsapp
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -30,10 +30,12 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+_cors_origins = settings.cors_origin_list
+_cors_wildcard = "*" in _cors_origins
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.cors_origin_list,
-    allow_credentials=True,
+    allow_origins=["*"] if _cors_wildcard else _cors_origins,
+    allow_credentials=not _cors_wildcard,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -71,6 +73,7 @@ app.include_router(ai_finder.router, prefix="/api")
 app.include_router(whisper_ws.router, prefix="/api")
 app.include_router(workflow_templates.router, prefix="/api")
 app.include_router(whatsapp.router, prefix="/api")
+app.include_router(ws_whatsapp.router, prefix="/api")
 
 
 UPLOAD_DIR = os.path.join(os.path.dirname(__file__), "..", "uploads")

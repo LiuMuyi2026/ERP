@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { api } from '@/lib/api';
+import { useWhatsAppSocket } from '@/lib/useWhatsAppSocket';
 import { HandIcon } from '@/components/ui/HandIcon';
 
 type Reaction = { reactor_jid: string; emoji: string };
@@ -32,6 +33,14 @@ interface WhatsAppChatPanelProps {
   disappearingDuration?: number;
   isBlocked?: boolean;
   isArchived?: boolean;
+  /** Conversation data for template variable substitution */
+  conversation?: {
+    phone_number?: string;
+    crm_account_name?: string;
+    lead_name?: string;
+    lead_status?: string;
+    display_name?: string;
+  };
 }
 
 function formatTime(iso: string) {
@@ -70,8 +79,9 @@ const DISAPPEARING_OPTIONS = [
   { label: '90 days', value: 7776000 },
 ];
 
-type AiAction = 'summarize' | 'enrich_profile' | 'sales_strategy' | 'sales_tips';
+type AiAction = 'summarize' | 'enrich_profile' | 'sales_strategy' | 'sales_tips' | 'suggest_reply';
 const AI_ACTIONS: { key: AiAction; label: string; icon: string; color: string }[] = [
+  { key: 'suggest_reply', label: 'AI Suggest', icon: 'sparkle', color: '#8b5cf6' },
   { key: 'summarize', label: 'Summarize', icon: 'document', color: '#7c3aed' },
   { key: 'enrich_profile', label: 'Enrich Profile', icon: 'person', color: '#0284c7' },
   { key: 'sales_strategy', label: 'Sales Strategy', icon: 'briefcase', color: '#059669' },
@@ -80,7 +90,7 @@ const AI_ACTIONS: { key: AiAction; label: string; icon: string; color: string }[
 
 export default function WhatsAppChatPanel({
   contactId, leadId, contactName, profilePicUrl, isGroup, disappearingDuration,
-  isBlocked: initialIsBlocked, isArchived: initialIsArchived,
+  isBlocked: initialIsBlocked, isArchived: initialIsArchived, conversation,
 }: WhatsAppChatPanelProps) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [loading, setLoading] = useState(true);
@@ -124,6 +134,7 @@ export default function WhatsAppChatPanel({
   const [showAiPanel, setShowAiPanel] = useState(false);
   const [aiLoading, setAiLoading] = useState<AiAction | null>(null);
   const [aiResult, setAiResult] = useState<{ action: AiAction; result: string } | null>(null);
+  const [aiSuggestions, setAiSuggestions] = useState<string[]>([]);
 
   // Typing indicator
   const typingTimer = useRef<NodeJS.Timeout | null>(null);
@@ -148,6 +159,11 @@ export default function WhatsAppChatPanel({
   const [showTemplateModal, setShowTemplateModal] = useState(false);
   const [templates, setTemplates] = useState<any[]>([]);
   const [templateSearch, setTemplateSearch] = useState('');
+
+  // Slash command template picker
+  const [showSlashMenu, setShowSlashMenu] = useState(false);
+  const [slashFilter, setSlashFilter] = useState('');
+  const [slashIdx, setSlashIdx] = useState(0);
 
   const [isBlocked, setIsBlocked] = useState(initialIsBlocked || false);
 
@@ -210,6 +226,10 @@ export default function WhatsAppChatPanel({
 
   const effectiveContactId = contactId || resolvedContactId;
 
+  // ── WebSocket for real-time updates ──
+  const { on: onWsEvent } = useWhatsAppSocket();
+  const [wsTyping, setWsTyping] = useState(false);
+
   // ── Load messages ──
   async function loadMessages() {
     setLoading(true);
@@ -231,32 +251,83 @@ export default function WhatsAppChatPanel({
     finally { setLoading(false); }
   }
 
-  // ── Mark read on open ──
+  // ── Mark read on open + initial load ──
   useEffect(() => {
     loadMessages();
     if (effectiveContactId) {
       api.post(`/api/whatsapp/conversations/${effectiveContactId}/read`, {}).catch(() => {});
       api.post(`/api/whatsapp/conversations/${effectiveContactId}/subscribe-presence`, {}).catch(() => {});
     }
-    const iv = setInterval(() => { loadMessages(); }, 5000);
+    // Fallback: poll every 30s as safety net (WS is primary)
+    const iv = setInterval(() => { loadMessages(); }, 30_000);
     return () => clearInterval(iv);
   }, [effectiveContactId, leadId]);
 
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages.length]);
 
-  // ── Presence polling ──
+  // ── Presence: initial fetch (WS is primary for updates) ──
   useEffect(() => {
     if (!effectiveContactId) return;
-    const fetchPresence = async () => {
-      try {
-        const data = await api.get(`/api/whatsapp/conversations/${effectiveContactId}/presence`);
-        setPresence(data);
-      } catch {}
-    };
-    fetchPresence();
-    const iv = setInterval(fetchPresence, 5000);
-    return () => clearInterval(iv);
+    api.get(`/api/whatsapp/conversations/${effectiveContactId}/presence`).then(setPresence).catch(() => {});
   }, [effectiveContactId]);
+
+  // ── WebSocket event handlers ──
+  useEffect(() => {
+    if (!effectiveContactId) return;
+    const unsubs: (() => void)[] = [];
+
+    // New message: append to list if for current contact
+    unsubs.push(onWsEvent('new_message', (ev) => {
+      if (ev.contact_id === effectiveContactId) {
+        const m = ev.message;
+        setMessages((prev) => {
+          // Deduplicate by wa_message_id
+          if (prev.some((p) => (p as any).wa_message_id === m.wa_message_id)) return prev;
+          return [...prev, { id: m.wa_message_id, ...m }];
+        });
+        // Auto mark read since this chat is open
+        api.post(`/api/whatsapp/conversations/${effectiveContactId}/read`, {}).catch(() => {});
+      }
+    }));
+
+    // Message status update (✓✓)
+    unsubs.push(onWsEvent('message_status', (ev) => {
+      setMessages((prev) =>
+        prev.map((m) =>
+          (m as any).wa_message_id === ev.wa_message_id || m.id === ev.wa_message_id
+            ? { ...m, status: ev.status }
+            : m
+        )
+      );
+    }));
+
+    // Message deleted
+    unsubs.push(onWsEvent('message_deleted', (ev) => {
+      setMessages((prev) =>
+        prev.map((m) =>
+          (m as any).wa_message_id === ev.wa_message_id || m.id === ev.wa_message_id
+            ? { ...m, is_deleted: true, content: undefined }
+            : m
+        )
+      );
+    }));
+
+    // Typing indicator from WS
+    unsubs.push(onWsEvent('typing', (ev) => {
+      // Match by participant JID containing the contact's JID
+      if (ev.participant && effectiveContactId) {
+        const isComposing = ev.state === 'composing';
+        setWsTyping(isComposing);
+        if (isComposing) {
+          // Auto-clear after 5s if no paused event
+          const t = setTimeout(() => setWsTyping(false), 5000);
+          return () => clearTimeout(t);
+        }
+      }
+    }));
+
+    return () => unsubs.forEach((u) => u());
+  }, [effectiveContactId, onWsEvent]);
 
   // ── Typing indicator ──
   const sendTyping = useCallback((type: 'composing' | 'paused') => {
@@ -266,6 +337,18 @@ export default function WhatsAppChatPanel({
 
   function handleInputChange(val: string) {
     setInput(val);
+    // Detect `/` at start for slash command template picker
+    if (val.startsWith('/')) {
+      const filter = val.slice(1).toLowerCase();
+      setSlashFilter(filter);
+      setSlashIdx(0);
+      if (!showSlashMenu) {
+        setShowSlashMenu(true);
+        if (templates.length === 0) loadTemplates();
+      }
+    } else {
+      if (showSlashMenu) setShowSlashMenu(false);
+    }
     if (val.trim()) {
       sendTyping('composing');
       if (typingTimer.current) clearTimeout(typingTimer.current);
@@ -395,13 +478,22 @@ export default function WhatsAppChatPanel({
   async function runAiAction(action: AiAction) {
     setAiLoading(action);
     setAiResult(null);
+    if (action === 'suggest_reply') setAiSuggestions([]);
     try {
       const data = await api.post('/api/whatsapp/ai/analyze', {
         contact_id: effectiveContactId || null,
         lead_id: leadId || null,
         action,
       });
-      setAiResult({ action, result: data.result || 'No result' });
+      if (action === 'suggest_reply') {
+        // Parse numbered suggestions: "1. xxx\n2. yyy\n3. zzz"
+        const lines = (data.result || '').split('\n').filter((l: string) => l.trim());
+        const suggestions = lines.map((l: string) => l.replace(/^\d+\.\s*/, '').trim()).filter((l: string) => l.length > 0);
+        setAiSuggestions(suggestions.slice(0, 3));
+        setAiResult({ action, result: data.result || 'No suggestions' });
+      } else {
+        setAiResult({ action, result: data.result || 'No result' });
+      }
     } catch (err: any) {
       setAiResult({ action, result: `Error: ${err.message || 'Analysis failed'}` });
     }
@@ -451,8 +543,19 @@ export default function WhatsAppChatPanel({
   }
 
   function handleSelectTemplate(tpl: any) {
-    setInput(tpl.content || '');
+    let content = tpl.content || '';
+    // Variable substitution from CRM data
+    const vars: Record<string, string> = {
+      '{{name}}': conversation?.crm_account_name || conversation?.lead_name || conversation?.display_name || contactName || '',
+      '{{phone}}': conversation?.phone_number || '',
+      '{{company}}': conversation?.crm_account_name || '',
+    };
+    for (const [key, val] of Object.entries(vars)) {
+      content = content.replaceAll(key, val);
+    }
+    setInput(content);
     setShowTemplateModal(false);
+    setShowSlashMenu(false);
   }
 
   // ── Block/Unblock ──
@@ -828,7 +931,7 @@ export default function WhatsAppChatPanel({
 
   const groups = groupByDate(messages);
   const hasMessages = messages.length > 0;
-  const presenceText = presence?.status === 'composing' ? 'typing...'
+  const presenceText = (wsTyping || presence?.status === 'composing') ? 'typing...'
     : presence?.status === 'available' ? 'online'
     : presence?.lastSeen ? `last seen ${new Date(presence.lastSeen * 1000).toLocaleString()}`
     : '';
@@ -855,6 +958,25 @@ export default function WhatsAppChatPanel({
           </p>
         </div>
         <div className="flex items-center gap-0.5">
+          {/* Quick AI buttons */}
+          {hasMessages && effectiveContactId && (
+            <>
+              <button onClick={() => { setShowAiPanel(true); runAiAction('suggest_reply'); }}
+                disabled={aiLoading !== null}
+                className="px-2 py-1 rounded-full hover:bg-white/10 transition-colors text-[10px] font-medium flex items-center gap-1"
+                style={{ color: '#e0c3fc', border: '1px solid rgba(255,255,255,0.2)' }}
+                title="AI Suggest Reply">
+                {aiLoading === 'suggest_reply' ? <span className="inline-block w-3 h-3 border-2 border-white/60 border-t-transparent rounded-full animate-spin" /> : '✨'}
+                AI
+              </button>
+              <button onClick={() => { setShowAiPanel(true); runAiAction('summarize'); }}
+                disabled={aiLoading !== null}
+                className="p-2 rounded-full hover:bg-white/10 transition-colors"
+                title="Summarize conversation">
+                <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+              </button>
+            </>
+          )}
           {/* Search */}
           <button onClick={() => setShowSearch(!showSearch)}
             className="p-2 rounded-full hover:bg-white/10 transition-colors" title="Search messages">
@@ -974,16 +1096,16 @@ export default function WhatsAppChatPanel({
 
       {/* ── Blocked banner ── */}
       {isBlocked && (
-        <div className="px-4 py-2 text-xs text-center font-medium" style={{ background: '#fef2f2', color: '#dc2626' }}>
-          This contact is blocked. <button onClick={handleBlock} className="underline">Unblock</button>
+        <div className="px-4 py-2 text-[13px] text-center font-medium" style={{ background: '#fdf2f2', color: '#ea0038' }}>
+          This contact is blocked. <button onClick={handleBlock} className="underline font-semibold">Unblock</button>
         </div>
       )}
 
       {/* ── Sync result banner ── */}
       {syncCount !== null && (
-        <div className="px-4 py-2 text-xs text-center font-medium" style={{ background: '#f0fdf4', color: '#15803d' }}>
+        <div className="px-4 py-2 text-[13px] text-center font-medium" style={{ background: '#d1f4cc', color: '#111b21' }}>
           Synced {syncCount} messages from WhatsApp
-          <button onClick={() => setSyncCount(null)} className="ml-2 underline">Dismiss</button>
+          <button onClick={() => setSyncCount(null)} className="ml-3 text-[12px] px-2 py-0.5 rounded" style={{ background: 'rgba(0,0,0,0.06)' }}>Dismiss</button>
         </div>
       )}
 
@@ -1452,6 +1574,63 @@ export default function WhatsAppChatPanel({
             className="p-1.5 rounded-full hover:bg-gray-200" style={{ color: '#8696a0' }}>
             <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 6 6 18M6 6l12 12"/></svg>
           </button>
+        </div>
+      )}
+
+      {/* ── AI Suggested Replies ── */}
+      {aiSuggestions.length > 0 && (
+        <div className="px-3 py-2 flex gap-2 overflow-x-auto flex-shrink-0" style={{ background: '#f9f5ff', borderTop: '1px solid #ede9fe' }}>
+          <span className="text-[10px] font-medium self-center flex-shrink-0" style={{ color: '#8b5cf6' }}>AI:</span>
+          {aiSuggestions.map((s, i) => (
+            <button key={i} onClick={() => { setInput(s); setAiSuggestions([]); }}
+              className="px-3 py-1.5 rounded-full text-xs whitespace-nowrap transition-colors hover:shadow-sm"
+              style={{ background: 'white', border: '1px solid #ddd6fe', color: '#3b4a54' }}>
+              {s.length > 60 ? s.slice(0, 60) + '...' : s}
+            </button>
+          ))}
+          <button onClick={() => setAiSuggestions([])}
+            className="p-1 rounded-full hover:bg-purple-100 flex-shrink-0 self-center"
+            style={{ color: '#8b5cf6' }}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 6 6 18M6 6l12 12"/></svg>
+          </button>
+        </div>
+      )}
+
+      {/* ── Slash command template picker ── */}
+      {showSlashMenu && effectiveContactId && (
+        <div className="mx-3 mb-1 rounded-lg shadow-lg overflow-hidden" style={{ background: 'white', border: '1px solid #e5e7eb', maxHeight: 240 }}>
+          <div className="px-3 py-2 flex items-center gap-2" style={{ borderBottom: '1px solid #e5e7eb', background: '#f9fafb' }}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#8696a0" strokeWidth="2"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.35-4.35"/></svg>
+            <span className="text-xs" style={{ color: '#8696a0' }}>Templates matching &quot;{slashFilter}&quot;</span>
+          </div>
+          <div className="overflow-y-auto" style={{ maxHeight: 200 }}>
+            {templates.length === 0 ? (
+              <div className="px-4 py-4 text-center text-xs" style={{ color: '#8696a0' }}>Loading templates...</div>
+            ) : (() => {
+              const filtered = templates.filter(t =>
+                !slashFilter ||
+                (t.name || '').toLowerCase().includes(slashFilter) ||
+                (t.shortcut || '').toLowerCase().includes(slashFilter) ||
+                (t.content || '').toLowerCase().includes(slashFilter)
+              );
+              if (filtered.length === 0) return (
+                <div className="px-4 py-4 text-center text-xs" style={{ color: '#8696a0' }}>No matching templates</div>
+              );
+              return filtered.map((tpl: any, i: number) => (
+                <button key={tpl.id}
+                  onClick={() => handleSelectTemplate(tpl)}
+                  className="block w-full text-left px-3 py-2 transition-colors"
+                  style={{ background: i === slashIdx ? '#f0f2f5' : 'transparent', borderBottom: '1px solid #f0f2f5' }}>
+                  <div className="flex items-center gap-2">
+                    {tpl.shortcut && <span className="text-xs font-mono font-semibold" style={{ color: '#00a884' }}>/{tpl.shortcut}</span>}
+                    <span className="text-xs font-medium" style={{ color: '#3b4a54' }}>{tpl.name}</span>
+                    {tpl.category && <span className="text-[9px] px-1 rounded" style={{ background: '#f0f2f5', color: '#8696a0' }}>{tpl.category}</span>}
+                  </div>
+                  <p className="text-[11px] mt-0.5 truncate" style={{ color: '#8696a0' }}>{tpl.content}</p>
+                </button>
+              ));
+            })()}
+          </div>
         </div>
       )}
 

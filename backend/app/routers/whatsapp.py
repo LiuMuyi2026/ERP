@@ -16,6 +16,7 @@ from app.deps import get_current_user_with_tenant, require_admin_with_tenant, ge
 from app.utils.sql import safe_set_search_path
 from app.services.ai.provider import generate_text_for_tenant
 from app.services.wa_bridge import wa_bridge, BridgeError
+from app.routers.ws_whatsapp import wa_ws_manager
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/whatsapp", tags=["whatsapp"])
@@ -1821,6 +1822,21 @@ Conversation:
 
 Provide actionable, specific recommendations. Write in the same language as the conversation.""",
 
+        "suggest_reply": f"""Based on this WhatsApp sales conversation, generate exactly 3 suggested reply messages that the salesperson could send next.
+
+Rules:
+- Each reply should be a complete, ready-to-send message (not a template)
+- Vary the tone: one professional, one friendly, one action-oriented
+- Keep each reply concise (1-3 sentences)
+- Consider the conversation context and lead stage
+- Write in the SAME LANGUAGE as the conversation
+{lead_context}
+
+Conversation:
+{chat_text}
+
+Return ONLY the 3 replies, one per line, prefixed with numbers (1. 2. 3.). No explanations or headers.""",
+
         "sales_tips": f"""Based on this WhatsApp sales conversation, provide real-time sales coaching tips:
 - What the salesperson is doing well
 - Areas for improvement
@@ -2626,21 +2642,21 @@ async def evo_webhook(request: Request, db: AsyncSession = Depends(get_db)):
 
     try:
         if event == "CONNECTION_UPDATE":
-            await _handle_connection_update(db, instance, data)
+            await _handle_connection_update(db, instance, data, tenant_slug)
         elif event == "QRCODE_UPDATED":
             pass  # QR is fetched on-demand via get_qr endpoint
         elif event == "MESSAGES_UPSERT":
-            await _handle_messages_upsert(db, instance, data)
+            await _handle_messages_upsert(db, instance, data, tenant_slug)
         elif event == "MESSAGES_UPDATE":
-            await _handle_messages_update(db, instance, data)
+            await _handle_messages_update(db, instance, data, tenant_slug)
         elif event == "MESSAGES_DELETE":
-            await _handle_messages_delete(db, instance, data)
+            await _handle_messages_delete(db, instance, data, tenant_slug)
         elif event == "GROUPS_UPSERT":
             await _handle_groups_upsert(db, instance, data)
         elif event == "GROUP_PARTICIPANTS_UPDATE":
             await _handle_group_participants_update(db, instance, data)
         elif event == "PRESENCE_UPDATE":
-            pass  # Presence updates are not stored
+            await _handle_presence_update(tenant_slug, instance, data)
         else:
             logger.debug("evo-webhook: unhandled event %s", event)
     except Exception as e:
@@ -2650,7 +2666,7 @@ async def evo_webhook(request: Request, db: AsyncSession = Depends(get_db)):
     return {"ok": True}
 
 
-async def _handle_connection_update(db: AsyncSession, instance: str, data: dict):
+async def _handle_connection_update(db: AsyncSession, instance: str, data: dict, tenant_slug: str = ""):
     """Handle CONNECTION_UPDATE event from Evolution API."""
     state = data.get("state") or data.get("status", "")
     # Evolution states: open, close, connecting
@@ -2706,8 +2722,16 @@ async def _handle_connection_update(db: AsyncSession, instance: str, data: dict)
 
     await db.commit()
 
+    # Broadcast connection_update via WebSocket
+    if tenant_slug:
+        await wa_ws_manager.broadcast(tenant_slug, {
+            "type": "connection_update",
+            "account_id": instance,
+            "status": new_status,
+        })
 
-async def _handle_messages_upsert(db: AsyncSession, instance: str, data: dict):
+
+async def _handle_messages_upsert(db: AsyncSession, instance: str, data: dict, tenant_slug: str = ""):
     """Handle MESSAGES_UPSERT event — new incoming/outgoing message."""
     # Evolution sends array or single message
     messages = data if isinstance(data, list) else [data]
@@ -2892,10 +2916,36 @@ async def _handle_messages_upsert(db: AsyncSession, instance: str, data: dict):
                     "ts": ts, "meta": json.dumps(metadata), "reply_to": reply_to,
                 })
 
+                # Broadcast new_message via WebSocket
+                if tenant_slug and not is_history:
+                    # Get updated unread count
+                    uc_row = await db.execute(text(
+                        "SELECT unread_count FROM whatsapp_contacts WHERE id = :cid"
+                    ), {"cid": contact_id})
+                    uc = uc_row.fetchone()
+                    await wa_ws_manager.broadcast(tenant_slug, {
+                        "type": "new_message",
+                        "contact_id": contact_id,
+                        "account_id": instance,
+                        "direction": direction,
+                        "message": {
+                            "wa_message_id": wa_message_id,
+                            "message_type": extracted["type"],
+                            "content": extracted["text"],
+                            "media_url": extracted.get("media_url"),
+                            "media_mime_type": extracted.get("media_mime"),
+                            "direction": direction,
+                            "timestamp": ts.isoformat(),
+                            "reply_to_message_id": reply_to,
+                        },
+                        "push_name": push_name,
+                        "unread_count": uc.unread_count if uc else 0,
+                    })
+
     await db.commit()
 
 
-async def _handle_messages_update(db: AsyncSession, instance: str, data: dict):
+async def _handle_messages_update(db: AsyncSession, instance: str, data: dict, tenant_slug: str = ""):
     """Handle MESSAGES_UPDATE event — status changes (sent/delivered/read)."""
     updates = data if isinstance(data, list) else [data]
 
@@ -2922,10 +2972,18 @@ async def _handle_messages_update(db: AsyncSession, instance: str, data: dict):
                 {"st": new_status, "mid": wa_message_id},
             )
 
+            # Broadcast message_status via WebSocket
+            if tenant_slug:
+                await wa_ws_manager.broadcast(tenant_slug, {
+                    "type": "message_status",
+                    "wa_message_id": wa_message_id,
+                    "status": new_status,
+                })
+
     await db.commit()
 
 
-async def _handle_messages_delete(db: AsyncSession, instance: str, data: dict):
+async def _handle_messages_delete(db: AsyncSession, instance: str, data: dict, tenant_slug: str = ""):
     """Handle MESSAGES_DELETE event."""
     key = data.get("key", {})
     wa_message_id = key.get("id")
@@ -2934,6 +2992,13 @@ async def _handle_messages_delete(db: AsyncSession, instance: str, data: dict):
             UPDATE whatsapp_messages SET is_deleted = TRUE, content = NULL WHERE wa_message_id = :mid
         """), {"mid": wa_message_id})
         await db.commit()
+
+        # Broadcast message_deleted via WebSocket
+        if tenant_slug:
+            await wa_ws_manager.broadcast(tenant_slug, {
+                "type": "message_deleted",
+                "wa_message_id": wa_message_id,
+            })
 
 
 async def _handle_groups_upsert(db: AsyncSession, instance: str, data: dict):
@@ -2993,3 +3058,20 @@ async def _handle_group_participants_update(db: AsyncSession, instance: str, dat
         WHERE wa_account_id = :aid AND wa_jid = :jid
     """), {"meta": json.dumps(meta), "aid": instance, "jid": group_jid})
     await db.commit()
+
+
+async def _handle_presence_update(tenant_slug: str, instance: str, data: dict):
+    """Handle PRESENCE_UPDATE event — forward typing indicators via WebSocket."""
+    if not tenant_slug:
+        return
+    participant = data.get("id") or data.get("participant", "")
+    # Evolution presence states: composing, paused, available, unavailable
+    state = data.get("status") or data.get("presences", {}).get(participant, {}).get("lastKnownPresence", "")
+    if not participant or not state:
+        return
+    await wa_ws_manager.broadcast(tenant_slug, {
+        "type": "typing",
+        "account_id": instance,
+        "participant": participant,
+        "state": state,
+    })
