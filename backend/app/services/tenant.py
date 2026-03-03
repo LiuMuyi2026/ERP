@@ -1323,6 +1323,9 @@ TENANT_MIGRATION_DDL = [
     # ── Phase 9: WhatsApp pin/mute ───────────────────────────────────────
     "ALTER TABLE whatsapp_contacts ADD COLUMN IF NOT EXISTS is_pinned BOOLEAN DEFAULT FALSE",
     "ALTER TABLE whatsapp_contacts ADD COLUMN IF NOT EXISTS is_muted BOOLEAN DEFAULT FALSE",
+
+    # ── Phase 10: JID phone index for merge queries ──────────────────────
+    "CREATE INDEX IF NOT EXISTS idx_wa_contacts_jid_phone ON whatsapp_contacts(SPLIT_PART(wa_jid, '@', 1))",
 ]
 
 

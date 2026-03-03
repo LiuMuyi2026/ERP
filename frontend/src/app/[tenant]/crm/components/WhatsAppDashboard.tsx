@@ -30,6 +30,7 @@ type Conversation = {
   wa_labels?: string[];
   disappearing_duration?: number;
   group_metadata?: any;
+  merge_key?: string;
 };
 
 type WaAccount = {

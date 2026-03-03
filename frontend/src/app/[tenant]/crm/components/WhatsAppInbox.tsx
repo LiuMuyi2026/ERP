@@ -35,6 +35,7 @@ type Conversation = {
   wa_labels?: string[];
   disappearing_duration?: number;
   group_metadata?: any;
+  merge_key?: string;
 };
 
 function parsePreview(raw?: string): { text: string; isMe: boolean } {
@@ -435,13 +436,20 @@ export default function WhatsAppInbox() {
     // New message: bump conversation to top, update preview and unread
     unsubs.push(onWsEvent('new_message', (ev) => {
       setConversations((prev) => {
-        const idx = prev.findIndex((c) => c.id === ev.contact_id);
+        // Try exact contact_id match first, then fallback to merge_key
+        let idx = prev.findIndex((c) => c.id === ev.contact_id);
+        if (idx < 0 && ev.contact_jid) {
+          const phone = ev.contact_jid.split('@')[0];
+          idx = prev.findIndex((c) => c.merge_key === phone || (c.wa_jid && c.wa_jid.split('@')[0] === phone));
+        }
         if (idx >= 0) {
           const updated = { ...prev[idx] };
           updated.last_message_preview = ev.message?.content || '';
           updated.last_message_at = ev.message?.timestamp || new Date().toISOString();
           // Only increment unread if this isn't the currently open chat
-          if (!selectedContact || selectedContact.id !== ev.contact_id) {
+          const isOpen = selectedContact && (selectedContact.id === ev.contact_id ||
+            (selectedContact.merge_key && ev.contact_jid && selectedContact.merge_key === ev.contact_jid.split('@')[0]));
+          if (!isOpen) {
             updated.unread_count = ev.unread_count ?? (updated.unread_count + 1);
           }
           const rest = [...prev];

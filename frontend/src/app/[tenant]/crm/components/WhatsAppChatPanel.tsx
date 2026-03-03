@@ -97,6 +97,9 @@ export default function WhatsAppChatPanel({
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const [hasMore, setHasMore] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
 
   // Reply state
   const [replyTo, setReplyTo] = useState<Message | null>(null);
@@ -236,24 +239,56 @@ export default function WhatsAppChatPanel({
   const [wsTyping, setWsTyping] = useState(false);
 
   // ── Load messages ──
-  async function loadMessages() {
-    setLoading(true);
+  async function loadMessages(olderPage = false) {
+    if (olderPage) {
+      if (loadingMore || !hasMore) return;
+      setLoadingMore(true);
+    } else {
+      setLoading(true);
+    }
     try {
       let data: Message[];
+      let more = false;
       if (contactId) {
-        data = await api.get(`/api/whatsapp/conversations/${contactId}/messages`);
+        const beforeParam = olderPage && messages.length > 0
+          ? `&before=${messages[0].timestamp}` : '';
+        const resp: any = await api.get(`/api/whatsapp/conversations/${contactId}/messages?limit=50${beforeParam}`);
+        // Support both new {messages, has_more} and legacy array format
+        if (resp && typeof resp === 'object' && 'messages' in resp) {
+          data = resp.messages;
+          more = resp.has_more;
+        } else {
+          data = Array.isArray(resp) ? resp : [];
+        }
       } else if (leadId) {
-        data = await api.get(`/api/whatsapp/leads/${leadId}/messages`);
-        if (!resolvedContactId && Array.isArray(data) && data.length > 0) {
+        const resp = await api.get(`/api/whatsapp/leads/${leadId}/messages`);
+        data = Array.isArray(resp) ? resp : [];
+        if (!resolvedContactId && data.length > 0) {
           const cid = (data[0] as any).wa_contact_id;
           if (cid) setResolvedContactId(cid);
         }
       } else {
         data = [];
       }
-      setMessages(Array.isArray(data) ? data : []);
-    } catch { setMessages([]); }
-    finally { setLoading(false); }
+      setHasMore(more);
+      if (olderPage) {
+        // Prepend older messages, preserve scroll position
+        const container = scrollContainerRef.current;
+        const prevHeight = container?.scrollHeight || 0;
+        setMessages(prev => [...data, ...prev]);
+        requestAnimationFrame(() => {
+          if (container) {
+            container.scrollTop = container.scrollHeight - prevHeight;
+          }
+        });
+      } else {
+        setMessages(data);
+      }
+    } catch { if (!olderPage) setMessages([]); }
+    finally {
+      if (olderPage) setLoadingMore(false);
+      else setLoading(false);
+    }
   }
 
   // ── Mark read on open + initial load ──
@@ -268,7 +303,18 @@ export default function WhatsAppChatPanel({
     return () => clearInterval(iv);
   }, [effectiveContactId, leadId]);
 
-  useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages.length]);
+  // Auto-scroll only when new messages arrive at the end (not on history load)
+  const prevMsgCountRef = useRef(0);
+  useEffect(() => {
+    const prevCount = prevMsgCountRef.current;
+    const newCount = messages.length;
+    prevMsgCountRef.current = newCount;
+    // Scroll to bottom on initial load or when new messages are appended at the end
+    if (prevCount === 0 || (newCount > prevCount && messages.length > 0 &&
+        messages[messages.length - 1]?.timestamp >= (messages[prevCount - 1]?.timestamp || ''))) {
+      bottomRef.current?.scrollIntoView({ behavior: prevCount === 0 ? 'auto' : 'smooth' });
+    }
+  }, [messages.length]);
 
   // ── Presence: initial fetch (WS is primary for updates) ──
   useEffect(() => {
@@ -1481,10 +1527,16 @@ export default function WhatsAppChatPanel({
       )}
 
       {/* ── Messages ── */}
-      <div className="flex-1 overflow-y-auto px-12 py-4" style={{
+      <div ref={scrollContainerRef} className="flex-1 overflow-y-auto px-12 py-4" style={{
         background: `#e5ddd5`,
         backgroundImage: `url("data:image/svg+xml,%3Csvg width='400' height='400' viewBox='0 0 400 400' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='%23c6ccd1' fill-opacity='0.15'%3E%3Cpath d='M20 20h8v2h-8zm30 0h6v3h-6zm25 5h4v4h-4zm-60 10h5v5h-5zm40 0h3v6h-3zm30 5h7v3h-7zM15 50h4v4h-4zm35-5h6v4h-6zm30 10h5v3h-5zm-50 15h3v5h-3zm25-5h8v2h-8zm35 0h4v6h-4zM10 80h6v3h-6zm45-5h5v5h-5zm25 10h7v2h-7zm-55 15h4v4h-4zm30-5h6v3h-6zm40 5h3v5h-3zM20 110h5v4h-5zm25 5h8v3h-8zm30-5h4v6h-4zm-65 20h7v2h-7zm35-5h5v5h-5zm30 10h6v3h-6zM10 150h4v4h-4zm40-5h3v6h-3zm25 5h8v2h-8zm-50 20h6v3h-6zm30 0h5v5h-5zm35-5h4v4h-4zM25 185h7v3h-7zm25 5h4v4h-4zm30-5h6v5h-6zm-70 20h5v3h-5zm40 0h3v6h-3zm30 5h8v2h-8zM15 220h4v5h-4zm30-5h6v4h-6zm25 10h5v3h-5zm-40 15h7v2h-7zm25 0h4v6h-4zm35-5h3v5h-3zM10 260h6v3h-6zm45-5h8v4h-8zm20 10h5v3h-5zm-55 15h4v4h-4zm30 0h6v5h-6zm30-5h7v3h-7zM20 295h5v4h-5zm25 5h3v6h-3zm30-5h8v2h-8zm-60 20h4v4h-4zm35 0h6v3h-6zm30 5h5v5h-5zM15 335h7v3h-7zm25-5h4v6h-4zm30 5h6v2h-6zm-50 15h5v4h-5zm30 5h3v5h-3zm25-5h8v3h-8zM10 370h6v4h-6zm40-5h5v5h-5zm25 10h4v3h-4zm-55 15h7v2h-7zm35 0h4v6h-4zm30-5h6v4h-6z'/%3E%3Ccircle cx='200' cy='50' r='2'/%3E%3Ccircle cx='350' cy='100' r='1.5'/%3E%3Ccircle cx='100' cy='200' r='2'/%3E%3Ccircle cx='300' cy='250' r='1.5'/%3E%3Ccircle cx='50' cy='350' r='2'/%3E%3Ccircle cx='250' cy='370' r='1.5'/%3E%3C/g%3E%3C/svg%3E")`,
       }}
+        onScroll={(e) => {
+          const el = e.currentTarget;
+          if (el.scrollTop < 100 && hasMore && !loadingMore) {
+            loadMessages(true);
+          }
+        }}
         onClick={() => { setMenuMsg(null); setShowDisappearing(false); setShowMoreMenu(false); setShowCallMenu(false); setShowAttachMenu(false); }}>
         {loading ? (
           <div className="text-center text-sm py-8" style={{ color: 'var(--notion-text-muted)' }}>Loading messages...</div>
@@ -1492,8 +1544,20 @@ export default function WhatsAppChatPanel({
           <div className="text-center py-12">
             <p className="text-sm" style={{ color: 'var(--notion-text-muted)' }}>No messages yet</p>
           </div>
-        ) : (
-          groups.map(group => (
+        ) : (<>
+          {loadingMore && (
+            <div className="text-center py-3">
+              <span className="inline-block w-5 h-5 border-2 border-gray-300 border-t-gray-600 rounded-full animate-spin" />
+            </div>
+          )}
+          {!hasMore && !loadingMore && messages.length > 0 && (
+            <div className="text-center py-3">
+              <span className="text-xs px-3 py-1 rounded-lg" style={{ background: 'rgba(255,255,255,0.9)', color: '#8696a0' }}>
+                Beginning of conversation
+              </span>
+            </div>
+          )}
+          {groups.map(group => (
             <div key={group.label}>
               <div className="flex items-center justify-center my-4">
                 <span className="px-3 py-1.5 rounded-lg text-[11px] font-medium"
@@ -1660,8 +1724,8 @@ export default function WhatsAppChatPanel({
                 );
               })}
             </div>
-          ))
-        )}
+          ))}
+        </>)}
         <div ref={bottomRef} />
       </div>
 

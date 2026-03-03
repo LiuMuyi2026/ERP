@@ -265,6 +265,17 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def normalize_jid(jid: str, alt_jid: str = "") -> str:
+    """Normalize WhatsApp JID: prefer @s.whatsapp.net over @lid format."""
+    if not jid:
+        return jid
+    if jid.endswith("@lid") and alt_jid and "@s.whatsapp.net" in alt_jid:
+        return alt_jid
+    if jid.endswith("@lid"):
+        return jid.split("@")[0] + "@s.whatsapp.net"
+    return jid
+
+
 async def _verify_contact_ownership(db, contact_id: str, uid: str):
     """Verify user owns this contact via account ownership. Returns contact row."""
     own = await db.execute(text("""
@@ -503,18 +514,44 @@ async def get_messages(
     ctx: dict = Depends(get_current_user_with_tenant),
 ):
     db = ctx["db"]
-    await _verify_contact_ownership(db, contact_id, ctx["sub"])
-    q = """SELECT m.*, u.display_name AS created_by_name
-           FROM whatsapp_messages m LEFT JOIN users u ON u.id = m.created_by
-           WHERE m.wa_contact_id = :cid AND m.is_deleted = FALSE"""
-    params: dict = {"cid": contact_id}
+    contact = await _verify_contact_ownership(db, contact_id, ctx["sub"])
+    actual_limit = min(limit, 200)
+
+    # For 1:1 chats, merge messages from all contacts with the same phone number
+    contact_info = await db.execute(text(
+        "SELECT wa_jid, is_group FROM whatsapp_contacts WHERE id = :cid"
+    ), {"cid": contact_id})
+    info = contact_info.fetchone()
+    is_group = info.is_group if info else False
+
+    if not is_group and info:
+        phone = info.wa_jid.split("@")[0] if "@" in info.wa_jid else ""
+        if phone:
+            q = """SELECT m.*, u.display_name AS created_by_name
+                   FROM whatsapp_messages m
+                   LEFT JOIN users u ON u.id = m.created_by
+                   JOIN whatsapp_contacts c ON c.id = m.wa_contact_id
+                   WHERE SPLIT_PART(c.wa_jid, '@', 1) = :phone AND m.is_deleted = FALSE"""
+            params: dict = {"phone": phone}
+        else:
+            q = """SELECT m.*, u.display_name AS created_by_name
+                   FROM whatsapp_messages m LEFT JOIN users u ON u.id = m.created_by
+                   WHERE m.wa_contact_id = :cid AND m.is_deleted = FALSE"""
+            params = {"cid": contact_id}
+    else:
+        q = """SELECT m.*, u.display_name AS created_by_name
+               FROM whatsapp_messages m LEFT JOIN users u ON u.id = m.created_by
+               WHERE m.wa_contact_id = :cid AND m.is_deleted = FALSE"""
+        params = {"cid": contact_id}
+
     if before:
         q += " AND m.timestamp < :before"
         params["before"] = before
     q += " ORDER BY m.timestamp DESC LIMIT :lim"
-    params["lim"] = min(limit, 200)
+    params["lim"] = actual_limit
     rows = await db.execute(text(q), params)
     messages = [dict(r._mapping) for r in rows.fetchall()]
+    has_more = len(messages) == actual_limit
     messages.reverse()
 
     # Fetch reactions for these messages
@@ -532,7 +569,7 @@ async def get_messages(
         for m in messages:
             m["reactions"] = reactions_by_msg.get(str(m["id"]), [])
 
-    return messages
+    return {"messages": messages, "has_more": has_more}
 
 
 @router.post("/conversations/{contact_id}/send")
@@ -602,8 +639,21 @@ async def mark_conversation_read(contact_id: str, ctx: dict = Depends(get_curren
     """), {"cid": contact_id})
     msg_ids = [r.wa_message_id for r in rows.fetchall()]
 
-    # Reset unread count
-    await db.execute(text("UPDATE whatsapp_contacts SET unread_count = 0, updated_at = NOW() WHERE id = :cid"), {"cid": contact_id})
+    # Reset unread count — also clear all contacts with same phone (1:1 merge)
+    contact_info = await db.execute(text(
+        "SELECT wa_jid, is_group FROM whatsapp_contacts WHERE id = :cid"
+    ), {"cid": contact_id})
+    cinfo = contact_info.fetchone()
+    if cinfo and not cinfo.is_group:
+        phone = cinfo.wa_jid.split("@")[0] if "@" in cinfo.wa_jid else ""
+        if phone:
+            await db.execute(text(
+                "UPDATE whatsapp_contacts SET unread_count = 0, updated_at = NOW() WHERE SPLIT_PART(wa_jid, '@', 1) = :phone"
+            ), {"phone": phone})
+        else:
+            await db.execute(text("UPDATE whatsapp_contacts SET unread_count = 0, updated_at = NOW() WHERE id = :cid"), {"cid": contact_id})
+    else:
+        await db.execute(text("UPDATE whatsapp_contacts SET unread_count = 0, updated_at = NOW() WHERE id = :cid"), {"cid": contact_id})
     await db.commit()
 
     # Tell Evolution API to send read receipts
@@ -741,11 +791,12 @@ async def check_numbers(body: CheckNumbersBody, ctx: dict = Depends(get_current_
     # Auto-create contacts for verified numbers
     for r in results:
         if r.get("exists") and r.get("jid"):
+            jid = normalize_jid(r["jid"])
             await db.execute(text("""
                 INSERT INTO whatsapp_contacts (wa_account_id, wa_jid, phone_number, created_at)
                 VALUES (:aid, :jid, :phone, NOW())
                 ON CONFLICT (wa_account_id, wa_jid) DO NOTHING
-            """), {"aid": body.account_id, "jid": r["jid"], "phone": r["number"]})
+            """), {"aid": body.account_id, "jid": jid, "phone": r["number"]})
     await db.commit()
     return {"results": results}
 
@@ -883,61 +934,85 @@ async def dashboard(
     role = ctx.get("role", "")
     is_admin = role in ("platform_admin", "tenant_admin")
 
-    q = """
-        SELECT c.*, a.display_name AS account_name, a.phone_number AS account_phone,
-               a.wa_jid AS owner_wa_jid, a.owner_user_id, u.full_name AS owner_name,
-               l.full_name AS lead_name, l.status AS lead_status,
-               ca.name AS crm_account_name,
-               COALESCE(c.is_pinned, FALSE) AS is_pinned,
-               COALESCE(c.is_muted, FALSE) AS is_muted,
-               (SELECT wm.direction || ':' || wm.message_type || ':' || COALESCE(wm.content, '')
-                FROM whatsapp_messages wm WHERE wm.wa_contact_id = c.id
-                ORDER BY wm.timestamp DESC LIMIT 1) AS last_message_preview
-        FROM whatsapp_contacts c
-        JOIN whatsapp_accounts a ON a.id = c.wa_account_id AND a.is_active = TRUE
-        LEFT JOIN users u ON u.id = a.owner_user_id
-        LEFT JOIN leads l ON l.id = c.lead_id
-        LEFT JOIN crm_accounts ca ON ca.id = c.account_id
-        WHERE 1=1
-    """
+    # Build WHERE filters for the base query
+    where_clauses = []
     params: dict = {}
 
     if not include_archived:
-        q += " AND COALESCE(c.is_archived, FALSE) = FALSE"
+        where_clauses.append("COALESCE(c.is_archived, FALSE) = FALSE")
     if not is_admin:
-        q += " AND a.owner_user_id = :uid"
+        where_clauses.append("a.owner_user_id = :uid")
         params["uid"] = ctx["sub"]
     if lead_id:
-        q += " AND c.lead_id = :lid"
+        where_clauses.append("c.lead_id = :lid")
         params["lid"] = lead_id
     if lead_status:
-        q += " AND l.status = :ls"
+        where_clauses.append("l.status = :ls")
         params["ls"] = lead_status
     if account_id:
-        q += " AND c.wa_account_id = :aid"
+        where_clauses.append("c.wa_account_id = :aid")
         params["aid"] = account_id
     if date_from:
-        q += " AND c.last_message_at >= :df"
+        where_clauses.append("c.last_message_at >= :df")
         params["df"] = date_from
     if date_to:
-        q += " AND c.last_message_at <= :dt"
+        where_clauses.append("c.last_message_at <= :dt")
         params["dt"] = date_to
     if is_group is not None:
-        q += " AND c.is_group = :ig"
+        where_clauses.append("c.is_group = :ig")
         params["ig"] = is_group
     if label_id:
-        q += " AND c.wa_labels @> :label_json::jsonb"
+        where_clauses.append("c.wa_labels @> :label_json::jsonb")
         params["label_json"] = json.dumps([label_id])
 
+    where_sql = (" AND " + " AND ".join(where_clauses)) if where_clauses else ""
+
+    # CTE: merge_key groups 1:1 chats by phone number, groups stay unique by id
+    q = f"""
+        WITH base AS (
+            SELECT c.*,
+                   a.display_name AS account_name, a.phone_number AS account_phone,
+                   a.wa_jid AS owner_wa_jid, a.owner_user_id, u.full_name AS owner_name,
+                   l.full_name AS lead_name, l.status AS lead_status,
+                   ca.name AS crm_account_name,
+                   COALESCE(c.is_pinned, FALSE) AS is_pinned,
+                   COALESCE(c.is_muted, FALSE) AS is_muted,
+                   CASE WHEN c.is_group THEN c.id::text
+                        ELSE SPLIT_PART(c.wa_jid, '@', 1) END AS merge_key,
+                   (SELECT wm.direction || ':' || wm.message_type || ':' || COALESCE(wm.content, '')
+                    FROM whatsapp_messages wm WHERE wm.wa_contact_id = c.id
+                    ORDER BY wm.timestamp DESC LIMIT 1) AS last_message_preview
+            FROM whatsapp_contacts c
+            JOIN whatsapp_accounts a ON a.id = c.wa_account_id AND a.is_active = TRUE
+            LEFT JOIN users u ON u.id = a.owner_user_id
+            LEFT JOIN leads l ON l.id = c.lead_id
+            LEFT JOIN crm_accounts ca ON ca.id = c.account_id
+            WHERE 1=1 {where_sql}
+        ),
+        ranked AS (
+            SELECT *,
+                   ROW_NUMBER() OVER (PARTITION BY merge_key ORDER BY last_message_at DESC NULLS LAST) AS rn,
+                   SUM(unread_count) OVER (PARTITION BY merge_key) AS total_unread
+            FROM base
+        )
+        SELECT * FROM ranked WHERE rn = 1
+    """
+
     if sort_by == "unread":
-        q += " ORDER BY COALESCE(c.is_pinned, FALSE) DESC, c.unread_count DESC, c.last_message_at DESC NULLS LAST"
+        q += " ORDER BY is_pinned DESC, total_unread DESC, last_message_at DESC NULLS LAST"
     elif sort_by == "lead_status":
-        q += " ORDER BY COALESCE(c.is_pinned, FALSE) DESC, l.status, c.last_message_at DESC NULLS LAST"
+        q += " ORDER BY is_pinned DESC, lead_status, last_message_at DESC NULLS LAST"
     else:
-        q += " ORDER BY COALESCE(c.is_pinned, FALSE) DESC, c.last_message_at DESC NULLS LAST"
+        q += " ORDER BY is_pinned DESC, last_message_at DESC NULLS LAST"
 
     rows = await db.execute(text(q), params)
-    return [dict(r._mapping) for r in rows.fetchall()]
+    results = []
+    for r in rows.fetchall():
+        row_dict = dict(r._mapping)
+        row_dict["unread_count"] = row_dict.pop("total_unread", row_dict.get("unread_count", 0))
+        row_dict.pop("rn", None)
+        results.append(row_dict)
+    return results
 
 
 @router.get("/admin/conversations")
@@ -966,6 +1041,57 @@ async def admin_list_conversations(
     q += " ORDER BY c.last_message_at DESC NULLS LAST"
     rows = await db.execute(text(q), params)
     return [dict(r._mapping) for r in rows.fetchall()]
+
+
+@router.post("/admin/fix-duplicate-contacts")
+async def fix_duplicate_contacts(ctx: dict = Depends(require_admin_with_tenant)):
+    """Merge @lid duplicate contacts into their @s.whatsapp.net counterparts."""
+    db = ctx["db"]
+
+    # Find all contacts with @lid JIDs
+    lid_rows = await db.execute(text(
+        "SELECT id, wa_account_id, wa_jid FROM whatsapp_contacts WHERE wa_jid LIKE '%@lid'"
+    ))
+    lid_contacts = lid_rows.fetchall()
+
+    merged = 0
+    renamed = 0
+
+    for lc in lid_contacts:
+        phone = lc.wa_jid.split("@")[0]
+        canonical_jid = phone + "@s.whatsapp.net"
+
+        # Check if canonical version exists (same account or any account)
+        canon_row = await db.execute(text(
+            "SELECT id FROM whatsapp_contacts WHERE wa_jid = :jid AND id != :lid_id LIMIT 1"
+        ), {"jid": canonical_jid, "lid_id": str(lc.id)})
+        canon = canon_row.fetchone()
+
+        if canon:
+            # Merge: move messages from @lid contact to canonical contact
+            await db.execute(text(
+                "UPDATE whatsapp_messages SET wa_contact_id = :canon_id WHERE wa_contact_id = :lid_id"
+            ), {"canon_id": str(canon.id), "lid_id": str(lc.id)})
+            # Merge unread count
+            await db.execute(text("""
+                UPDATE whatsapp_contacts SET
+                    unread_count = unread_count + COALESCE((SELECT unread_count FROM whatsapp_contacts WHERE id = :lid_id), 0),
+                    last_message_at = GREATEST(last_message_at, (SELECT last_message_at FROM whatsapp_contacts WHERE id = :lid_id)),
+                    updated_at = NOW()
+                WHERE id = :canon_id
+            """), {"canon_id": str(canon.id), "lid_id": str(lc.id)})
+            # Delete the @lid duplicate
+            await db.execute(text("DELETE FROM whatsapp_contacts WHERE id = :lid_id"), {"lid_id": str(lc.id)})
+            merged += 1
+        else:
+            # No canonical version exists — just rename JID
+            await db.execute(text(
+                "UPDATE whatsapp_contacts SET wa_jid = :new_jid, updated_at = NOW() WHERE id = :lid_id"
+            ), {"new_jid": canonical_jid, "lid_id": str(lc.id)})
+            renamed += 1
+
+    await db.commit()
+    return {"ok": True, "merged": merged, "renamed": renamed, "total_processed": merged + renamed}
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -2192,7 +2318,7 @@ async def sync_chats(account_id: str, ctx: dict = Depends(get_current_user_with_
     synced = 0
 
     for chat in chats:
-        jid = chat.get("id") or chat.get("jid", "")
+        jid = normalize_jid(chat.get("id") or chat.get("jid", ""))
         if not jid or jid == "status@broadcast":
             continue
         is_group = jid.endswith("@g.us")
@@ -2224,7 +2350,7 @@ async def sync_contacts(account_id: str, ctx: dict = Depends(get_current_user_wi
     synced = 0
 
     for c in contacts:
-        jid = c.get("id") or c.get("jid", "")
+        jid = normalize_jid(c.get("id") or c.get("jid", ""))
         if not jid or jid == "status@broadcast" or jid.endswith("@g.us"):
             continue
         name = c.get("pushName") or c.get("name", "")
@@ -2847,10 +2973,8 @@ async def _handle_messages_upsert(db: AsyncSession, instance: str, data: dict, t
         remote_jid = key.get("remoteJid", "")
         from_me = key.get("fromMe", False)
 
-        # Prefer @s.whatsapp.net JID over @lid format for consistency
-        remote_jid_alt = key.get("remoteJidAlt", "")
-        if remote_jid.endswith("@lid") and remote_jid_alt and "@s.whatsapp.net" in remote_jid_alt:
-            remote_jid = remote_jid_alt
+        # Normalize JID: prefer @s.whatsapp.net over @lid
+        remote_jid = normalize_jid(remote_jid, key.get("remoteJidAlt", ""))
 
         if not wa_message_id or not remote_jid:
             continue
@@ -3031,6 +3155,7 @@ async def _handle_messages_upsert(db: AsyncSession, instance: str, data: dict, t
                     await wa_ws_manager.broadcast(tenant_slug, {
                         "type": "new_message",
                         "contact_id": contact_id,
+                        "contact_jid": remote_jid,
                         "account_id": instance,
                         "direction": direction,
                         "message": {
@@ -3138,7 +3263,7 @@ async def _handle_groups_upsert(db: AsyncSession, instance: str, data: dict):
     """Handle GROUPS_UPSERT event — group metadata updates."""
     groups = data if isinstance(data, list) else [data]
     for group in groups:
-        group_jid = group.get("id") or group.get("jid", "")
+        group_jid = normalize_jid(group.get("id") or group.get("jid", ""))
         if not group_jid:
             continue
         metadata = {
@@ -3160,7 +3285,7 @@ async def _handle_groups_upsert(db: AsyncSession, instance: str, data: dict):
 
 async def _handle_group_participants_update(db: AsyncSession, instance: str, data: dict):
     """Handle GROUP_PARTICIPANTS_UPDATE event."""
-    group_jid = data.get("id") or data.get("groupJid", "")
+    group_jid = normalize_jid(data.get("id") or data.get("groupJid", ""))
     action = data.get("action", "")
     participants = data.get("participants", [])
 
