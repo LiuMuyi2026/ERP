@@ -3213,6 +3213,8 @@
     "filterDateRange": "Date Range",
     "from": "From",
     "to": "To",
+    "srcManual": "Manual",
+    "srcAuto": "Auto",
     "srcLog": "Log",
     "typeText": "Text",
     "typeImage": "Image",

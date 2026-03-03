@@ -266,7 +266,7 @@ export default function MessageManagement() {
           </p>
         </div>
 
-        {/* Source toggle — switch between internal logs and all */}
+        {/* Source toggle — switch between manual, auto, and all */}
         <div className="flex items-center gap-1 rounded-lg p-0.5" style={{ background: '#f0f2f5' }}>
           <button
             onClick={() => { setSource('interaction'); setPage(1); }}
@@ -276,7 +276,17 @@ export default function MessageManagement() {
               color: source === 'interaction' ? '#111b21' : '#8696a0',
               boxShadow: source === 'interaction' ? '0 1px 3px rgba(0,0,0,0.08)' : 'none',
             }}>
-            {tMsg('srcLog') || '内部记录'}
+            {tMsg('srcManual') || '手动记录'}
+          </button>
+          <button
+            onClick={() => { setSource('whatsapp_message'); setPage(1); }}
+            className="px-3 py-1.5 rounded-md text-[12px] font-medium transition-all"
+            style={{
+              background: source === 'whatsapp_message' ? 'white' : 'transparent',
+              color: source === 'whatsapp_message' ? '#111b21' : '#8696a0',
+              boxShadow: source === 'whatsapp_message' ? '0 1px 3px rgba(0,0,0,0.08)' : 'none',
+            }}>
+            {tMsg('srcAuto') || '自动记录'}
           </button>
           <button
             onClick={() => { setSource(''); setPage(1); }}
@@ -430,7 +440,7 @@ export default function MessageManagement() {
           </svg>
           <p className="text-[14px]" style={{ color: '#667781' }}>{t('noInteractions')}</p>
           <p className="text-[12px] mt-1" style={{ color: '#8696a0' }}>
-            {source === 'interaction' ? '暂无内部沟通记录' : '暂无通讯记录'}
+            {source === 'interaction' ? '暂无手动记录' : source === 'whatsapp_message' ? '暂无自动记录' : '暂无通讯记录'}
           </p>
         </div>
       )}

@@ -3226,6 +3226,8 @@
     "filterDateRange": "日期范围",
     "from": "从",
     "to": "至",
+    "srcManual": "手动记录",
+    "srcAuto": "自动记录",
     "srcLog": "手动记录",
     "typeText": "文本",
     "typeImage": "图片",
