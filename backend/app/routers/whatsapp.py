@@ -1040,6 +1040,69 @@ async def unlink_contact(contact_id: str, ctx: dict = Depends(get_current_user_w
     return {"ok": True}
 
 
+@router.get("/contacts/{contact_id}/crm-context")
+async def get_crm_context(contact_id: str, ctx: dict = Depends(get_current_user_with_tenant)):
+    """Get CRM context for a WhatsApp contact — lead info, recent interactions, contract summary."""
+    db = ctx["db"]
+    contact = await _verify_contact_ownership(db, contact_id, ctx["sub"])
+
+    result: dict = {"contact_id": contact_id, "lead": None, "interactions": [], "contracts": []}
+
+    lead_id = getattr(contact, "lead_id", None)
+    if not lead_id:
+        return result
+
+    # Lead info
+    lr = await db.execute(text(
+        "SELECT id, full_name, company, status, email, phone, whatsapp, source, ai_summary, follow_up_status, last_contacted_at FROM leads WHERE id = :lid"
+    ), {"lid": str(lead_id)})
+    lead_row = lr.fetchone()
+    if lead_row:
+        result["lead"] = dict(lead_row._mapping)
+
+    # Recent interactions (last 10)
+    try:
+        ir = await db.execute(text("""
+            SELECT id, channel, direction, summary, created_at
+            FROM lead_interactions WHERE lead_id = :lid ORDER BY created_at DESC LIMIT 10
+        """), {"lid": str(lead_id)})
+        result["interactions"] = [dict(r._mapping) for r in ir.fetchall()]
+    except Exception:
+        pass  # Table may not exist
+
+    # Related contracts
+    try:
+        cr = await db.execute(text("""
+            SELECT c.id, c.contract_no, c.status, c.contract_amount, c.currency, a.name as account_name
+            FROM crm_contracts c LEFT JOIN crm_accounts a ON a.id = c.account_id
+            WHERE c.lead_id = :lid ORDER BY c.created_at DESC LIMIT 5
+        """), {"lid": str(lead_id)})
+        result["contracts"] = [dict(r._mapping) for r in cr.fetchall()]
+    except Exception:
+        pass
+
+    return result
+
+
+class UpdateLeadStatusBody(BaseModel):
+    status: str
+
+
+@router.post("/contacts/{contact_id}/update-lead-status")
+async def update_lead_status(contact_id: str, body: UpdateLeadStatusBody, ctx: dict = Depends(get_current_user_with_tenant)):
+    """Quick lead status update from chat panel."""
+    db = ctx["db"]
+    contact = await _verify_contact_ownership(db, contact_id, ctx["sub"])
+    lead_id = getattr(contact, "lead_id", None)
+    if not lead_id:
+        raise HTTPException(status_code=400, detail="Contact not linked to a lead")
+    await db.execute(text(
+        "UPDATE leads SET status = :st, updated_at = NOW() WHERE id = :lid"
+    ), {"st": body.status, "lid": str(lead_id)})
+    await db.commit()
+    return {"ok": True, "lead_id": str(lead_id), "status": body.status}
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 # Phase 1: Profile picture sync, Labels, Buttons, List, Archive
 # ══════════════════════════════════════════════════════════════════════════════
@@ -2941,6 +3004,34 @@ async def _handle_messages_upsert(db: AsyncSession, instance: str, data: dict, t
                         "push_name": push_name,
                         "unread_count": uc.unread_count if uc else 0,
                     })
+
+                # Auto-create CRM interaction log for inbound messages linked to a lead
+                if direction == "inbound" and not is_history and contact_row and contact_row.lead_id:
+                    try:
+                        # Check last interaction — only log if > 1 hour since last whatsapp log
+                        last_log = await db.execute(text("""
+                            SELECT created_at FROM lead_interactions
+                            WHERE lead_id = :lid AND channel = 'whatsapp'
+                            ORDER BY created_at DESC LIMIT 1
+                        """), {"lid": str(contact_row.lead_id)})
+                        last_row = last_log.fetchone()
+                        should_log = True
+                        if last_row and last_row.created_at:
+                            from datetime import timedelta
+                            if (datetime.now(timezone.utc) - last_row.created_at.replace(tzinfo=timezone.utc)) < timedelta(hours=1):
+                                should_log = False
+                        if should_log:
+                            preview = (extracted["text"] or "")[:200]
+                            await db.execute(text("""
+                                INSERT INTO lead_interactions (id, lead_id, channel, direction, summary, created_at)
+                                VALUES (:id, :lid, 'whatsapp', 'inbound', :summary, NOW())
+                            """), {
+                                "id": str(uuid.uuid4()),
+                                "lid": str(contact_row.lead_id),
+                                "summary": f"WhatsApp: {preview}" if preview else "WhatsApp message received",
+                            })
+                    except Exception as e:
+                        logger.debug("Auto interaction log failed (table may not exist): %s", e)
 
     await db.commit()
 

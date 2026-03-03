@@ -136,6 +136,11 @@ export default function WhatsAppChatPanel({
   const [aiResult, setAiResult] = useState<{ action: AiAction; result: string } | null>(null);
   const [aiSuggestions, setAiSuggestions] = useState<string[]>([]);
 
+  // CRM sidebar
+  const [showCrmSidebar, setShowCrmSidebar] = useState(false);
+  const [crmContext, setCrmContext] = useState<any>(null);
+  const [crmLoading, setCrmLoading] = useState(false);
+
   // Typing indicator
   const typingTimer = useRef<NodeJS.Timeout | null>(null);
 
@@ -498,6 +503,25 @@ export default function WhatsAppChatPanel({
       setAiResult({ action, result: `Error: ${err.message || 'Analysis failed'}` });
     }
     finally { setAiLoading(null); }
+  }
+
+  // ── CRM Context ──
+  async function loadCrmContext() {
+    if (!effectiveContactId) return;
+    setCrmLoading(true);
+    try {
+      const data = await api.get(`/api/whatsapp/contacts/${effectiveContactId}/crm-context`);
+      setCrmContext(data);
+    } catch { setCrmContext(null); }
+    finally { setCrmLoading(false); }
+  }
+
+  async function handleUpdateLeadStatus(status: string) {
+    if (!effectiveContactId) return;
+    try {
+      await api.post(`/api/whatsapp/contacts/${effectiveContactId}/update-lead-status`, { status });
+      if (crmContext?.lead) setCrmContext({ ...crmContext, lead: { ...crmContext.lead, status } });
+    } catch (e: any) { alert(e.message || 'Failed to update status'); }
   }
 
   // ── Send Buttons ──
@@ -975,6 +999,12 @@ export default function WhatsAppChatPanel({
                 title="Summarize conversation">
                 <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
               </button>
+              <button onClick={() => { setShowCrmSidebar(!showCrmSidebar); if (!crmContext) loadCrmContext(); }}
+                className="p-2 rounded-full hover:bg-white/10 transition-colors"
+                title="CRM Info"
+                style={{ color: showCrmSidebar ? '#a8f0d6' : 'white' }}>
+                <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+              </button>
             </>
           )}
           {/* Search */}
@@ -1179,6 +1209,91 @@ export default function WhatsAppChatPanel({
               </div>
             </div>
           )}
+        </div>
+      )}
+
+      {/* ── CRM Sidebar Panel ── */}
+      {showCrmSidebar && (
+        <div className="border-b overflow-y-auto" style={{ borderColor: '#e5e7eb', background: '#f9fafb', maxHeight: 300 }}>
+          <div className="px-4 py-3">
+            <div className="flex items-center justify-between mb-3">
+              <span className="text-xs font-semibold" style={{ color: '#3b4a54' }}>CRM Info</span>
+              <button onClick={() => setShowCrmSidebar(false)} className="text-xs" style={{ color: '#8696a0' }}>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 6 6 18M6 6l12 12"/></svg>
+              </button>
+            </div>
+            {crmLoading ? (
+              <div className="flex items-center gap-2 text-xs" style={{ color: '#8696a0' }}>
+                <span className="inline-block w-3 h-3 border-2 border-current border-t-transparent rounded-full animate-spin" /> Loading...
+              </div>
+            ) : crmContext?.lead ? (
+              <div className="space-y-3">
+                {/* Lead info card */}
+                <div className="rounded-lg p-3" style={{ background: 'white', border: '1px solid #e5e7eb' }}>
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-xs font-semibold" style={{ color: '#3b4a54' }}>{crmContext.lead.full_name}</span>
+                    <select value={crmContext.lead.status || ''} onChange={(e) => handleUpdateLeadStatus(e.target.value)}
+                      className="text-[10px] px-2 py-0.5 rounded-full border outline-none cursor-pointer"
+                      style={{ borderColor: '#e5e7eb', color: '#00a884', background: '#e7fcf5' }}>
+                      {['new', 'inquiry', 'engaged', 'qualified', 'quoted', 'negotiating', 'converted', 'lost'].map((s) => (
+                        <option key={s} value={s}>{s.charAt(0).toUpperCase() + s.slice(1)}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="space-y-1 text-[11px]" style={{ color: '#8696a0' }}>
+                    {crmContext.lead.company && <div>Company: <span style={{ color: '#3b4a54' }}>{crmContext.lead.company}</span></div>}
+                    {crmContext.lead.email && <div>Email: <span style={{ color: '#3b4a54' }}>{crmContext.lead.email}</span></div>}
+                    {crmContext.lead.source && <div>Source: <span style={{ color: '#3b4a54' }}>{crmContext.lead.source}</span></div>}
+                    {crmContext.lead.ai_summary && (
+                      <div className="mt-1 p-2 rounded text-[10px]" style={{ background: '#f0f2f5' }}>
+                        {crmContext.lead.ai_summary}
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Contracts */}
+                {crmContext.contracts?.length > 0 && (
+                  <div>
+                    <div className="text-[10px] font-semibold mb-1" style={{ color: '#667781' }}>Contracts</div>
+                    {crmContext.contracts.map((c: any) => (
+                      <div key={c.id} className="flex items-center justify-between text-[11px] px-2 py-1 rounded mb-0.5"
+                        style={{ background: 'white', border: '1px solid #e5e7eb' }}>
+                        <span style={{ color: '#3b4a54' }}>{c.contract_no}</span>
+                        <span style={{ color: '#00a884' }}>{c.currency} {Number(c.contract_amount || 0).toLocaleString()}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* Recent interactions */}
+                {crmContext.interactions?.length > 0 && (
+                  <div>
+                    <div className="text-[10px] font-semibold mb-1" style={{ color: '#667781' }}>Recent Activity</div>
+                    <div className="space-y-1">
+                      {crmContext.interactions.slice(0, 5).map((i: any) => (
+                        <div key={i.id} className="text-[10px] px-2 py-1 rounded" style={{ background: 'white', border: '1px solid #f0f2f5' }}>
+                          <span className="font-medium" style={{ color: '#3b4a54' }}>{i.channel}</span>
+                          <span className="mx-1" style={{ color: '#8696a0' }}>&middot;</span>
+                          <span style={{ color: '#8696a0' }}>{i.summary?.slice(0, 60)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Refresh button */}
+                <button onClick={loadCrmContext} className="text-[10px] font-medium" style={{ color: '#00a884' }}>
+                  Refresh CRM data
+                </button>
+              </div>
+            ) : (
+              <div className="text-center py-4">
+                <div className="text-xs" style={{ color: '#8696a0' }}>No CRM data linked</div>
+                <p className="text-[10px] mt-1" style={{ color: '#8696a0' }}>Link this contact to a lead in the inbox sidebar</p>
+              </div>
+            )}
+          </div>
         </div>
       )}
 
