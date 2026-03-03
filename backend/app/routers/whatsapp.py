@@ -1227,6 +1227,11 @@ async def _handle_messages_upsert(db: AsyncSession, instance: str, data: dict):
         remote_jid = key.get("remoteJid", "")
         from_me = key.get("fromMe", False)
 
+        # Prefer @s.whatsapp.net JID over @lid format for consistency
+        remote_jid_alt = key.get("remoteJidAlt", "")
+        if remote_jid.endswith("@lid") and remote_jid_alt and "@s.whatsapp.net" in remote_jid_alt:
+            remote_jid = remote_jid_alt
+
         if not wa_message_id or not remote_jid:
             continue
 
