@@ -71,6 +71,8 @@
     "collapseSidebar": "Contraer barra lateral"
   },
   "crm": {
+    "statusContact": "Contacto",
+    "groupCustomer": "Cliente",
     "title": "CRM",
     "leadsCount": "{n} leads",
     "leads": "Leads",

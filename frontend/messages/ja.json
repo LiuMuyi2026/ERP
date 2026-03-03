@@ -71,6 +71,8 @@
     "collapseSidebar": "サイドバーを折りたたむ"
   },
   "crm": {
+    "statusContact": "連絡先",
+    "groupCustomer": "顧客管理",
     "title": "顧客管理",
     "leadsCount": "{n} 件のリード",
     "leads": "リード",
