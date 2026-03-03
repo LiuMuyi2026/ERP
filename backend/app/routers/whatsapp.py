@@ -1117,6 +1117,9 @@ async def evo_webhook(request: Request, db: AsyncSession = Depends(get_db)):
     if not event or not instance:
         return {"ok": False, "reason": "missing event or instance"}
 
+    # Normalize event name: Evolution API sends "messages.upsert" but config uses "MESSAGES_UPSERT"
+    event = event.upper().replace(".", "_")
+
     # Try to get tenant slug from webhook headers or resolve from DB
     tenant_slug = request.headers.get("x-tenant-slug", "")
     if not tenant_slug:
