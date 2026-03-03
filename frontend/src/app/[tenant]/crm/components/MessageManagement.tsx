@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '@/lib/api';
 import { HandIcon } from '@/components/ui/HandIcon';
 import SlideOver from '@/components/ui/SlideOver';
@@ -26,6 +26,23 @@ type CommItem = {
   status?: string;
   wa_contact_id?: string;
 };
+
+/** Aggregated WhatsApp conversation — one row per contact */
+type WaGroup = {
+  _grouped: true;
+  wa_contact_id: string;
+  contact_name: string;
+  company?: string;
+  lead_id?: string;
+  message_count: number;
+  last_message: string;
+  last_direction: string;
+  last_timestamp: string;
+  items: CommItem[];
+};
+
+/** A display row is either a single CommItem or a grouped WA conversation */
+type DisplayRow = (CommItem & { _grouped?: false }) | WaGroup;
 
 type ViewMode = 'timeline' | 'list' | 'by_lead';
 
@@ -123,6 +140,9 @@ export default function MessageManagement() {
   /* Detail SlideOver */
   const [detailItem, setDetailItem] = useState<CommItem | null>(null);
 
+  /* Expanded WA conversations — track which wa_contact_id are expanded inline */
+  const [expandedWa, setExpandedWa] = useState<Set<string>>(new Set());
+
   /* ---- Load data ---- */
   const load = useCallback(async () => {
     setLoading(true);
@@ -162,18 +182,67 @@ export default function MessageManagement() {
   /* ---- Active filter count (excluding default source) ---- */
   const activeFilters = [channel, direction, source !== 'interaction' ? source : '', dateFrom, dateTo].filter(Boolean).length;
 
-  /* ---- Grouping ---- */
-  const groupedByDate = items.reduce<Record<string, CommItem[]>>((acc, item) => {
-    const label = dateLabel(item.timestamp);
+  /* ---- Aggregate WhatsApp messages by contact ---- */
+  const displayRows = useMemo<DisplayRow[]>(() => {
+    const nonWa: CommItem[] = [];
+    const waMap = new Map<string, CommItem[]>();
+
+    for (const item of items) {
+      if (item.source === 'whatsapp_message' && item.wa_contact_id) {
+        const key = item.wa_contact_id;
+        if (!waMap.has(key)) waMap.set(key, []);
+        waMap.get(key)!.push(item);
+      } else {
+        nonWa.push(item);
+      }
+    }
+
+    const rows: DisplayRow[] = [...nonWa];
+
+    waMap.forEach((msgs, contactId) => {
+      // Sort messages newest-first within each group
+      msgs.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+      const latest = msgs[0];
+      rows.push({
+        _grouped: true,
+        wa_contact_id: contactId,
+        contact_name: latest.lead_name || contactId,
+        company: latest.lead_company,
+        lead_id: latest.lead_id,
+        message_count: msgs.length,
+        last_message: latest.content,
+        last_direction: latest.direction,
+        last_timestamp: latest.timestamp,
+        items: msgs,
+      });
+    });
+
+    // Sort all rows by timestamp descending
+    rows.sort((a, b) => {
+      const tsA = a._grouped ? a.last_timestamp : a.timestamp;
+      const tsB = b._grouped ? b.last_timestamp : b.timestamp;
+      if (sortBy === 'time_asc') return new Date(tsA).getTime() - new Date(tsB).getTime();
+      return new Date(tsB).getTime() - new Date(tsA).getTime();
+    });
+
+    return rows;
+  }, [items, sortBy]);
+
+  /* ---- Grouping helpers for views ---- */
+  const groupedByDate = displayRows.reduce<Record<string, DisplayRow[]>>((acc, row) => {
+    const ts = row._grouped ? row.last_timestamp : row.timestamp;
+    const label = dateLabel(ts);
     if (!acc[label]) acc[label] = [];
-    acc[label].push(item);
+    acc[label].push(row);
     return acc;
   }, {});
 
-  const groupedByLead = items.reduce<Record<string, CommItem[]>>((acc, item) => {
-    const key = item.lead_name || item.lead_id || 'Unknown';
+  const groupedByLead = displayRows.reduce<Record<string, DisplayRow[]>>((acc, row) => {
+    const key = row._grouped
+      ? (row.contact_name || row.wa_contact_id)
+      : (row.lead_name || row.lead_id || 'Unknown');
     if (!acc[key]) acc[key] = [];
-    acc[key].push(item);
+    acc[key].push(row);
     return acc;
   }, {});
 
@@ -354,7 +423,7 @@ export default function MessageManagement() {
       )}
 
       {/* ===== Empty ===== */}
-      {!loading && items.length === 0 && (
+      {!loading && displayRows.length === 0 && (
         <div className="py-20 text-center">
           <svg className="mx-auto mb-3" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#d1d5db" strokeWidth="1.5" strokeLinecap="round">
             <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
@@ -367,33 +436,106 @@ export default function MessageManagement() {
       )}
 
       {/* ===== Timeline view (default) ===== */}
-      {!loading && items.length > 0 && viewMode === 'timeline' && (
+      {!loading && displayRows.length > 0 && viewMode === 'timeline' && (
         <div className="space-y-6">
-          {Object.entries(groupedByDate).map(([label, dateItems]) => (
+          {Object.entries(groupedByDate).map(([label, dateRows]) => (
             <div key={label}>
               <div className="flex items-center gap-3 mb-3">
                 <span className="text-[13px] font-semibold" style={{ color: '#111b21' }}>{label}</span>
                 <div className="flex-1 h-px" style={{ background: '#e5e7eb' }} />
                 <span className="text-[11px] px-2 py-0.5 rounded-full" style={{ background: '#f0f2f5', color: '#667781' }}>
-                  {dateItems.length}
+                  {dateRows.length}
                 </span>
               </div>
               <div className="space-y-0.5">
-                {dateItems.map(item => {
+                {dateRows.map(row => {
+                  if (row._grouped) {
+                    const isExpanded = expandedWa.has(row.wa_contact_id);
+                    return (
+                      <div key={`wa-${row.wa_contact_id}`}>
+                        {/* Grouped WA conversation row */}
+                        <div
+                          className="flex gap-3 py-2.5 px-3 rounded-lg cursor-pointer transition-colors hover:bg-gray-50"
+                          onClick={() => setExpandedWa(prev => {
+                            const next = new Set(prev);
+                            next.has(row.wa_contact_id) ? next.delete(row.wa_contact_id) : next.add(row.wa_contact_id);
+                            return next;
+                          })}>
+                          <div className="flex flex-col items-center pt-0.5">
+                            <div className="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0"
+                              style={{ background: '#dcfce7', border: '1.5px solid #86efac' }}>
+                              <svg width="14" height="14" viewBox="0 0 24 24" fill="#15803d">
+                                <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/>
+                              </svg>
+                            </div>
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 mb-0.5">
+                              <span className="text-[13px] font-medium" style={{ color: '#111b21' }}>
+                                {row.contact_name}
+                              </span>
+                              {row.company && (
+                                <span className="text-[11px]" style={{ color: '#8696a0' }}>{row.company}</span>
+                              )}
+                              <span className="text-[9px] px-1.5 py-0.5 rounded-full font-semibold" style={{ background: '#dcfce7', color: '#15803d' }}>
+                                WA · {row.message_count} 条
+                              </span>
+                              <span className="text-[11px] ml-auto flex-shrink-0" style={{ color: '#8696a0' }} title={absTime(row.last_timestamp)}>
+                                {relTime(row.last_timestamp)}
+                              </span>
+                              <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="#8696a0" strokeWidth="1.5" strokeLinecap="round"
+                                style={{ transform: isExpanded ? 'rotate(180deg)' : 'rotate(0)', transition: 'transform 0.2s' }}>
+                                <path d="M3 4.5l3 3 3-3"/>
+                              </svg>
+                            </div>
+                            <p className="text-[13px] truncate" style={{ color: '#3b4a54' }}>
+                              {row.last_direction === 'outbound' ? '↗ ' : '↙ '}
+                              {row.last_message.slice(0, 150)}{row.last_message.length > 150 ? '...' : ''}
+                            </p>
+                          </div>
+                        </div>
+                        {/* Expanded individual messages */}
+                        {isExpanded && (
+                          <div className="ml-11 pl-3 space-y-0.5" style={{ borderLeft: '2px solid #86efac' }}>
+                            {row.items.slice(0, 20).map(msg => (
+                              <div key={msg.id}
+                                className="flex items-start gap-2 py-1.5 px-2 rounded cursor-pointer hover:bg-gray-50 text-[12px]"
+                                onClick={() => setDetailItem(msg)}>
+                                <span className="text-[10px] px-1 py-0.5 rounded font-medium flex-shrink-0"
+                                  style={{
+                                    background: msg.direction === 'inbound' ? '#dcfce7' : '#dbeafe',
+                                    color: msg.direction === 'inbound' ? '#15803d' : '#1d4ed8',
+                                  }}>
+                                  {msg.direction === 'inbound' ? '↙' : '↗'}
+                                </span>
+                                <p className="truncate flex-1" style={{ color: '#3b4a54' }}>{msg.content.slice(0, 120)}</p>
+                                <span className="text-[11px] flex-shrink-0" style={{ color: '#8696a0' }}>{relTime(msg.timestamp)}</span>
+                              </div>
+                            ))}
+                            {row.items.length > 20 && (
+                              <p className="text-[11px] py-1 px-2" style={{ color: '#8696a0' }}>
+                                ... 还有 {row.items.length - 20} 条消息
+                              </p>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  }
+
+                  // Regular CommItem row
+                  const item = row;
                   const cfg = CH[item.channel] ?? CH.note;
-                  const isWa = item.source === 'whatsapp_message';
                   return (
                     <div key={item.id}
                       className="flex gap-3 py-2.5 px-3 rounded-lg cursor-pointer transition-colors hover:bg-gray-50"
                       onClick={() => setDetailItem(item)}>
-                      {/* Timeline dot */}
                       <div className="flex flex-col items-center pt-0.5">
                         <div className="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0"
                           style={{ background: cfg.bg, border: `1.5px solid ${cfg.border}` }}>
                           <HandIcon name={cfg.icon} size={14} />
                         </div>
                       </div>
-                      {/* Content */}
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 mb-0.5">
                           <span className="text-[13px] font-medium" style={{ color: '#111b21' }}>
@@ -409,9 +551,6 @@ export default function MessageManagement() {
                             }}>
                             {item.direction === 'inbound' ? '↙ ' + t('dirInbound') : '↗ ' + t('dirOutbound')}
                           </span>
-                          {isWa && (
-                            <span className="text-[9px] px-1.5 py-0.5 rounded-full font-semibold" style={{ background: '#dcfce7', color: '#15803d' }}>WA</span>
-                          )}
                           <span className="text-[11px] ml-auto flex-shrink-0" style={{ color: '#8696a0' }} title={absTime(item.timestamp)}>
                             {relTime(item.timestamp)}
                           </span>
@@ -435,7 +574,7 @@ export default function MessageManagement() {
       )}
 
       {/* ===== List view ===== */}
-      {!loading && items.length > 0 && viewMode === 'list' && (
+      {!loading && displayRows.length > 0 && viewMode === 'list' && (
         <div className="rounded-xl overflow-hidden" style={{ border: '1px solid #e5e7eb' }}>
           <table className="w-full text-[13px]">
             <thead>
@@ -446,14 +585,84 @@ export default function MessageManagement() {
               </tr>
             </thead>
             <tbody>
-              {items.map((item, idx) => {
+              {displayRows.map((row, idx) => {
+                if (row._grouped) {
+                  const isExpanded = expandedWa.has(row.wa_contact_id);
+                  return (
+                    <Fragment key={`wa-${row.wa_contact_id}`}>
+                      <tr className="hover:bg-gray-50 transition-colors cursor-pointer"
+                        onClick={() => setExpandedWa(prev => {
+                          const next = new Set(prev);
+                          next.has(row.wa_contact_id) ? next.delete(row.wa_contact_id) : next.add(row.wa_contact_id);
+                          return next;
+                        })}
+                        style={{ borderBottom: '1px solid #f0f2f5' }}>
+                        <td className="px-4 py-3">
+                          <span className="flex items-center gap-1.5">
+                            <span className="w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0" style={{ background: '#dcfce7' }}>
+                              <svg width="12" height="12" viewBox="0 0 24 24" fill="#15803d">
+                                <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/>
+                              </svg>
+                            </span>
+                            <span className="text-[12px] font-medium" style={{ color: '#15803d' }}>WhatsApp</span>
+                          </span>
+                        </td>
+                        <td className="px-4 py-3">
+                          <span className="text-[13px] font-medium" style={{ color: '#111b21' }}>{row.contact_name}</span>
+                          {row.company && <span className="text-[11px] ml-1.5" style={{ color: '#8696a0' }}>{row.company}</span>}
+                        </td>
+                        <td className="px-4 py-3">
+                          <span className="text-[9px] px-1.5 py-0.5 rounded-full font-semibold" style={{ background: '#dcfce7', color: '#15803d' }}>
+                            {row.message_count} 条
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 max-w-md">
+                          <div className="flex items-center gap-1.5">
+                            <p className="text-[13px] truncate" style={{ color: '#3b4a54' }}>
+                              {row.last_direction === 'outbound' ? '↗ ' : '↙ '}{row.last_message.slice(0, 100)}
+                            </p>
+                            <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="#8696a0" strokeWidth="1.5" strokeLinecap="round" className="flex-shrink-0"
+                              style={{ transform: isExpanded ? 'rotate(180deg)' : 'rotate(0)', transition: 'transform 0.2s' }}>
+                              <path d="M3 4.5l3 3 3-3"/>
+                            </svg>
+                          </div>
+                        </td>
+                        <td className="px-4 py-3 text-[12px] whitespace-nowrap" style={{ color: '#8696a0' }} title={absTime(row.last_timestamp)}>
+                          {relTime(row.last_timestamp)}
+                        </td>
+                      </tr>
+                      {/* Expanded messages */}
+                      {isExpanded && row.items.slice(0, 20).map(msg => (
+                        <tr key={msg.id} className="hover:bg-gray-50 cursor-pointer" onClick={() => setDetailItem(msg)}
+                          style={{ borderBottom: '1px solid #f8f9fa', background: '#fafbfc' }}>
+                          <td className="pl-10 pr-4 py-2" />
+                          <td className="px-4 py-2 text-[12px]" style={{ color: '#667781' }}>{msg.lead_name || '—'}</td>
+                          <td className="px-4 py-2">
+                            <span className="text-[10px] px-1 py-0.5 rounded font-medium"
+                              style={{
+                                background: msg.direction === 'inbound' ? '#dcfce7' : '#dbeafe',
+                                color: msg.direction === 'inbound' ? '#15803d' : '#1d4ed8',
+                              }}>
+                              {msg.direction === 'inbound' ? '↙' : '↗'}
+                            </span>
+                          </td>
+                          <td className="px-4 py-2 max-w-md">
+                            <p className="text-[12px] truncate" style={{ color: '#667781' }}>{msg.content.slice(0, 100)}</p>
+                          </td>
+                          <td className="px-4 py-2 text-[11px]" style={{ color: '#8696a0' }}>{relTime(msg.timestamp)}</td>
+                        </tr>
+                      ))}
+                    </Fragment>
+                  );
+                }
+
+                const item = row;
                 const cfg = CH[item.channel] ?? CH.note;
-                const isWa = item.source === 'whatsapp_message';
                 return (
                   <tr key={item.id}
                     className="hover:bg-gray-50 transition-colors cursor-pointer"
                     onClick={() => setDetailItem(item)}
-                    style={{ borderBottom: idx < items.length - 1 ? '1px solid #f0f2f5' : 'none' }}>
+                    style={{ borderBottom: idx < displayRows.length - 1 ? '1px solid #f0f2f5' : 'none' }}>
                     <td className="px-4 py-3">
                       <span className="flex items-center gap-1.5">
                         <span className="w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0"
@@ -479,15 +688,7 @@ export default function MessageManagement() {
                       </span>
                     </td>
                     <td className="px-4 py-3 max-w-md">
-                      <div className="flex items-center gap-1.5">
-                        {isWa && <span className="text-[9px] px-1 py-0.5 rounded font-semibold flex-shrink-0" style={{ background: '#dcfce7', color: '#15803d' }}>WA</span>}
-                        <p className="text-[13px] truncate" style={{ color: '#3b4a54' }}>{item.content.slice(0, 100)}</p>
-                        {item.status && (
-                          <span className="text-[10px] flex-shrink-0" style={{ color: item.status === 'read' ? '#1d4ed8' : '#8696a0' }}>
-                            {item.status === 'read' ? '✓✓' : item.status === 'delivered' ? '✓✓' : item.status === 'failed' ? '✕' : '✓'}
-                          </span>
-                        )}
-                      </div>
+                      <p className="text-[13px] truncate" style={{ color: '#3b4a54' }}>{item.content.slice(0, 100)}</p>
                     </td>
                     <td className="px-4 py-3 text-[12px] whitespace-nowrap" style={{ color: '#8696a0' }} title={absTime(item.timestamp)}>
                       {relTime(item.timestamp)}
@@ -501,10 +702,11 @@ export default function MessageManagement() {
       )}
 
       {/* ===== By Lead view ===== */}
-      {!loading && items.length > 0 && viewMode === 'by_lead' && (
+      {!loading && displayRows.length > 0 && viewMode === 'by_lead' && (
         <div className="space-y-4">
-          {Object.entries(groupedByLead).map(([leadName, groupItems]) => {
-            const company = groupItems[0]?.lead_company;
+          {Object.entries(groupedByLead).map(([leadName, groupRows]) => {
+            const firstRow = groupRows[0];
+            const company = firstRow?._grouped ? firstRow.company : firstRow?.lead_company;
             return (
               <div key={leadName} className="rounded-xl overflow-hidden" style={{ border: '1px solid #e5e7eb' }}>
                 <div className="px-4 py-3 flex items-center gap-2" style={{ background: '#f9fafb', borderBottom: '1px solid #e5e7eb' }}>
@@ -516,11 +718,66 @@ export default function MessageManagement() {
                     {company && <span className="text-[12px] ml-2" style={{ color: '#8696a0' }}>{company}</span>}
                   </div>
                   <span className="text-[11px] px-2 py-0.5 rounded-full" style={{ background: '#f0f2f5', color: '#667781' }}>
-                    {groupItems.length}
+                    {groupRows.length}
                   </span>
                 </div>
                 <div className="divide-y" style={{ borderColor: '#f0f2f5' }}>
-                  {groupItems.map(item => {
+                  {groupRows.map(row => {
+                    if (row._grouped) {
+                      const isExpanded = expandedWa.has(row.wa_contact_id);
+                      return (
+                        <div key={`wa-${row.wa_contact_id}`}>
+                          <div
+                            className="flex items-center gap-3 px-4 py-2.5 hover:bg-gray-50 cursor-pointer transition-colors"
+                            onClick={() => setExpandedWa(prev => {
+                              const next = new Set(prev);
+                              next.has(row.wa_contact_id) ? next.delete(row.wa_contact_id) : next.add(row.wa_contact_id);
+                              return next;
+                            })}>
+                            <div className="w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0" style={{ background: '#dcfce7' }}>
+                              <svg width="12" height="12" viewBox="0 0 24 24" fill="#15803d">
+                                <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/>
+                              </svg>
+                            </div>
+                            <span className="text-[9px] px-1.5 py-0.5 rounded-full font-semibold flex-shrink-0" style={{ background: '#dcfce7', color: '#15803d' }}>
+                              WA · {row.message_count} 条
+                            </span>
+                            <p className="text-[13px] truncate flex-1" style={{ color: '#3b4a54' }}>
+                              {row.last_direction === 'outbound' ? '↗ ' : '↙ '}{row.last_message.slice(0, 100)}
+                            </p>
+                            <span className="text-[11px] flex-shrink-0" style={{ color: '#8696a0' }}>{relTime(row.last_timestamp)}</span>
+                            <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="#8696a0" strokeWidth="1.5" strokeLinecap="round" className="flex-shrink-0"
+                              style={{ transform: isExpanded ? 'rotate(180deg)' : 'rotate(0)', transition: 'transform 0.2s' }}>
+                              <path d="M3 4.5l3 3 3-3"/>
+                            </svg>
+                          </div>
+                          {isExpanded && (
+                            <div className="pl-10 border-l-2 ml-7" style={{ borderColor: '#86efac' }}>
+                              {row.items.slice(0, 20).map(msg => (
+                                <div key={msg.id}
+                                  className="flex items-center gap-2 px-3 py-1.5 hover:bg-gray-50 cursor-pointer text-[12px]"
+                                  onClick={() => setDetailItem(msg)}>
+                                  <span className="text-[10px] px-1 py-0.5 rounded font-medium flex-shrink-0"
+                                    style={{
+                                      background: msg.direction === 'inbound' ? '#dcfce7' : '#dbeafe',
+                                      color: msg.direction === 'inbound' ? '#15803d' : '#1d4ed8',
+                                    }}>
+                                    {msg.direction === 'inbound' ? '↙' : '↗'}
+                                  </span>
+                                  <p className="truncate flex-1" style={{ color: '#667781' }}>{msg.content.slice(0, 100)}</p>
+                                  <span className="text-[11px] flex-shrink-0" style={{ color: '#8696a0' }}>{relTime(msg.timestamp)}</span>
+                                </div>
+                              ))}
+                              {row.items.length > 20 && (
+                                <p className="text-[11px] py-1.5 px-3" style={{ color: '#8696a0' }}>... 还有 {row.items.length - 20} 条消息</p>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    }
+
+                    const item = row;
                     const cfg = CH[item.channel] ?? CH.note;
                     return (
                       <div key={item.id}
