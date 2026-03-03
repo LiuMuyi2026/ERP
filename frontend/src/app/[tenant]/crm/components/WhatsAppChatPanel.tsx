@@ -204,6 +204,10 @@ export default function WhatsAppChatPanel({
   // 5.5 Call
   const [showCallMenu, setShowCallMenu] = useState(false);
 
+  // WhatsApp Web style menus
+  const [showMoreMenu, setShowMoreMenu] = useState(false);
+  const [showAttachMenu, setShowAttachMenu] = useState(false);
+
   const effectiveContactId = contactId || resolvedContactId;
 
   // ── Load messages ──
@@ -832,106 +836,141 @@ export default function WhatsAppChatPanel({
   return (
     <div className="flex flex-col h-full" style={{ minHeight: 400 }}>
       {/* ── Header ── */}
-      <div className="px-4 py-3 border-b flex items-center gap-3" style={{ borderColor: 'var(--notion-border)', background: 'var(--notion-card, white)' }}>
-        <div className="w-8 h-8 rounded-full flex items-center justify-center text-white text-sm font-bold overflow-hidden cursor-pointer"
-          style={{ background: '#25D366' }}
-          onClick={() => { if (isGroup) { setShowGroupInfo(!showGroupInfo); loadGroupInfo(); } }}>
+      <div className="px-4 py-2.5 flex items-center gap-3" style={{ background: '#008069' }}>
+        <div className="w-10 h-10 rounded-full flex items-center justify-center text-white text-sm font-bold overflow-hidden cursor-pointer flex-shrink-0"
+          style={{ background: 'rgba(255,255,255,0.2)' }}
+          onClick={() => { if (isGroup) { setShowGroupInfo(!showGroupInfo); loadGroupInfo(); } else if (effectiveContactId) { handleFetchProfile(); } }}>
           {profilePicUrl ? (
             <img src={profilePicUrl} alt="" className="w-full h-full object-cover" />
           ) : (
-            (contactName || 'W').charAt(0).toUpperCase()
+            <svg viewBox="0 0 212 212" width="40" height="40"><path fill="rgba(255,255,255,0.6)" d="M106 0C47.5 0 0 47.5 0 106s47.5 106 106 106 106-47.5 106-106S164.5 0 106 0zm0 50c17.7 0 32 14.3 32 32s-14.3 32-32 32-32-14.3-32-32 14.3-32 32-32zm0 145c-26.5 0-49.9-13.5-63.5-34 .3-21 42.3-32.5 63.5-32.5s63.2 11.5 63.5 32.5C155.9 181.5 132.5 195 106 195z"/></svg>
           )}
         </div>
         <div className="flex-1 min-w-0"
           onClick={() => { if (isGroup) { setShowGroupInfo(!showGroupInfo); loadGroupInfo(); } }}
           style={{ cursor: isGroup ? 'pointer' : 'default' }}>
-          <p className="text-sm font-semibold truncate" style={{ color: 'var(--notion-text)' }}>{contactName || 'WhatsApp Chat'}</p>
-          <p className="text-xs" style={{ color: presenceText === 'typing...' ? '#25D366' : 'var(--notion-text-muted)' }}>
-            {presenceText || `${messages.length} messages`}
+          <p className="text-sm font-medium truncate text-white">{contactName || 'WhatsApp Chat'}</p>
+          <p className="text-xs truncate" style={{ color: presenceText === 'typing...' ? '#a8f0d6' : 'rgba(255,255,255,0.7)' }}>
+            {presenceText || (isGroup ? 'tap here for group info' : `${messages.length} messages`)}
           </p>
         </div>
-        <div className="flex items-center gap-1">
-          {/* Call */}
+        <div className="flex items-center gap-0.5">
+          {/* Search */}
+          <button onClick={() => setShowSearch(!showSearch)}
+            className="p-2 rounded-full hover:bg-white/10 transition-colors" title="Search messages">
+            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.35-4.35"/></svg>
+          </button>
+          {/* Call (non-group) */}
           {effectiveContactId && !isGroup && (
             <div className="relative">
               <button onClick={() => setShowCallMenu(!showCallMenu)}
-                className="p-1.5 rounded hover:bg-gray-100" title="Call">
-                <span className="text-sm">📞</span>
+                className="p-2 rounded-full hover:bg-white/10 transition-colors" title="Call">
+                <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
               </button>
               {showCallMenu && (
-                <div className="absolute right-0 top-8 z-50 rounded-lg shadow-lg border py-1 min-w-[130px]"
-                  style={{ background: 'var(--notion-card, white)', borderColor: 'var(--notion-border)' }}>
-                  <button onClick={() => handleCall(false)} className="block w-full text-left px-3 py-1.5 text-xs hover:bg-gray-50">📞 Voice call</button>
-                  <button onClick={() => handleCall(true)} className="block w-full text-left px-3 py-1.5 text-xs hover:bg-gray-50">📹 Video call</button>
+                <div className="absolute right-0 top-10 z-50 rounded-lg shadow-lg border py-1 min-w-[130px]"
+                  style={{ background: 'white', borderColor: '#e5e7eb' }}>
+                  <button onClick={() => handleCall(false)} className="block w-full text-left px-3 py-2 text-xs hover:bg-gray-50">📞 Voice call</button>
+                  <button onClick={() => handleCall(true)} className="block w-full text-left px-3 py-2 text-xs hover:bg-gray-50">📹 Video call</button>
                 </div>
               )}
             </div>
           )}
-          {/* Sync history */}
-          {effectiveContactId && (
-            <button onClick={handleSyncHistory} disabled={syncing}
-              className="p-1.5 rounded hover:bg-gray-100" title="Sync history">
-              {syncing ? <span className="inline-block w-4 h-4 border-2 border-green-400 border-t-transparent rounded-full animate-spin" /> : '🔄'}
-            </button>
-          )}
-          {/* Search */}
-          <button onClick={() => setShowSearch(!showSearch)}
-            className="p-1.5 rounded hover:bg-gray-100" title="Search messages">
-            <HandIcon name="search" size={16} />
-          </button>
-          {/* Profile */}
-          {effectiveContactId && !isGroup && (
-            <button onClick={handleFetchProfile}
-              className="p-1.5 rounded hover:bg-gray-100 text-xs" title="Contact profile">
-              <HandIcon name="person" size={16} />
-            </button>
-          )}
-          {/* Block */}
-          <button onClick={handleBlock}
-            className="p-1.5 rounded hover:bg-gray-100 text-xs" title={isBlocked ? 'Unblock' : 'Block'}
-            style={{ color: isBlocked ? '#dc2626' : 'var(--notion-text-muted)' }}>
-            <HandIcon name="shield" size={16} />
-          </button>
-          {/* Sync profile pic */}
-          {effectiveContactId && !isGroup && (
-            <button onClick={async () => {
-              try { await api.post(`/api/whatsapp/conversations/${effectiveContactId}/sync-profile`, {}); } catch {}
-            }} className="p-1.5 rounded hover:bg-gray-100 text-xs" title="Sync profile picture">
-              <HandIcon name="refresh" size={16} />
-            </button>
-          )}
-          {/* Disappearing toggle */}
+          {/* More (three-dot) menu */}
           <div className="relative">
-            <button onClick={() => setShowDisappearing(!showDisappearing)}
-              className="p-1.5 rounded hover:bg-gray-100 text-xs" title="Disappearing messages">
-              <HandIcon name="clock" size={16} />
+            <button onClick={() => setShowMoreMenu(!showMoreMenu)}
+              className="p-2 rounded-full hover:bg-white/10 transition-colors" title="More options">
+              <svg viewBox="0 0 24 24" width="20" height="20" fill="white"><circle cx="12" cy="5" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="12" cy="19" r="2"/></svg>
             </button>
-            {showDisappearing && (
-              <div className="absolute right-0 top-8 z-50 rounded-lg shadow-lg border py-1 min-w-[140px]"
-                style={{ background: 'var(--notion-card, white)', borderColor: 'var(--notion-border)' }}>
-                {DISAPPEARING_OPTIONS.map(opt => (
-                  <button key={opt.value} onClick={() => handleDisappearing(opt.value)}
-                    className="block w-full text-left px-3 py-1.5 text-xs hover:bg-gray-50"
-                    style={{ color: currentDisappearing === opt.value ? '#25D366' : 'var(--notion-text)', fontWeight: currentDisappearing === opt.value ? 600 : 400 }}>
-                    {opt.label} {currentDisappearing === opt.value && '✓'}
+            {showMoreMenu && (
+              <div className="absolute right-0 top-10 z-50 rounded-lg shadow-xl py-1.5 min-w-[200px]"
+                style={{ background: 'white', border: '1px solid #e5e7eb' }}
+                onClick={() => setShowMoreMenu(false)}>
+                {/* Block/Unblock */}
+                <button onClick={handleBlock}
+                  className="flex items-center gap-3 w-full text-left px-4 py-2.5 text-[13px] hover:bg-gray-50"
+                  style={{ color: isBlocked ? '#dc2626' : '#3b4a54' }}>
+                  <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+                  {isBlocked ? 'Unblock contact' : 'Block contact'}
+                </button>
+                {/* Disappearing messages */}
+                <button onClick={() => { setShowMoreMenu(false); setShowDisappearing(!showDisappearing); }}
+                  className="flex items-center gap-3 w-full text-left px-4 py-2.5 text-[13px] hover:bg-gray-50" style={{ color: '#3b4a54' }}>
+                  <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                  Disappearing messages {currentDisappearing > 0 && '✓'}
+                </button>
+                {/* AI Analysis */}
+                {hasMessages && (
+                  <button onClick={() => { setShowMoreMenu(false); setShowAiPanel(!showAiPanel); }}
+                    className="flex items-center gap-3 w-full text-left px-4 py-2.5 text-[13px] hover:bg-gray-50" style={{ color: '#7c3aed' }}>
+                    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 2a4 4 0 0 1 4 4c0 1.1-.9 2-2 2h-4a2 2 0 0 1-2-2 4 4 0 0 1 4-4z"/><path d="M12 8v8"/><path d="M8 12h8"/><circle cx="12" cy="12" r="10"/></svg>
+                    AI Analysis
                   </button>
-                ))}
-                <div className="border-t my-1" style={{ borderColor: 'var(--notion-border)' }} />
-                <button onClick={handleMarkUnread} className="block w-full text-left px-3 py-1.5 text-xs hover:bg-gray-50">Mark as unread</button>
-                <button onClick={handleDeleteChat} className="block w-full text-left px-3 py-1.5 text-xs hover:bg-gray-50 text-red-500">Delete chat</button>
+                )}
+                {/* Sync history */}
+                {effectiveContactId && (
+                  <button onClick={() => { setShowMoreMenu(false); handleSyncHistory(); }} disabled={syncing}
+                    className="flex items-center gap-3 w-full text-left px-4 py-2.5 text-[13px] hover:bg-gray-50" style={{ color: '#3b4a54' }}>
+                    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 2v6h-6"/><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M3 22v-6h6"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/></svg>
+                    {syncing ? 'Syncing...' : 'Sync history'}
+                  </button>
+                )}
+                {/* Sync profile pic (non-group) */}
+                {effectiveContactId && !isGroup && (
+                  <button onClick={async () => {
+                    setShowMoreMenu(false);
+                    try { await api.post(`/api/whatsapp/conversations/${effectiveContactId}/sync-profile`, {}); } catch {}
+                  }}
+                    className="flex items-center gap-3 w-full text-left px-4 py-2.5 text-[13px] hover:bg-gray-50" style={{ color: '#3b4a54' }}>
+                    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="m21 15-5-5L5 21"/></svg>
+                    Sync profile picture
+                  </button>
+                )}
+                {/* Contact profile (non-group) */}
+                {effectiveContactId && !isGroup && (
+                  <button onClick={() => { setShowMoreMenu(false); handleFetchProfile(); }}
+                    className="flex items-center gap-3 w-full text-left px-4 py-2.5 text-[13px] hover:bg-gray-50" style={{ color: '#3b4a54' }}>
+                    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+                    Contact info
+                  </button>
+                )}
+                <div className="border-t my-1" style={{ borderColor: '#e5e7eb' }} />
+                {/* Mark unread */}
+                <button onClick={() => { setShowMoreMenu(false); handleMarkUnread(); }}
+                  className="flex items-center gap-3 w-full text-left px-4 py-2.5 text-[13px] hover:bg-gray-50" style={{ color: '#3b4a54' }}>
+                  <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="3" fill="currentColor"/></svg>
+                  Mark as unread
+                </button>
+                {/* Delete chat */}
+                <button onClick={() => { setShowMoreMenu(false); handleDeleteChat(); }}
+                  className="flex items-center gap-3 w-full text-left px-4 py-2.5 text-[13px] hover:bg-gray-50" style={{ color: '#dc2626' }}>
+                  <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+                  Delete chat
+                </button>
               </div>
             )}
           </div>
-          {/* AI toggle */}
-          {hasMessages && (
-            <button onClick={() => setShowAiPanel(!showAiPanel)}
-              className="flex items-center gap-1 px-2 py-1.5 rounded-lg text-xs font-medium transition-colors"
-              style={{ background: showAiPanel ? '#7c3aed' : 'transparent', color: showAiPanel ? 'white' : '#7c3aed' }}>
-              <HandIcon name="brain" size={14} /> AI
-            </button>
-          )}
         </div>
       </div>
+
+      {/* ── Disappearing messages dropdown (triggered from more menu) ── */}
+      {showDisappearing && (
+        <div className="px-4 py-2 border-b flex items-center gap-2 flex-wrap" style={{ borderColor: '#e5e7eb', background: '#f0f2f5' }}>
+          <span className="text-xs font-medium" style={{ color: '#3b4a54' }}>Disappearing:</span>
+          {DISAPPEARING_OPTIONS.map(opt => (
+            <button key={opt.value} onClick={() => handleDisappearing(opt.value)}
+              className="px-2.5 py-1 rounded-full text-xs transition-colors"
+              style={{
+                background: currentDisappearing === opt.value ? '#008069' : 'white',
+                color: currentDisappearing === opt.value ? 'white' : '#3b4a54',
+                border: '1px solid #d1d5db',
+              }}>
+              {opt.label}
+            </button>
+          ))}
+          <button onClick={() => setShowDisappearing(false)} className="ml-auto text-xs p-1 hover:bg-gray-200 rounded" style={{ color: '#8696a0' }}>✕</button>
+        </div>
+      )}
 
       {/* ── Blocked banner ── */}
       {isBlocked && (
@@ -950,21 +989,32 @@ export default function WhatsAppChatPanel({
 
       {/* ── Search bar ── */}
       {showSearch && (
-        <div className="px-4 py-2 border-b flex items-center gap-2" style={{ borderColor: 'var(--notion-border)', background: 'var(--notion-card, white)' }}>
-          <input value={searchQuery} onChange={e => setSearchQuery(e.target.value)}
-            onKeyDown={e => { if (e.key === 'Enter') handleSearch(); }}
-            placeholder="Search messages..." className="flex-1 text-xs border rounded px-2 py-1.5 outline-none"
-            style={{ borderColor: 'var(--notion-border)' }} autoFocus />
-          <button onClick={handleSearch} className="text-xs px-2 py-1 rounded" style={{ background: '#25D366', color: 'white' }}>Search</button>
+        <div className="px-3 py-1.5 flex items-center gap-2" style={{ background: '#f0f2f5' }}>
+          <div className="flex-1 flex items-center gap-2 rounded-lg px-3 py-1.5" style={{ background: 'white' }}>
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="#8696a0" strokeWidth="2"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.35-4.35"/></svg>
+            <input value={searchQuery} onChange={e => setSearchQuery(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') handleSearch(); }}
+              placeholder="Search..."
+              className="flex-1 text-[13px] outline-none bg-transparent"
+              style={{ color: '#3b4a54' }} autoFocus />
+          </div>
           {searchResults.length > 0 && (
-            <div className="flex items-center gap-1 text-[10px]" style={{ color: 'var(--notion-text-muted)' }}>
+            <div className="flex items-center gap-0.5 text-[11px]" style={{ color: '#8696a0' }}>
               <span>{searchIdx + 1}/{searchResults.length}</span>
-              <button onClick={() => setSearchIdx(Math.max(0, searchIdx - 1))} className="px-1">▲</button>
-              <button onClick={() => setSearchIdx(Math.min(searchResults.length - 1, searchIdx + 1))} className="px-1">▼</button>
+              <button onClick={() => setSearchIdx(Math.max(0, searchIdx - 1))}
+                className="p-1 rounded hover:bg-gray-200">
+                <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2"><path d="m18 15-6-6-6 6"/></svg>
+              </button>
+              <button onClick={() => setSearchIdx(Math.min(searchResults.length - 1, searchIdx + 1))}
+                className="p-1 rounded hover:bg-gray-200">
+                <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2"><path d="m6 9 6 6 6-6"/></svg>
+              </button>
             </div>
           )}
           <button onClick={() => { setShowSearch(false); setSearchQuery(''); setSearchResults([]); }}
-            className="text-xs p-1 hover:bg-gray-100 rounded">✕</button>
+            className="p-1.5 rounded hover:bg-gray-200" style={{ color: '#8696a0' }}>
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 6 6 18M6 6l12 12"/></svg>
+          </button>
         </div>
       )}
 
@@ -1194,8 +1244,11 @@ export default function WhatsAppChatPanel({
       )}
 
       {/* ── Messages ── */}
-      <div className="flex-1 overflow-y-auto px-4 py-4" style={{ background: 'var(--notion-hover)' }}
-        onClick={() => { setMenuMsg(null); setShowDisappearing(false); }}>
+      <div className="flex-1 overflow-y-auto px-12 py-4" style={{
+        background: `#e5ddd5`,
+        backgroundImage: `url("data:image/svg+xml,%3Csvg width='400' height='400' viewBox='0 0 400 400' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='%23c6ccd1' fill-opacity='0.15'%3E%3Cpath d='M20 20h8v2h-8zm30 0h6v3h-6zm25 5h4v4h-4zm-60 10h5v5h-5zm40 0h3v6h-3zm30 5h7v3h-7zM15 50h4v4h-4zm35-5h6v4h-6zm30 10h5v3h-5zm-50 15h3v5h-3zm25-5h8v2h-8zm35 0h4v6h-4zM10 80h6v3h-6zm45-5h5v5h-5zm25 10h7v2h-7zm-55 15h4v4h-4zm30-5h6v3h-6zm40 5h3v5h-3zM20 110h5v4h-5zm25 5h8v3h-8zm30-5h4v6h-4zm-65 20h7v2h-7zm35-5h5v5h-5zm30 10h6v3h-6zM10 150h4v4h-4zm40-5h3v6h-3zm25 5h8v2h-8zm-50 20h6v3h-6zm30 0h5v5h-5zm35-5h4v4h-4zM25 185h7v3h-7zm25 5h4v4h-4zm30-5h6v5h-6zm-70 20h5v3h-5zm40 0h3v6h-3zm30 5h8v2h-8zM15 220h4v5h-4zm30-5h6v4h-6zm25 10h5v3h-5zm-40 15h7v2h-7zm25 0h4v6h-4zm35-5h3v5h-3zM10 260h6v3h-6zm45-5h8v4h-8zm20 10h5v3h-5zm-55 15h4v4h-4zm30 0h6v5h-6zm30-5h7v3h-7zM20 295h5v4h-5zm25 5h3v6h-3zm30-5h8v2h-8zm-60 20h4v4h-4zm35 0h6v3h-6zm30 5h5v5h-5zM15 335h7v3h-7zm25-5h4v6h-4zm30 5h6v2h-6zm-50 15h5v4h-5zm30 5h3v5h-3zm25-5h8v3h-8zM10 370h6v4h-6zm40-5h5v5h-5zm25 10h4v3h-4zm-55 15h7v2h-7zm35 0h4v6h-4zm30-5h6v4h-6z'/%3E%3Ccircle cx='200' cy='50' r='2'/%3E%3Ccircle cx='350' cy='100' r='1.5'/%3E%3Ccircle cx='100' cy='200' r='2'/%3E%3Ccircle cx='300' cy='250' r='1.5'/%3E%3Ccircle cx='50' cy='350' r='2'/%3E%3Ccircle cx='250' cy='370' r='1.5'/%3E%3C/g%3E%3C/svg%3E")`,
+      }}
+        onClick={() => { setMenuMsg(null); setShowDisappearing(false); setShowMoreMenu(false); setShowCallMenu(false); setShowAttachMenu(false); }}>
         {loading ? (
           <div className="text-center text-sm py-8" style={{ color: 'var(--notion-text-muted)' }}>Loading messages...</div>
         ) : messages.length === 0 ? (
@@ -1206,8 +1259,8 @@ export default function WhatsAppChatPanel({
           groups.map(group => (
             <div key={group.label}>
               <div className="flex items-center justify-center my-4">
-                <span className="px-3 py-1 rounded-full text-xs font-medium"
-                  style={{ background: 'var(--notion-card, white)', color: 'var(--notion-text-muted)', boxShadow: '0 1px 2px rgba(0,0,0,0.06)' }}>
+                <span className="px-3 py-1.5 rounded-lg text-[11px] font-medium"
+                  style={{ background: 'rgba(255,255,255,0.95)', color: '#54656f', boxShadow: '0 1px 3px rgba(0,0,0,0.08)' }}>
                   {group.label}
                 </span>
               </div>
@@ -1220,8 +1273,8 @@ export default function WhatsAppChatPanel({
                 if (msg.is_deleted) {
                   return (
                     <div key={msg.id} className={`flex mb-2 ${isOut ? 'justify-end' : 'justify-start'}`}>
-                      <div className="max-w-[75%] rounded-xl px-3.5 py-2 shadow-sm" style={{ background: 'var(--notion-card, white)', opacity: 0.6 }}>
-                        <p className="text-xs italic" style={{ color: 'var(--notion-text-muted)' }}>This message was deleted</p>
+                      <div className="max-w-[65%] px-2.5 py-1.5 shadow-sm" style={{ background: isOut ? '#d9fdd3' : 'white', borderRadius: '7.5px', opacity: 0.6 }}>
+                        <p className="text-xs italic" style={{ color: '#8696a0' }}>This message was deleted</p>
                       </div>
                     </div>
                   );
@@ -1231,7 +1284,7 @@ export default function WhatsAppChatPanel({
                 if (editingMsg?.id === msg.id) {
                   return (
                     <div key={msg.id} className={`flex mb-2 ${isOut ? 'justify-end' : 'justify-start'}`}>
-                      <div className="max-w-[75%] rounded-xl px-3.5 py-2 shadow-sm" style={{ background: '#dcf8c6' }}>
+                      <div className="max-w-[65%] px-2.5 py-1.5 shadow-sm" style={{ background: '#d9fdd3', borderRadius: '7.5px' }}>
                         <input value={editInput} onChange={e => setEditInput(e.target.value)}
                           className="w-full text-sm border rounded px-2 py-1 mb-1" autoFocus
                           onKeyDown={e => { if (e.key === 'Enter') handleEditSubmit(); if (e.key === 'Escape') setEditingMsg(null); }} />
@@ -1246,11 +1299,12 @@ export default function WhatsAppChatPanel({
 
                 return (
                   <div key={msg.id} className={`flex mb-2 ${isOut ? 'justify-end' : 'justify-start'} group relative`}>
-                    <div className="max-w-[75%] rounded-xl px-3.5 py-2 shadow-sm relative"
+                    <div className="max-w-[65%] px-2.5 py-1.5 shadow-sm relative"
                       style={{
-                        background: isOut ? '#dcf8c6' : 'var(--notion-card, white)',
-                        borderBottomRightRadius: isOut ? 4 : 12,
-                        borderBottomLeftRadius: isOut ? 12 : 4,
+                        background: isOut ? '#d9fdd3' : 'white',
+                        borderRadius: '7.5px',
+                        borderBottomRightRadius: isOut ? 0 : 7.5,
+                        borderBottomLeftRadius: isOut ? 7.5 : 0,
                         outline: isHighlighted ? '2px solid #f59e0b' : 'none',
                       }}>
 
@@ -1376,97 +1430,149 @@ export default function WhatsAppChatPanel({
 
       {/* ── Reply preview bar ── */}
       {replyTo && (
-        <div className="px-4 py-2 border-t flex items-center gap-2" style={{ borderColor: 'var(--notion-border)', background: 'var(--notion-card, white)' }}>
-          <div className="flex-1 border-l-2 pl-2 text-xs truncate" style={{ borderColor: '#25D366', color: 'var(--notion-text-muted)' }}>
+        <div className="px-3 py-1.5 flex items-center gap-2" style={{ background: '#f0f2f5' }}>
+          <div className="flex-1 border-l-3 pl-2.5 py-1.5 rounded-r-lg text-xs truncate" style={{ borderColor: '#00a884', background: 'white', color: '#667781' }}>
             Replying to: {replyTo.content || '(media)'}
           </div>
-          <button onClick={() => setReplyTo(null)} className="text-xs p-1 hover:bg-gray-100 rounded">✕</button>
+          <button onClick={() => setReplyTo(null)}
+            className="p-1.5 rounded-full hover:bg-gray-200" style={{ color: '#8696a0' }}>
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 6 6 18M6 6l12 12"/></svg>
+          </button>
         </div>
       )}
 
       {/* ── Attachment preview ── */}
       {attachFile && (
-        <div className="px-4 py-2 border-t flex items-center gap-2" style={{ borderColor: 'var(--notion-border)', background: 'var(--notion-card, white)' }}>
-          <HandIcon name="document" size={14} />
-          <span className="flex-1 text-xs truncate" style={{ color: 'var(--notion-text)' }}>{attachFile.name}</span>
-          <button onClick={() => setAttachFile(null)} className="text-xs p-1 hover:bg-gray-100 rounded">✕</button>
+        <div className="px-3 py-1.5 flex items-center gap-2" style={{ background: '#f0f2f5' }}>
+          <div className="flex-1 flex items-center gap-2 py-1.5 px-3 rounded-lg" style={{ background: 'white' }}>
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="#8696a0" strokeWidth="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+            <span className="flex-1 text-xs truncate" style={{ color: '#3b4a54' }}>{attachFile.name}</span>
+          </div>
+          <button onClick={() => setAttachFile(null)}
+            className="p-1.5 rounded-full hover:bg-gray-200" style={{ color: '#8696a0' }}>
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 6 6 18M6 6l12 12"/></svg>
+          </button>
         </div>
       )}
 
       {/* ── Send bar ── */}
       {effectiveContactId && (
         <form onSubmit={sendMessage}
-          className="px-4 py-3 border-t flex items-center gap-2"
-          style={{ borderColor: 'var(--notion-border)', background: 'var(--notion-card, white)' }}>
-          {/* Attach button */}
-          <button type="button" onClick={() => fileInputRef.current?.click()}
-            className="p-2 rounded-lg hover:bg-gray-100" title="Attach file">
-            <HandIcon name="paperclip" size={18} />
-          </button>
+          className="px-3 py-2 flex items-center gap-2"
+          style={{ background: '#f0f2f5' }}>
           <input ref={fileInputRef} type="file" className="hidden"
-            onChange={e => { if (e.target.files?.[0]) setAttachFile(e.target.files[0]); }} />
+            onChange={e => { if (e.target.files?.[0]) { setAttachFile(e.target.files[0]); setShowAttachMenu(false); } }} />
 
-          {/* Poll button */}
-          <button type="button" onClick={() => setShowPollModal(true)}
-            className="p-2 rounded-lg hover:bg-gray-100" title="Create poll">
-            📊
-          </button>
-
-          {/* Buttons message */}
-          <button type="button" onClick={() => setShowButtonsModal(true)}
-            className="p-2 rounded-lg hover:bg-gray-100 text-xs" title="Send buttons">
-            <HandIcon name="grid" size={16} />
-          </button>
-
-          {/* List message */}
-          <button type="button" onClick={() => setShowListModal(true)}
-            className="p-2 rounded-lg hover:bg-gray-100 text-xs" title="Send list">
-            <HandIcon name="list" size={16} />
-          </button>
-
-          {/* Template */}
-          <button type="button" onClick={() => { setShowTemplateModal(true); loadTemplates(); }}
-            className="p-2 rounded-lg hover:bg-gray-100 text-xs" title="Templates">
-            <HandIcon name="bookmark" size={16} />
-          </button>
-
-          {/* Contact card */}
-          <button type="button" onClick={() => setShowContactModal(true)}
-            className="p-2 rounded-lg hover:bg-gray-100 text-xs" title="Send contact">
-            👤
-          </button>
-
-          {/* Location */}
-          <button type="button" onClick={() => setShowLocationModal(true)}
-            className="p-2 rounded-lg hover:bg-gray-100 text-xs" title="Send location">
-            📍
-          </button>
-
-          {/* Voice note */}
+          {/* Recording state */}
           {isRecording ? (
-            <div className="flex items-center gap-2 px-2 py-1 rounded-lg" style={{ background: '#fef2f2' }}>
-              <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
-              <span className="text-xs font-mono" style={{ color: '#dc2626' }}>{Math.floor(recordDuration / 60)}:{String(recordDuration % 60).padStart(2, '0')}</span>
-              <button type="button" onClick={cancelRecording} className="text-xs px-1.5 py-0.5 rounded" style={{ background: '#fee2e2', color: '#dc2626' }}>✕</button>
-              <button type="button" onClick={stopRecordingAndSend} className="text-xs px-1.5 py-0.5 rounded text-white" style={{ background: '#25D366' }}>Send</button>
+            <div className="flex-1 flex items-center gap-3 px-4 py-2.5 rounded-full" style={{ background: 'white' }}>
+              <span className="w-3 h-3 rounded-full bg-red-500 animate-pulse flex-shrink-0" />
+              <span className="text-sm font-mono flex-1" style={{ color: '#dc2626' }}>
+                {Math.floor(recordDuration / 60)}:{String(recordDuration % 60).padStart(2, '0')}
+              </span>
+              <button type="button" onClick={cancelRecording}
+                className="p-1.5 rounded-full hover:bg-gray-100" title="Cancel">
+                <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="#dc2626" strokeWidth="2"><path d="M18 6 6 18M6 6l12 12"/></svg>
+              </button>
+              <button type="button" onClick={stopRecordingAndSend}
+                className="p-2 rounded-full flex-shrink-0" style={{ background: '#00a884' }}>
+                <svg viewBox="0 0 24 24" width="20" height="20" fill="white"><path d="M2 21l21-9L2 3v7l15 2-15 2v7z"/></svg>
+              </button>
             </div>
           ) : (
-            <button type="button" onClick={startRecording}
-              className="p-2 rounded-lg hover:bg-gray-100 text-xs" title="Record voice note">
-              🎤
-            </button>
-          )}
+            <>
+              {/* Attach button */}
+              <div className="relative">
+                <button type="button" onClick={() => setShowAttachMenu(!showAttachMenu)}
+                  className="p-2 rounded-full hover:bg-gray-200 transition-colors" title="Attach"
+                  style={{ transform: showAttachMenu ? 'rotate(45deg)' : 'none', transition: 'transform 0.2s' }}>
+                  <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="#54656f" strokeWidth="2" strokeLinecap="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48"/></svg>
+                </button>
+                {showAttachMenu && (
+                  <div className="absolute bottom-12 left-0 z-50 rounded-xl shadow-xl overflow-hidden"
+                    style={{ background: 'white', border: '1px solid #e5e7eb', width: '200px' }}
+                    onClick={e => e.stopPropagation()}>
+                    <button type="button" onClick={() => { fileInputRef.current?.click(); }}
+                      className="flex items-center gap-3 w-full text-left px-4 py-2.5 text-[13px] hover:bg-gray-50" style={{ color: '#3b4a54' }}>
+                      <span className="w-7 h-7 rounded-full flex items-center justify-center" style={{ background: '#7f66ff' }}>
+                        <svg viewBox="0 0 24 24" width="14" height="14" fill="white"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/></svg>
+                      </span>
+                      File
+                    </button>
+                    <button type="button" onClick={() => { setShowAttachMenu(false); setShowPollModal(true); }}
+                      className="flex items-center gap-3 w-full text-left px-4 py-2.5 text-[13px] hover:bg-gray-50" style={{ color: '#3b4a54' }}>
+                      <span className="w-7 h-7 rounded-full flex items-center justify-center" style={{ background: '#ff9500' }}>
+                        <svg viewBox="0 0 24 24" width="14" height="14" fill="white"><rect x="4" y="4" width="4" height="16" rx="1"/><rect x="10" y="8" width="4" height="12" rx="1"/><rect x="16" y="2" width="4" height="18" rx="1"/></svg>
+                      </span>
+                      Poll
+                    </button>
+                    <button type="button" onClick={() => { setShowAttachMenu(false); setShowButtonsModal(true); }}
+                      className="flex items-center gap-3 w-full text-left px-4 py-2.5 text-[13px] hover:bg-gray-50" style={{ color: '#3b4a54' }}>
+                      <span className="w-7 h-7 rounded-full flex items-center justify-center" style={{ background: '#00a884' }}>
+                        <svg viewBox="0 0 24 24" width="14" height="14" fill="white"><rect x="3" y="5" width="18" height="4" rx="1"/><rect x="3" y="11" width="18" height="4" rx="1"/><rect x="3" y="17" width="10" height="4" rx="1"/></svg>
+                      </span>
+                      Buttons
+                    </button>
+                    <button type="button" onClick={() => { setShowAttachMenu(false); setShowListModal(true); }}
+                      className="flex items-center gap-3 w-full text-left px-4 py-2.5 text-[13px] hover:bg-gray-50" style={{ color: '#3b4a54' }}>
+                      <span className="w-7 h-7 rounded-full flex items-center justify-center" style={{ background: '#007bfc' }}>
+                        <svg viewBox="0 0 24 24" width="14" height="14" fill="white"><path d="M3 4h18M3 8h18M3 12h18M3 16h12M3 20h8"/></svg>
+                      </span>
+                      List
+                    </button>
+                    <button type="button" onClick={() => { setShowAttachMenu(false); setShowTemplateModal(true); loadTemplates(); }}
+                      className="flex items-center gap-3 w-full text-left px-4 py-2.5 text-[13px] hover:bg-gray-50" style={{ color: '#3b4a54' }}>
+                      <span className="w-7 h-7 rounded-full flex items-center justify-center" style={{ background: '#02a698' }}>
+                        <svg viewBox="0 0 24 24" width="14" height="14" fill="white"><path d="M19 21l-7-5-7 5V5a2 2 0 012-2h10a2 2 0 012 2z"/></svg>
+                      </span>
+                      Template
+                    </button>
+                    <button type="button" onClick={() => { setShowAttachMenu(false); setShowContactModal(true); }}
+                      className="flex items-center gap-3 w-full text-left px-4 py-2.5 text-[13px] hover:bg-gray-50" style={{ color: '#3b4a54' }}>
+                      <span className="w-7 h-7 rounded-full flex items-center justify-center" style={{ background: '#0795dc' }}>
+                        <svg viewBox="0 0 24 24" width="14" height="14" fill="white"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+                      </span>
+                      Contact
+                    </button>
+                    <button type="button" onClick={() => { setShowAttachMenu(false); setShowLocationModal(true); }}
+                      className="flex items-center gap-3 w-full text-left px-4 py-2.5 text-[13px] hover:bg-gray-50" style={{ color: '#3b4a54' }}>
+                      <span className="w-7 h-7 rounded-full flex items-center justify-center" style={{ background: '#d3362c' }}>
+                        <svg viewBox="0 0 24 24" width="14" height="14" fill="white"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3" fill="#d3362c"/></svg>
+                      </span>
+                      Location
+                    </button>
+                  </div>
+                )}
+              </div>
 
-          <input type="text" value={input}
-            onChange={e => handleInputChange(e.target.value)}
-            placeholder="Type a message..."
-            className="flex-1 px-3 py-2 rounded-lg text-sm outline-none border"
-            style={{ borderColor: 'var(--notion-border)', background: 'var(--notion-bg)', color: 'var(--notion-text)' }} />
-          <button type="submit" disabled={sending || (!input.trim() && !attachFile)}
-            className="px-4 py-2 rounded-lg text-sm font-medium text-white transition-colors"
-            style={{ background: sending ? '#86efac' : '#25D366' }}>
-            {sending ? '...' : 'Send'}
-          </button>
+              {/* Input */}
+              <div className="flex-1 flex items-center rounded-full px-3" style={{ background: 'white' }}>
+                <input type="text" value={input}
+                  onChange={e => handleInputChange(e.target.value)}
+                  placeholder="Type a message"
+                  className="flex-1 py-2.5 text-[15px] outline-none bg-transparent"
+                  style={{ color: '#3b4a54' }} />
+              </div>
+
+              {/* Mic or Send */}
+              {(input.trim() || attachFile) ? (
+                <button type="submit" disabled={sending}
+                  className="p-2.5 rounded-full flex-shrink-0 transition-colors"
+                  style={{ background: '#00a884' }}>
+                  {sending ? (
+                    <span className="inline-block w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                  ) : (
+                    <svg viewBox="0 0 24 24" width="20" height="20" fill="white"><path d="M2 21l21-9L2 3v7l15 2-15 2v7z"/></svg>
+                  )}
+                </button>
+              ) : (
+                <button type="button" onClick={startRecording}
+                  className="p-2 rounded-full hover:bg-gray-200 transition-colors" title="Voice message">
+                  <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="#54656f" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>
+                </button>
+              )}
+            </>
+          )}
         </form>
       )}
 
