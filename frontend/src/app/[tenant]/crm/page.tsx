@@ -12,6 +12,7 @@ import LeadFilesTab from './components/LeadFilesTab';
 import MessageManagement from './components/MessageManagement';
 import WhatsAppInbox from './components/WhatsAppInbox';
 import WhatsAppBroadcast from './components/WhatsAppBroadcast';
+import WhatsAppAnalytics from './components/WhatsAppAnalytics';
 import LeadModal from './components/LeadModal';
 // ── Types ─────────────────────────────────────────────────────────────────────
 type Lead = {
@@ -2160,7 +2161,7 @@ export default function CRMPage() {
   const router = useRouter();
   const params = useParams<{ tenant: string }>();
   const [tab, setTab] = useState<TabKey>('dashboard');
-  const [msgSubTab, setMsgSubTab] = useState<'whatsapp' | 'broadcast' | 'commlog'>('whatsapp');
+  const [msgSubTab, setMsgSubTab] = useState<'whatsapp' | 'broadcast' | 'analytics' | 'commlog'>('whatsapp');
   const [overview, setOverview] = useState<Overview | null>(null);
   const [loading, setLoading] = useState(true);
   const [leads, setLeads] = useState<Lead[]>([]);
@@ -2574,7 +2575,7 @@ export default function CRMPage() {
           <div className="flex flex-col h-full">
             {/* Sub-tab switcher — minimal, integrated into the top */}
             <div className="flex items-center gap-1 px-3 py-1.5 flex-shrink-0" style={{ background: '#f0f2f5', borderBottom: '1px solid #d1d7db' }}>
-              {([['whatsapp', 'WhatsApp', '#00a884'], ['broadcast', 'Broadcast', '#7c3aed'], ['commlog', tCrm('subTabCommLog'), '#667781']] as const).map(([key, label, color]) => (
+              {([['whatsapp', 'WhatsApp', '#00a884'], ['broadcast', 'Broadcast', '#7c3aed'], ['analytics', 'Analytics', '#3b82f6'], ['commlog', tCrm('subTabCommLog'), '#667781']] as const).map(([key, label, color]) => (
                 <button key={key} onClick={() => setMsgSubTab(key as any)}
                   className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[13px] font-medium transition-all"
                   style={{
@@ -2592,6 +2593,11 @@ export default function CRMPage() {
                       <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/>
                     </svg>
                   )}
+                  {key === 'analytics' && (
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={msgSubTab === key ? '#3b82f6' : '#8696a0'} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/>
+                    </svg>
+                  )}
                   {key === 'commlog' && (
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={msgSubTab === key ? '#667781' : '#8696a0'} strokeWidth="2" strokeLinecap="round">
                       <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
@@ -2605,6 +2611,7 @@ export default function CRMPage() {
             <div className="flex-1 min-h-0">
               {msgSubTab === 'whatsapp' && <WhatsAppInbox />}
               {msgSubTab === 'broadcast' && <WhatsAppBroadcast />}
+              {msgSubTab === 'analytics' && <WhatsAppAnalytics />}
               {msgSubTab === 'commlog' && <div className="px-8 py-4 overflow-auto h-full"><MessageManagement /></div>}
             </div>
           </div>
