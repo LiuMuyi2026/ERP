@@ -160,9 +160,12 @@ export default function WhatsAppChatPanel({
       // Subscribe presence
       api.post(`/api/whatsapp/conversations/${effectiveContactId}/subscribe-presence`, {}).catch(() => {});
     }
+    // Poll for new messages every 5s
+    const iv = setInterval(() => { loadMessages(); }, 5000);
+    return () => clearInterval(iv);
   }, [effectiveContactId, leadId]);
 
-  useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages]);
+  useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages.length]);
 
   // ── Presence polling (5s) ──
   useEffect(() => {

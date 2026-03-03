@@ -220,7 +220,12 @@ export default function MessagesPanel({ label }: { label?: string }) {
   useEffect(() => {
     if (!open || activeTab !== 'whatsapp') return;
     loadWaConversations({ account_id: waFilterAccount, is_group: waFilterGroup, label_id: waFilterLabel, sort_by: waSortBy });
-  }, [open, activeTab, waFilterAccount, waFilterGroup, waFilterLabel, waSortBy, loadWaConversations]);
+    // Poll WhatsApp conversations every 10s
+    const iv = setInterval(() => {
+      if (isVisible) loadWaConversations({ account_id: waFilterAccount, is_group: waFilterGroup, label_id: waFilterLabel, sort_by: waSortBy });
+    }, 10_000);
+    return () => clearInterval(iv);
+  }, [open, activeTab, waFilterAccount, waFilterGroup, waFilterLabel, waSortBy, loadWaConversations, isVisible]);
 
   // ── Thread polling ────────────────────────────────────────────────────────
   useEffect(() => {
