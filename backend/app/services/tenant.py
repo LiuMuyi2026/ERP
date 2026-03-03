@@ -1319,6 +1319,10 @@ TENANT_MIGRATION_DDL = [
     # ── Phase 8: WhatsApp Evolution API Phase 4+5 ──────────────────────────
     "ALTER TABLE whatsapp_contacts ADD COLUMN IF NOT EXISTS business_profile JSONB DEFAULT '{}'",
     "ALTER TABLE whatsapp_contacts ADD COLUMN IF NOT EXISTS has_catalog BOOLEAN DEFAULT FALSE",
+
+    # ── Phase 9: WhatsApp pin/mute ───────────────────────────────────────
+    "ALTER TABLE whatsapp_contacts ADD COLUMN IF NOT EXISTS is_pinned BOOLEAN DEFAULT FALSE",
+    "ALTER TABLE whatsapp_contacts ADD COLUMN IF NOT EXISTS is_muted BOOLEAN DEFAULT FALSE",
 ]
 
 

@@ -30,10 +30,32 @@ type Conversation = {
   last_message_preview?: string;
   unread_count: number;
   is_group?: boolean;
+  is_pinned?: boolean;
+  is_muted?: boolean;
   wa_labels?: string[];
   disappearing_duration?: number;
   group_metadata?: any;
 };
+
+function parsePreview(raw?: string): { text: string; isMe: boolean } {
+  if (!raw) return { text: 'No messages', isMe: false };
+  const parts = raw.split(':');
+  if (parts.length < 3) return { text: raw, isMe: false };
+  const direction = parts[0];
+  const type = parts[1];
+  const content = parts.slice(2).join(':');
+  const isMe = direction === 'outbound';
+
+  const mediaLabels: Record<string, string> = {
+    image: '\ud83d\udcf7 Photo', video: '\ud83c\udfa5 Video', audio: '\ud83c\udfb5 Audio',
+    document: '\ud83d\udcc4 Document', location: '\ud83d\udccd Location',
+    contact: '\ud83d\udc64 Contact', sticker: 'Sticker',
+  };
+
+  const label = mediaLabels[type];
+  const text = label ? label : (content || 'Message');
+  return { text, isMe };
+}
 
 type WaAccount = {
   id: string; display_name?: string; phone_number?: string;
@@ -508,44 +530,41 @@ export default function WhatsAppInbox() {
       )
     : conversations;
 
-  // Expanded groups state (for multi-conversation contacts)
-  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
-
-  // Group conversations by contact name
-  const grouped = useMemo(() => {
-    const map = new Map<string, { name: string; avatar?: string; isLinked: boolean; convs: Conversation[] }>();
-    for (const conv of filtered) {
-      const groupName = conv.crm_account_name || conv.lead_name || conv.display_name || conv.push_name || conv.phone_number || 'Unknown';
-      const existing = map.get(groupName);
-      if (existing) {
-        existing.convs.push(conv);
-      } else {
-        map.set(groupName, {
-          name: groupName,
-          avatar: conv.profile_pic_url,
-          isLinked: !!(conv.crm_account_name || conv.lead_name),
-          convs: [conv],
-        });
-      }
-    }
-    return Array.from(map.values()).sort((a, b) => {
-      const aUnread = a.convs.reduce((s, c) => s + c.unread_count, 0);
-      const bUnread = b.convs.reduce((s, c) => s + c.unread_count, 0);
-      if (aUnread > 0 && bUnread === 0) return -1;
-      if (bUnread > 0 && aUnread === 0) return 1;
-      const aTime = Math.max(...a.convs.map(c => c.last_message_at ? new Date(c.last_message_at).getTime() : 0));
-      const bTime = Math.max(...b.convs.map(c => c.last_message_at ? new Date(c.last_message_at).getTime() : 0));
-      return bTime - aTime;
+  // Flat sorted conversation list — pinned first, then by last message time
+  const sortedConvs = useMemo(() => {
+    return [...filtered].sort((a, b) => {
+      if (a.is_pinned && !b.is_pinned) return -1;
+      if (!a.is_pinned && b.is_pinned) return 1;
+      const aT = a.last_message_at ? new Date(a.last_message_at).getTime() : 0;
+      const bT = b.last_message_at ? new Date(b.last_message_at).getTime() : 0;
+      return bT - aT;
     });
   }, [filtered]);
 
-  function toggleGroup(groupName: string) {
-    setExpandedGroups(prev => {
-      const next = new Set(prev);
-      if (next.has(groupName)) next.delete(groupName);
-      else next.add(groupName);
-      return next;
-    });
+  // Context menu state
+  const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; conv: Conversation } | null>(null);
+
+  useEffect(() => {
+    if (!ctxMenu) return;
+    const close = () => setCtxMenu(null);
+    window.addEventListener('click', close);
+    return () => window.removeEventListener('click', close);
+  }, [ctxMenu]);
+
+  async function handlePin(conv: Conversation) {
+    try {
+      const res: any = await api.post(`/api/whatsapp/contacts/${conv.id}/pin`, {});
+      setConversations(prev => prev.map(c => c.id === conv.id ? { ...c, is_pinned: res.is_pinned } : c));
+    } catch {}
+    setCtxMenu(null);
+  }
+
+  async function handleMute(conv: Conversation) {
+    try {
+      const res: any = await api.post(`/api/whatsapp/contacts/${conv.id}/mute`, {});
+      setConversations(prev => prev.map(c => c.id === conv.id ? { ...c, is_muted: res.is_muted } : c));
+    } catch {}
+    setCtxMenu(null);
   }
 
   return (
@@ -641,7 +660,7 @@ export default function WhatsAppInbox() {
             <div className="flex items-center justify-center h-32">
               <div className="w-6 h-6 border-2 border-t-transparent rounded-full animate-spin" style={{ borderColor: '#00a884', borderTopColor: 'transparent' }} />
             </div>
-          ) : grouped.length === 0 ? (
+          ) : sortedConvs.length === 0 ? (
             <div className="flex flex-col items-center justify-center h-40 gap-2">
               <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#8696a0" strokeWidth="1" strokeLinecap="round">
                 <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
@@ -649,212 +668,115 @@ export default function WhatsAppInbox() {
               <p className="text-[13px]" style={{ color: '#667781' }}>{tCrm('waInboxNoConvs')}</p>
             </div>
           ) : (
-            grouped.map(group => {
-              const totalUnread = group.convs.reduce((s, c) => s + c.unread_count, 0);
-              const latestConv = group.convs.reduce((best, c) => {
-                const t = c.last_message_at ? new Date(c.last_message_at).getTime() : 0;
-                const bestT = best.last_message_at ? new Date(best.last_message_at).getTime() : 0;
-                return t > bestT ? c : best;
-              }, group.convs[0]);
+            <>
+            {sortedConvs.map(conv => {
+              const contactName = conv.display_name || conv.push_name || conv.phone_number || 'Unknown';
+              const crmName = conv.crm_account_name || conv.lead_name;
+              const isLinked = !!(conv.crm_account_name || conv.lead_name);
+              const sc = conv.lead_status ? statusColors[conv.lead_status] : null;
+              const isSelected = selectedContact?.id === conv.id;
+              const labelNames = (conv.wa_labels || []).map(lid => labels.find(l => l.wa_label_id === lid)?.name).filter(Boolean);
+              const hasUnread = conv.unread_count > 0;
+              const preview = parsePreview(conv.last_message_preview);
 
-              // Single conversation
-              if (group.convs.length === 1) {
-                const conv = group.convs[0];
-                const contactName = conv.display_name || conv.push_name || conv.phone_number || 'Unknown';
-                const crmName = conv.crm_account_name || conv.lead_name;
-                const isLinked = !!(conv.crm_account_name || conv.lead_name);
-                const sc = conv.lead_status ? statusColors[conv.lead_status] : null;
-                const isSelected = selectedContact?.id === conv.id;
-                const labelNames = (conv.wa_labels || []).map(lid => labels.find(l => l.wa_label_id === lid)?.name).filter(Boolean);
-                const hasUnread = conv.unread_count > 0;
-
-                return (
-                  <div key={conv.id}
-                    className="group flex items-center gap-3 px-3 py-3 cursor-pointer transition-colors"
-                    style={{
-                      background: isSelected ? '#f0f2f5' : 'transparent',
-                      borderBottom: '1px solid #f0f2f5',
-                    }}
-                    onClick={() => handleSelectContact(conv)}
-                    onMouseEnter={e => { if (!isSelected) e.currentTarget.style.background = '#f5f6f6'; }}
-                    onMouseLeave={e => { if (!isSelected) e.currentTarget.style.background = 'transparent'; }}>
-                    {/* Avatar */}
-                    <div className="w-12 h-12 rounded-full flex items-center justify-center text-white text-sm font-bold flex-shrink-0 overflow-hidden"
-                      style={{ background: conv.is_group ? '#00a884' : '#dfe5e7' }}>
-                      {conv.profile_pic_url ? (
-                        <img src={conv.profile_pic_url} alt="" className="w-full h-full object-cover" />
-                      ) : conv.is_group ? (
-                        <svg viewBox="0 0 212 212" width="48" height="48"><path fill="white" d="M106 0C47.5 0 0 47.5 0 106s47.5 106 106 106 106-47.5 106-106S164.5 0 106 0zm-30 80c11 0 20 9 20 20s-9 20-20 20-20-9-20-20 9-20 20-20zm60 0c11 0 20 9 20 20s-9 20-20 20-20-9-20-20 9-20 20-20zM46 160c.2-13 26-20 30-20s29.8 7 30 20zm60 0c.2-13 26-20 30-20s29.8 7 30 20z"/></svg>
-                      ) : (
-                        <svg viewBox="0 0 212 212" width="48" height="48"><path fill="#8696a0" d="M106 0C47.5 0 0 47.5 0 106s47.5 106 106 106 106-47.5 106-106S164.5 0 106 0zm0 50c17.7 0 32 14.3 32 32s-14.3 32-32 32-32-14.3-32-32 14.3-32 32-32zm0 145c-26.5 0-49.9-13.5-63.5-34 .3-21 42.3-32.5 63.5-32.5s63.2 11.5 63.5 32.5C155.9 181.5 132.5 195 106 195z"/></svg>
-                      )}
-                    </div>
-                    {/* Content */}
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="text-[15px] truncate" style={{ color: '#111b21', fontWeight: hasUnread ? 600 : 400 }}>
-                          {isLinked ? crmName : contactName}
-                        </span>
-                        <span className="text-[12px] flex-shrink-0" style={{ color: hasUnread ? '#00a884' : '#667781' }}>
+              return (
+                <div key={conv.id}
+                  className="group flex items-center gap-3 px-3 py-3 cursor-pointer transition-colors"
+                  style={{
+                    background: isSelected ? '#f0f2f5' : 'transparent',
+                    borderBottom: '1px solid #f0f2f5',
+                  }}
+                  onClick={() => handleSelectContact(conv)}
+                  onContextMenu={e => { e.preventDefault(); setCtxMenu({ x: e.clientX, y: e.clientY, conv }); }}
+                  onMouseEnter={e => { if (!isSelected) e.currentTarget.style.background = '#f5f6f6'; }}
+                  onMouseLeave={e => { if (!isSelected) e.currentTarget.style.background = 'transparent'; }}>
+                  {/* Avatar */}
+                  <div className="w-12 h-12 rounded-full flex items-center justify-center text-white text-sm font-bold flex-shrink-0 overflow-hidden"
+                    style={{ background: conv.is_group ? '#00a884' : '#dfe5e7' }}>
+                    {conv.profile_pic_url ? (
+                      <img src={conv.profile_pic_url} alt="" className="w-full h-full object-cover" />
+                    ) : conv.is_group ? (
+                      <svg viewBox="0 0 212 212" width="48" height="48"><path fill="white" d="M106 0C47.5 0 0 47.5 0 106s47.5 106 106 106 106-47.5 106-106S164.5 0 106 0zm-30 80c11 0 20 9 20 20s-9 20-20 20-20-9-20-20 9-20 20-20zm60 0c11 0 20 9 20 20s-9 20-20 20-20-9-20-20 9-20 20-20zM46 160c.2-13 26-20 30-20s29.8 7 30 20zm60 0c.2-13 26-20 30-20s29.8 7 30 20z"/></svg>
+                    ) : (
+                      <svg viewBox="0 0 212 212" width="48" height="48"><path fill="#8696a0" d="M106 0C47.5 0 0 47.5 0 106s47.5 106 106 106 106-47.5 106-106S164.5 0 106 0zm0 50c17.7 0 32 14.3 32 32s-14.3 32-32 32-32-14.3-32-32 14.3-32 32-32zm0 145c-26.5 0-49.9-13.5-63.5-34 .3-21 42.3-32.5 63.5-32.5s63.2 11.5 63.5 32.5C155.9 181.5 132.5 195 106 195z"/></svg>
+                    )}
+                  </div>
+                  {/* Content */}
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-[15px] truncate" style={{ color: '#111b21', fontWeight: hasUnread ? 600 : 400 }}>
+                        {contactName}
+                      </span>
+                      <div className="flex items-center gap-1.5 flex-shrink-0">
+                        <span className="text-[12px]" style={{ color: hasUnread ? '#00a884' : '#667781' }}>
                           {relativeTime(conv.last_message_at)}
                         </span>
                       </div>
-                      <div className="flex items-center justify-between gap-2 mt-0.5">
-                        <p className="text-[13px] truncate flex-1" style={{ color: '#667781', fontWeight: hasUnread ? 500 : 400 }}>
-                          {conv.last_message_preview || 'No messages'}
-                        </p>
-                        <div className="flex items-center gap-1.5 flex-shrink-0">
-                          {sc && conv.lead_status && (
-                            <span className="text-[9px] px-1.5 py-0.5 rounded-full font-medium" style={{ background: sc.bg, color: sc.text }}>
-                              {conv.lead_status}
-                            </span>
-                          )}
-                          {labelNames.length > 0 && (
-                            <span className="text-[9px] px-1.5 py-0.5 rounded-full" style={{ background: '#e9e2ff', color: '#7c3aed' }}>
-                              {labelNames[0]}{labelNames.length > 1 ? ` +${labelNames.length - 1}` : ''}
-                            </span>
-                          )}
-                          {hasUnread && (
-                            <span className="min-w-[20px] h-[20px] rounded-full flex items-center justify-center text-[11px] text-white font-medium px-1.5"
-                              style={{ background: '#00a884' }}>
-                              {conv.unread_count}
-                            </span>
-                          )}
-                          {!isLinked && (
-                            <button onClick={e => { e.stopPropagation(); setLinkingContact(conv); }}
-                              className="text-[9px] px-1.5 py-0.5 rounded-full opacity-0 group-hover:opacity-100 transition-opacity font-medium"
-                              style={{ background: '#e7fcf5', color: '#008069' }}>
-                              Link
-                            </button>
-                          )}
-                        </div>
+                    </div>
+                    {isLinked && (
+                      <p className="text-[11px] truncate" style={{ color: '#00a884' }}>
+                        CRM: {crmName}
+                      </p>
+                    )}
+                    <div className="flex items-center justify-between gap-2 mt-0.5">
+                      <p className="text-[13px] truncate flex-1" style={{ color: '#667781', fontWeight: hasUnread ? 500 : 400 }}>
+                        {preview.isMe && <span style={{ color: '#667781' }}>You: </span>}
+                        {preview.text}
+                      </p>
+                      <div className="flex items-center gap-1.5 flex-shrink-0">
+                        {conv.is_pinned && (
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="#667781"><path d="M16 12V4h1V2H7v2h1v8l-2 2v2h5.2v6h1.6v-6H18v-2l-2-2z"/></svg>
+                        )}
+                        {conv.is_muted && (
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="#667781"><path d="M16.5 12c0-1.77-1.02-3.29-2.5-4.03v2.21l2.45 2.45c.03-.2.05-.41.05-.63zm2.5 0c0 .94-.2 1.82-.54 2.64l1.51 1.51A8.796 8.796 0 0 0 21 12c0-4.28-2.99-7.86-7-8.77v2.06c2.89.86 5 3.54 5 6.71zM4.27 3L3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.18v2.06a8.99 8.99 0 0 0 3.69-1.81L19.73 21 21 19.73l-9-9L4.27 3zM12 4L9.91 6.09 12 8.18V4z"/></svg>
+                        )}
+                        {sc && conv.lead_status && (
+                          <span className="text-[9px] px-1.5 py-0.5 rounded-full font-medium" style={{ background: sc.bg, color: sc.text }}>
+                            {conv.lead_status}
+                          </span>
+                        )}
+                        {labelNames.length > 0 && (
+                          <span className="text-[9px] px-1.5 py-0.5 rounded-full" style={{ background: '#e9e2ff', color: '#7c3aed' }}>
+                            {labelNames[0]}{labelNames.length > 1 ? ` +${labelNames.length - 1}` : ''}
+                          </span>
+                        )}
+                        {hasUnread && (
+                          <span className="min-w-[20px] h-[20px] rounded-full flex items-center justify-center text-[11px] text-white font-medium px-1.5"
+                            style={{ background: conv.is_muted ? '#8696a0' : '#00a884' }}>
+                            {conv.unread_count}
+                          </span>
+                        )}
+                        {!isLinked && (
+                          <button onClick={e => { e.stopPropagation(); setLinkingContact(conv); }}
+                            className="text-[9px] px-1.5 py-0.5 rounded-full opacity-0 group-hover:opacity-100 transition-opacity font-medium"
+                            style={{ background: '#e7fcf5', color: '#008069' }}>
+                            Link
+                          </button>
+                        )}
                       </div>
                     </div>
                   </div>
-                );
-              }
-
-              // Multi-conversation group
-              const isExpanded = expandedGroups.has(group.name);
-
-              return (
-                <div key={group.name}>
-                  <div
-                    className="flex items-center gap-3 px-3 py-3 cursor-pointer transition-colors"
-                    style={{ background: isExpanded ? '#f0f2f5' : 'transparent', borderBottom: '1px solid #f0f2f5' }}
-                    onClick={() => toggleGroup(group.name)}
-                    onMouseEnter={e => { if (!isExpanded) e.currentTarget.style.background = '#f5f6f6'; }}
-                    onMouseLeave={e => { if (!isExpanded) e.currentTarget.style.background = isExpanded ? '#f0f2f5' : 'transparent'; }}>
-                    <div className="w-12 h-12 rounded-full flex items-center justify-center text-white text-sm font-bold flex-shrink-0 overflow-hidden"
-                      style={{ background: '#dfe5e7' }}>
-                      {group.avatar ? (
-                        <img src={group.avatar} alt="" className="w-full h-full object-cover" />
-                      ) : (
-                        <svg viewBox="0 0 212 212" width="48" height="48"><path fill="#8696a0" d="M106 0C47.5 0 0 47.5 0 106s47.5 106 106 106 106-47.5 106-106S164.5 0 106 0zm0 50c17.7 0 32 14.3 32 32s-14.3 32-32 32-32-14.3-32-32 14.3-32 32-32zm0 145c-26.5 0-49.9-13.5-63.5-34 .3-21 42.3-32.5 63.5-32.5s63.2 11.5 63.5 32.5C155.9 181.5 132.5 195 106 195z"/></svg>
-                      )}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center justify-between gap-2">
-                        <div className="flex items-center gap-1.5 min-w-0">
-                          <svg width="10" height="10" viewBox="0 0 24 24" fill="#667781" style={{ transform: isExpanded ? 'rotate(90deg)' : 'none', transition: 'transform 0.15s' }}>
-                            <path d="M8 5l8 7-8 7z"/>
-                          </svg>
-                          <span className="text-[15px] truncate" style={{ color: '#111b21', fontWeight: totalUnread > 0 ? 600 : 400 }}>
-                            {group.name}
-                          </span>
-                          <span className="text-[11px] flex-shrink-0 px-1.5 py-0.5 rounded-full" style={{ background: '#f0f2f5', color: '#667781' }}>
-                            {group.convs.length}
-                          </span>
-                        </div>
-                        <div className="flex items-center gap-1.5 flex-shrink-0">
-                          <span className="text-[12px]" style={{ color: totalUnread > 0 ? '#00a884' : '#667781' }}>
-                            {relativeTime(latestConv.last_message_at)}
-                          </span>
-                          {totalUnread > 0 && (
-                            <span className="min-w-[20px] h-[20px] rounded-full flex items-center justify-center text-[11px] text-white font-medium px-1.5"
-                              style={{ background: '#00a884' }}>
-                              {totalUnread}
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                      {!isExpanded && (
-                        <p className="text-[13px] truncate mt-0.5" style={{ color: '#667781' }}>
-                          {latestConv.last_message_preview || 'No messages'}
-                        </p>
-                      )}
-                    </div>
-                  </div>
-
-                  {isExpanded && group.convs
-                    .sort((a, b) => {
-                      const aT = a.last_message_at ? new Date(a.last_message_at).getTime() : 0;
-                      const bT = b.last_message_at ? new Date(b.last_message_at).getTime() : 0;
-                      return bT - aT;
-                    })
-                    .map(conv => {
-                      const contactName = conv.display_name || conv.push_name || conv.phone_number || 'Unknown';
-                      const isSelected = selectedContact?.id === conv.id;
-                      const acc = accounts.find(a => a.id === conv.wa_account_id);
-                      const viaLabel = acc ? (acc.label || acc.display_name || acc.phone_number || 'Account') : (conv.phone_number || '');
-                      const sc = conv.lead_status ? statusColors[conv.lead_status] : null;
-                      const labelNames = (conv.wa_labels || []).map(lid => labels.find(l => l.wa_label_id === lid)?.name).filter(Boolean);
-                      const hasUnread = conv.unread_count > 0;
-
-                      return (
-                        <div key={conv.id}
-                          className="group flex items-center gap-2.5 pl-10 pr-3 py-2.5 cursor-pointer transition-colors"
-                          style={{
-                            background: isSelected ? '#f0f2f5' : '#fafafa',
-                            borderBottom: '1px solid #f0f2f5',
-                          }}
-                          onClick={() => handleSelectContact(conv)}
-                          onMouseEnter={e => { if (!isSelected) e.currentTarget.style.background = '#f5f6f6'; }}
-                          onMouseLeave={e => { if (!isSelected) e.currentTarget.style.background = isSelected ? '#f0f2f5' : '#fafafa'; }}>
-                          <div className="w-9 h-9 rounded-full flex items-center justify-center text-white text-[10px] font-bold flex-shrink-0 overflow-hidden"
-                            style={{ background: conv.is_group ? '#00a884' : '#dfe5e7' }}>
-                            {conv.profile_pic_url ? (
-                              <img src={conv.profile_pic_url} alt="" className="w-full h-full object-cover" />
-                            ) : conv.is_group ? (
-                              <svg viewBox="0 0 24 24" width="20" height="20" fill="white"><path d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5C6.34 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z"/></svg>
-                            ) : (
-                              <svg viewBox="0 0 212 212" width="36" height="36"><path fill="#8696a0" d="M106 0C47.5 0 0 47.5 0 106s47.5 106 106 106 106-47.5 106-106S164.5 0 106 0zm0 50c17.7 0 32 14.3 32 32s-14.3 32-32 32-32-14.3-32-32 14.3-32 32-32zm0 145c-26.5 0-49.9-13.5-63.5-34 .3-21 42.3-32.5 63.5-32.5s63.2 11.5 63.5 32.5C155.9 181.5 132.5 195 106 195z"/></svg>
-                            )}
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center justify-between gap-1">
-                              <span className="text-[13px] truncate" style={{ color: '#111b21' }}>
-                                via {viaLabel}
-                              </span>
-                              <span className="text-[11px] flex-shrink-0" style={{ color: hasUnread ? '#00a884' : '#667781' }}>
-                                {relativeTime(conv.last_message_at)}
-                              </span>
-                            </div>
-                            <div className="flex items-center justify-between gap-1 mt-0.5">
-                              <p className="text-[12px] truncate flex-1" style={{ color: '#667781' }}>
-                                {conv.last_message_preview || 'No messages'}
-                              </p>
-                              <div className="flex items-center gap-1 flex-shrink-0">
-                                {sc && conv.lead_status && (
-                                  <span className="text-[9px] px-1.5 py-0.5 rounded-full" style={{ background: sc.bg, color: sc.text }}>
-                                    {conv.lead_status}
-                                  </span>
-                                )}
-                                {hasUnread && (
-                                  <span className="min-w-[16px] h-[16px] rounded-full flex items-center justify-center text-[9px] text-white font-medium px-0.5"
-                                    style={{ background: '#00a884' }}>
-                                    {conv.unread_count}
-                                  </span>
-                                )}
-                              </div>
-                            </div>
-                          </div>
-                        </div>
-                      );
-                    })}
                 </div>
               );
-            })
+            })}
+
+            {/* Context menu */}
+            {ctxMenu && (
+              <div
+                className="fixed z-50 rounded-lg shadow-lg py-1 min-w-[160px]"
+                style={{ left: ctxMenu.x, top: ctxMenu.y, background: 'white', border: '1px solid #e9edef' }}
+                onClick={e => e.stopPropagation()}>
+                <button className="w-full text-left px-4 py-2 text-[13px] hover:bg-[#f5f6f6]" style={{ color: '#111b21' }}
+                  onClick={() => handlePin(ctxMenu.conv)}>
+                  {ctxMenu.conv.is_pinned ? 'Unpin' : 'Pin'} conversation
+                </button>
+                <button className="w-full text-left px-4 py-2 text-[13px] hover:bg-[#f5f6f6]" style={{ color: '#111b21' }}
+                  onClick={() => handleMute(ctxMenu.conv)}>
+                  {ctxMenu.conv.is_muted ? 'Unmute' : 'Mute'} notifications
+                </button>
+              </div>
+            )}
+            </>
           )}
         </div>
       </div>

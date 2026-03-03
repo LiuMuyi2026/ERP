@@ -888,7 +888,11 @@ async def dashboard(
                a.wa_jid AS owner_wa_jid, a.owner_user_id, u.full_name AS owner_name,
                l.full_name AS lead_name, l.status AS lead_status,
                ca.name AS crm_account_name,
-               (SELECT content FROM whatsapp_messages wm WHERE wm.wa_contact_id = c.id ORDER BY wm.timestamp DESC LIMIT 1) AS last_message_preview
+               COALESCE(c.is_pinned, FALSE) AS is_pinned,
+               COALESCE(c.is_muted, FALSE) AS is_muted,
+               (SELECT wm.direction || ':' || wm.message_type || ':' || COALESCE(wm.content, '')
+                FROM whatsapp_messages wm WHERE wm.wa_contact_id = c.id
+                ORDER BY wm.timestamp DESC LIMIT 1) AS last_message_preview
         FROM whatsapp_contacts c
         JOIN whatsapp_accounts a ON a.id = c.wa_account_id AND a.is_active = TRUE
         LEFT JOIN users u ON u.id = a.owner_user_id
@@ -926,11 +930,11 @@ async def dashboard(
         params["label_json"] = json.dumps([label_id])
 
     if sort_by == "unread":
-        q += " ORDER BY c.unread_count DESC, c.last_message_at DESC NULLS LAST"
+        q += " ORDER BY COALESCE(c.is_pinned, FALSE) DESC, c.unread_count DESC, c.last_message_at DESC NULLS LAST"
     elif sort_by == "lead_status":
-        q += " ORDER BY l.status, c.last_message_at DESC NULLS LAST"
+        q += " ORDER BY COALESCE(c.is_pinned, FALSE) DESC, l.status, c.last_message_at DESC NULLS LAST"
     else:
-        q += " ORDER BY c.last_message_at DESC NULLS LAST"
+        q += " ORDER BY COALESCE(c.is_pinned, FALSE) DESC, c.last_message_at DESC NULLS LAST"
 
     rows = await db.execute(text(q), params)
     return [dict(r._mapping) for r in rows.fetchall()]
@@ -1038,6 +1042,44 @@ async def unlink_contact(contact_id: str, ctx: dict = Depends(get_current_user_w
     )
     await db.commit()
     return {"ok": True}
+
+
+@router.post("/contacts/{contact_id}/pin")
+async def toggle_pin(contact_id: str, ctx: dict = Depends(get_current_user_with_tenant)):
+    db = ctx["db"]
+    await _verify_contact_ownership(db, contact_id, ctx["sub"])
+    row = await db.execute(
+        text("SELECT COALESCE(is_pinned, FALSE) AS is_pinned FROM whatsapp_contacts WHERE id = :cid"),
+        {"cid": contact_id},
+    )
+    current = row.fetchone()
+    new_val = not current.is_pinned if current else True
+    await db.execute(
+        text("UPDATE whatsapp_contacts SET is_pinned = :val, updated_at = NOW() WHERE id = :cid"),
+        {"cid": contact_id, "val": new_val},
+    )
+    await db.commit()
+    await wa_ws_manager.broadcast(ctx.get("tenant_slug", ""), {"type": "contact_updated", "contact_id": contact_id, "is_pinned": new_val})
+    return {"ok": True, "is_pinned": new_val}
+
+
+@router.post("/contacts/{contact_id}/mute")
+async def toggle_mute(contact_id: str, ctx: dict = Depends(get_current_user_with_tenant)):
+    db = ctx["db"]
+    await _verify_contact_ownership(db, contact_id, ctx["sub"])
+    row = await db.execute(
+        text("SELECT COALESCE(is_muted, FALSE) AS is_muted FROM whatsapp_contacts WHERE id = :cid"),
+        {"cid": contact_id},
+    )
+    current = row.fetchone()
+    new_val = not current.is_muted if current else True
+    await db.execute(
+        text("UPDATE whatsapp_contacts SET is_muted = :val, updated_at = NOW() WHERE id = :cid"),
+        {"cid": contact_id, "val": new_val},
+    )
+    await db.commit()
+    await wa_ws_manager.broadcast(ctx.get("tenant_slug", ""), {"type": "contact_updated", "contact_id": contact_id, "is_muted": new_val})
+    return {"ok": True, "is_muted": new_val}
 
 
 @router.get("/contacts/{contact_id}/crm-context")
