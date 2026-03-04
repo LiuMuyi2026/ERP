@@ -30,6 +30,18 @@ export default function CommandPalette({ open, onClose, tenant }: CommandPalette
   const [isAdminScope, setIsAdminScope] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
+  const searchReqSeq = useRef(0);
+
+  const toRows = useCallback((value: any, extraKeys: string[] = []): any[] => {
+    if (Array.isArray(value)) return value;
+    if (!value || typeof value !== 'object') return [];
+    const keys = ['items', 'customers', 'notifications', 'results', 'rows', 'data', ...extraKeys];
+    for (const k of keys) {
+      const v = (value as any)?.[k];
+      if (Array.isArray(v)) return v;
+    }
+    return [];
+  }, []);
 
   const navigate = useCallback((href: string) => {
     router.push(href);
@@ -71,11 +83,13 @@ export default function CommandPalette({ open, onClose, tenant }: CommandPalette
     if (!open) return;
     const q = query.trim();
     if (q.length < 2) {
+      searchReqSeq.current += 1;
       setRemoteItems([]);
       setRemoteLoading(false);
       return;
     }
     const timer = setTimeout(async () => {
+      const reqId = ++searchReqSeq.current;
       setRemoteLoading(true);
       try {
         const queryCalls: Array<Promise<any>> = [
@@ -113,8 +127,8 @@ export default function CommandPalette({ open, onClose, tenant }: CommandPalette
         const includesQ = (value: unknown) => String(value || '').toLowerCase().includes(q.toLowerCase());
 
         const items: CommandItem[] = [];
-        if (workspaceRes.status === 'fulfilled' && Array.isArray(workspaceRes.value)) {
-          for (const row of workspaceRes.value.slice(0, 20)) {
+        if (workspaceRes.status === 'fulfilled') {
+          for (const row of toRows(workspaceRes.value).slice(0, 20)) {
             items.push({
               id: `workspace-page-${row.id}`,
               label: row.title || 'Untitled',
@@ -126,8 +140,8 @@ export default function CommandPalette({ open, onClose, tenant }: CommandPalette
             });
           }
         }
-        if (integrationRes.status === 'fulfilled' && Array.isArray(integrationRes.value)) {
-          for (const app of integrationRes.value.slice(0, 12)) {
+        if (integrationRes.status === 'fulfilled') {
+          for (const app of toRows(integrationRes.value).slice(0, 12)) {
             const desc = [app.source, app.category, app.description].filter(Boolean).join(' · ');
             items.push({
               id: `integration-app-${app.app_key || app.id}`,
@@ -140,8 +154,8 @@ export default function CommandPalette({ open, onClose, tenant }: CommandPalette
             });
           }
         }
-        if (leadsRes.status === 'fulfilled' && Array.isArray(leadsRes.value)) {
-          for (const lead of leadsRes.value.slice(0, 10)) {
+        if (leadsRes.status === 'fulfilled') {
+          for (const lead of toRows(leadsRes.value).slice(0, 10)) {
             const leadName = lead.full_name || lead.company || lead.email || 'Lead';
             const desc = [lead.company, lead.status, lead.email].filter(Boolean).join(' · ');
             items.push({
@@ -155,8 +169,8 @@ export default function CommandPalette({ open, onClose, tenant }: CommandPalette
             });
           }
         }
-        if (customersRes.status === 'fulfilled' && Array.isArray(customersRes.value)) {
-          for (const customer of customersRes.value.slice(0, 10)) {
+        if (customersRes.status === 'fulfilled') {
+          for (const customer of toRows(customersRes.value).slice(0, 10)) {
             const customerName = customer.full_name || customer.company || customer.email || 'Customer';
             const desc = [customer.company, customer.status, customer.email].filter(Boolean).join(' · ');
             items.push({
@@ -170,8 +184,8 @@ export default function CommandPalette({ open, onClose, tenant }: CommandPalette
             });
           }
         }
-        if (employeesRes.status === 'fulfilled' && Array.isArray(employeesRes.value)) {
-          for (const emp of employeesRes.value.slice(0, 12)) {
+        if (employeesRes.status === 'fulfilled') {
+          for (const emp of toRows(employeesRes.value).slice(0, 12)) {
             const empName = emp.full_name || emp.email || emp.employee_number || 'Employee';
             const desc = [emp.department_name, emp.position_name, emp.email].filter(Boolean).join(' · ');
             items.push({
@@ -185,8 +199,8 @@ export default function CommandPalette({ open, onClose, tenant }: CommandPalette
             });
           }
         }
-        if (contractsRes.status === 'fulfilled' && Array.isArray(contractsRes.value)) {
-          for (const c of contractsRes.value.slice(0, 40)) {
+        if (contractsRes.status === 'fulfilled') {
+          for (const c of toRows(contractsRes.value).slice(0, 40)) {
             if (!includesQ(c.contract_no) && !includesQ(c.account_name) && !includesQ(c.remarks)) continue;
             items.push({
               id: `crm-contract-${c.id}`,
@@ -199,8 +213,8 @@ export default function CommandPalette({ open, onClose, tenant }: CommandPalette
             });
           }
         }
-        if (receivablesRes.status === 'fulfilled' && Array.isArray(receivablesRes.value)) {
-          for (const r of receivablesRes.value.slice(0, 40)) {
+        if (receivablesRes.status === 'fulfilled') {
+          for (const r of toRows(receivablesRes.value).slice(0, 40)) {
             if (!includesQ(r.contract_no) && !includesQ(r.invoice_no) && !includesQ(r.lead_name)) continue;
             items.push({
               id: `crm-receivable-${r.id}`,
@@ -213,8 +227,8 @@ export default function CommandPalette({ open, onClose, tenant }: CommandPalette
             });
           }
         }
-        if (payablesRes.status === 'fulfilled' && Array.isArray(payablesRes.value)) {
-          for (const p of payablesRes.value.slice(0, 40)) {
+        if (payablesRes.status === 'fulfilled') {
+          for (const p of toRows(payablesRes.value).slice(0, 40)) {
             if (!includesQ(p.contract_no) && !includesQ(p.invoice_no) && !includesQ(p.supplier_name)) continue;
             items.push({
               id: `crm-payable-${p.id}`,
@@ -227,8 +241,8 @@ export default function CommandPalette({ open, onClose, tenant }: CommandPalette
             });
           }
         }
-        if (purchaseOrdersRes.status === 'fulfilled' && Array.isArray(purchaseOrdersRes.value)) {
-          for (const po of purchaseOrdersRes.value.slice(0, 20)) {
+        if (purchaseOrdersRes.status === 'fulfilled') {
+          for (const po of toRows(purchaseOrdersRes.value).slice(0, 20)) {
             items.push({
               id: `order-po-${po.id}`,
               label: po.po_number || 'Purchase Order',
@@ -240,8 +254,8 @@ export default function CommandPalette({ open, onClose, tenant }: CommandPalette
             });
           }
         }
-        if (salesOrdersRes.status === 'fulfilled' && Array.isArray(salesOrdersRes.value)) {
-          for (const so of salesOrdersRes.value.slice(0, 20)) {
+        if (salesOrdersRes.status === 'fulfilled') {
+          for (const so of toRows(salesOrdersRes.value).slice(0, 20)) {
             items.push({
               id: `order-so-${so.id}`,
               label: so.contract_no || 'Sales Order',
@@ -253,8 +267,8 @@ export default function CommandPalette({ open, onClose, tenant }: CommandPalette
             });
           }
         }
-        if (productsRes.status === 'fulfilled' && Array.isArray(productsRes.value)) {
-          for (const p of productsRes.value.slice(0, 20)) {
+        if (productsRes.status === 'fulfilled') {
+          for (const p of toRows(productsRes.value).slice(0, 20)) {
             items.push({
               id: `inventory-product-${p.id}`,
               label: p.name || p.sku || 'Product',
@@ -266,8 +280,8 @@ export default function CommandPalette({ open, onClose, tenant }: CommandPalette
             });
           }
         }
-        if (suppliersRes.status === 'fulfilled' && Array.isArray(suppliersRes.value)) {
-          for (const s of suppliersRes.value.slice(0, 20)) {
+        if (suppliersRes.status === 'fulfilled') {
+          for (const s of toRows(suppliersRes.value).slice(0, 20)) {
             items.push({
               id: `inventory-supplier-${s.id}`,
               label: s.name || 'Supplier',
@@ -279,8 +293,8 @@ export default function CommandPalette({ open, onClose, tenant }: CommandPalette
             });
           }
         }
-        if (waConversationsRes.status === 'fulfilled' && Array.isArray(waConversationsRes.value)) {
-          for (const c of waConversationsRes.value.slice(0, 30)) {
+        if (waConversationsRes.status === 'fulfilled') {
+          for (const c of toRows(waConversationsRes.value).slice(0, 30)) {
             if (!includesQ(c.display_name) && !includesQ(c.push_name) && !includesQ(c.phone_number) && !includesQ(c.lead_name)) continue;
             const name = c.display_name || c.push_name || c.phone_number || 'WhatsApp';
             items.push({
@@ -295,7 +309,7 @@ export default function CommandPalette({ open, onClose, tenant }: CommandPalette
           }
         }
         if (emailInboxRes.status === 'fulfilled') {
-          const rows = Array.isArray(emailInboxRes.value) ? emailInboxRes.value : (emailInboxRes.value?.items || []);
+          const rows = toRows(emailInboxRes.value);
           if (Array.isArray(rows)) {
             for (const em of rows.slice(0, 20)) {
               items.push({
@@ -310,8 +324,8 @@ export default function CommandPalette({ open, onClose, tenant }: CommandPalette
             }
           }
         }
-        if (internalMessagesRes.status === 'fulfilled' && Array.isArray(internalMessagesRes.value)) {
-          for (const m of internalMessagesRes.value.slice(0, 20)) {
+        if (internalMessagesRes.status === 'fulfilled') {
+          for (const m of toRows(internalMessagesRes.value).slice(0, 20)) {
             if (!includesQ(m.full_name) && !includesQ(m.email) && !includesQ(m.last_content)) continue;
             items.push({
               id: `internal-msg-${m.other_id}`,
@@ -325,7 +339,7 @@ export default function CommandPalette({ open, onClose, tenant }: CommandPalette
           }
         }
         if (notificationsRes.status === 'fulfilled') {
-          const rows = Array.isArray(notificationsRes.value) ? notificationsRes.value : (notificationsRes.value?.notifications || []);
+          const rows = toRows(notificationsRes.value);
           if (Array.isArray(rows)) {
             for (const n of rows.slice(0, 30)) {
               if (!includesQ(n.title) && !includesQ(n.body) && !includesQ(n.type)) continue;
@@ -341,8 +355,8 @@ export default function CommandPalette({ open, onClose, tenant }: CommandPalette
             }
           }
         }
-        if (operationsOrdersRes.status === 'fulfilled' && Array.isArray(operationsOrdersRes.value)) {
-          for (const o of operationsOrdersRes.value.slice(0, 30)) {
+        if (operationsOrdersRes.status === 'fulfilled') {
+          for (const o of toRows(operationsOrdersRes.value).slice(0, 30)) {
             if (!includesQ(o.contract_no) && !includesQ(o.customer_name) && !includesQ(o.stage)) continue;
             items.push({
               id: `op-order-${o.id}`,
@@ -355,8 +369,8 @@ export default function CommandPalette({ open, onClose, tenant }: CommandPalette
             });
           }
         }
-        if (isAdminScope && adminUsersRes && adminUsersRes.status === 'fulfilled' && Array.isArray(adminUsersRes.value)) {
-          for (const u of adminUsersRes.value.slice(0, 30)) {
+        if (isAdminScope && adminUsersRes && adminUsersRes.status === 'fulfilled') {
+          for (const u of toRows(adminUsersRes.value).slice(0, 30)) {
             if (!includesQ(u.full_name) && !includesQ(u.email) && !includesQ(u.role)) continue;
             items.push({
               id: `admin-user-${u.id}`,
@@ -369,15 +383,21 @@ export default function CommandPalette({ open, onClose, tenant }: CommandPalette
             });
           }
         }
-        setRemoteItems(items);
+        if (reqId === searchReqSeq.current) {
+          setRemoteItems(items);
+        }
       } catch {
-        setRemoteItems([]);
+        if (reqId === searchReqSeq.current) {
+          setRemoteItems([]);
+        }
       } finally {
-        setRemoteLoading(false);
+        if (reqId === searchReqSeq.current) {
+          setRemoteLoading(false);
+        }
       }
     }, 260);
     return () => clearTimeout(timer);
-  }, [open, query, navigate, tenant, isAdminScope]);
+  }, [open, query, navigate, tenant, isAdminScope, toRows]);
 
   const normalizedQuery = query.trim().toLowerCase();
   const filteredLocal = normalizedQuery
@@ -403,6 +423,7 @@ export default function CommandPalette({ open, onClose, tenant }: CommandPalette
 
   useEffect(() => {
     if (open) {
+      searchReqSeq.current += 1;
       setQuery('');
       setRemoteItems([]);
       setRemoteLoading(false);
