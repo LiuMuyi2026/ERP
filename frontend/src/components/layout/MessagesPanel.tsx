@@ -24,22 +24,32 @@ export default function MessagesPanel({ label }: { label?: string }) {
 
   const loadCounts = useCallback(async () => {
     try {
-      const [intData, emailData] = await Promise.all([
-        api.get('/api/messages/unread-count').catch(() => ({ count: 0 })),
-        api.get('/api/email/unread-count').catch(() => ({ count: 0 })),
-      ]);
-      // WhatsApp unread from dashboard
-      let waCount = 0;
-      try {
-        const convs = await api.get('/api/whatsapp/dashboard');
-        if (Array.isArray(convs)) waCount = convs.reduce((s: number, c: any) => s + (c.unread_count || 0), 0);
-      } catch (e: any) { console.error('loadWaCount:', e); }
+      const summary = await api.get('/api/messages/unread-summary');
       setCounts({
-        internal: intData.count ?? 0,
-        whatsapp: waCount,
-        email: emailData.count ?? 0,
+        internal: Number(summary?.internal || 0),
+        whatsapp: Number(summary?.whatsapp || 0),
+        email: Number(summary?.email || 0),
       });
-    } catch (e: any) { console.error('loadCounts:', e); }
+    } catch (e: any) {
+      console.error('loadCounts:', e);
+      // Fallback for older backend versions without unread-summary endpoint
+      try {
+        const [intData, emailData] = await Promise.all([
+          api.get('/api/messages/unread-count').catch(() => ({ count: 0 })),
+          api.get('/api/email/unread-count').catch(() => ({ count: 0 })),
+        ]);
+        let waCount = 0;
+        try {
+          const convs = await api.get('/api/whatsapp/dashboard');
+          if (Array.isArray(convs)) waCount = convs.reduce((s: number, c: any) => s + (c.unread_count || 0), 0);
+        } catch {}
+        setCounts({
+          internal: Number(intData?.count || 0),
+          whatsapp: Number(waCount || 0),
+          email: Number(emailData?.count || 0),
+        });
+      } catch {}
+    }
   }, []);
 
   useEffect(() => {

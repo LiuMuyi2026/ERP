@@ -9,7 +9,7 @@ import os
 
 from app.config import settings
 from app.database import init_db, engine
-from app.routers import auth, platform, workspace, crm, hr, accounting, inventory, ai, integrations, admin, notifications, messages, orders, ai_providers, automation, ai_finder, whisper_ws, workflow_templates, whatsapp, ws_whatsapp, email
+from app.routers import auth, platform, workspace, crm, hr, accounting, inventory, ai, integrations, admin, notifications, messages, orders, ai_providers, automation, ai_finder, whisper_ws, workflow_templates, whatsapp, ws_whatsapp, ws_messages, email
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -74,6 +74,7 @@ app.include_router(whisper_ws.router, prefix="/api")
 app.include_router(workflow_templates.router, prefix="/api")
 app.include_router(whatsapp.router, prefix="/api")
 app.include_router(ws_whatsapp.router, prefix="/api")
+app.include_router(ws_messages.router, prefix="/api")
 app.include_router(email.router, prefix="/api")
 
 

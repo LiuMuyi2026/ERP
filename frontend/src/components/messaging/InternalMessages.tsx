@@ -4,6 +4,7 @@ import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { api } from '@/lib/api';
 import { UserAvatar } from '@/components/ui/UserAvatar';
 import { usePageVisibility } from '@/hooks/usePageVisibility';
+import { useInternalMessagesSocket } from '@/lib/useInternalMessagesSocket';
 import { useTranslations, useLocale } from 'next-intl';
 import toast from 'react-hot-toast';
 
@@ -74,6 +75,8 @@ export default function InternalMessages() {
   const t = useTranslations('messages');
   const lang = useLocale();
   const isVisible = usePageVisibility();
+  const PAGE_SIZE = 60;
+  const { on, connected: wsConnected } = useInternalMessagesSocket();
 
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -84,6 +87,8 @@ export default function InternalMessages() {
   const [allUsers, setAllUsers] = useState<UserInfo[]>([]);
   const [search, setSearch] = useState('');
   const [loadingThread, setLoadingThread] = useState(false);
+  const [loadingOlder, setLoadingOlder] = useState(false);
+  const [hasMore, setHasMore] = useState(true);
   const threadEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -97,19 +102,28 @@ export default function InternalMessages() {
   // Initial load
   useEffect(() => {
     loadConversations();
-    api.get('/api/admin/users').then((users: any) => {
+    api.get('/api/messages/users').then((users: any) => {
       setAllUsers(Array.isArray(users) ? users : []);
     }).catch(() => {});
   }, [loadConversations]);
 
-  // Thread polling
+  const loadThread = useCallback(async (otherId: string, before?: string) => {
+    const params = new URLSearchParams({ limit: String(PAGE_SIZE) });
+    if (before) params.set('before', before);
+    const data: Message[] = await api.get(`/api/messages/${otherId}?${params.toString()}`);
+    const list = Array.isArray(data) ? data : [];
+    setHasMore(list.length === PAGE_SIZE);
+    return list;
+  }, []);
+
+  // Fallback polling (WS is primary)
   useEffect(() => {
     if (!selectedId || !isVisible) return;
     const load = async () => {
       try {
-        const data: Message[] = await api.get(`/api/messages/${selectedId}`);
+        const data = await loadThread(selectedId);
         setThread(prev => {
-          const next = Array.isArray(data) ? data : [];
+          const next = data;
           const changed =
             next.length !== prev.length ||
             next[next.length - 1]?.id !== prev[prev.length - 1]?.id ||
@@ -120,9 +134,54 @@ export default function InternalMessages() {
       } catch (e: any) { console.error('loadThread poll:', e); }
     };
     load();
-    const id = setInterval(load, 15_000);
+    const id = setInterval(load, 60_000);
     return () => clearInterval(id);
-  }, [selectedId, loadConversations, isVisible]);
+  }, [selectedId, loadConversations, isVisible, loadThread]);
+
+  // Real-time events
+  useEffect(() => {
+    const offMsg = on('internal_message', async (event) => {
+      const msg = event?.message as Message | undefined;
+      if (!msg) return;
+      await loadConversations();
+
+      if (!myId || !selectedId) return;
+      const otherId = msg.from_user_id === myId ? msg.to_user_id : msg.from_user_id;
+      if (otherId !== selectedId) return;
+
+      setThread(prev => {
+        if (prev.some(m => m.id === msg.id)) return prev;
+        return [...prev, msg];
+      });
+
+      // If this is an inbound message in the open thread, mark read quickly.
+      if (msg.from_user_id === selectedId && msg.to_user_id === myId) {
+        try {
+          const latest = await loadThread(selectedId);
+          setThread(latest);
+        } catch (e) {
+          console.error('refresh after ws message:', e);
+        }
+      }
+    });
+
+    const offRead = on('message_read', (event) => {
+      if (!myId || !selectedId) return;
+      const readerId = String(event?.reader_id || '');
+      if (readerId !== selectedId) return;
+      setThread(prev => prev.map(m => (
+        m.from_user_id === myId && m.to_user_id === selectedId
+          ? { ...m, is_read: true }
+          : m
+      )));
+      loadConversations();
+    });
+
+    return () => {
+      offMsg();
+      offRead();
+    };
+  }, [on, loadConversations, loadThread, myId, selectedId]);
 
   // Auto-scroll
   useEffect(() => {
@@ -133,14 +192,39 @@ export default function InternalMessages() {
     setSelectedId(item.other_id);
     setSelectedItem(item);
     setThread([]);
+    setHasMore(true);
     setLoadingThread(true);
     try {
-      const data = await api.get(`/api/messages/${item.other_id}`);
-      setThread(Array.isArray(data) ? data : []);
+      const data = await loadThread(item.other_id);
+      setThread(data);
       loadConversations();
     } catch (e: any) { console.error('selectUser:', e); toast.error('Failed to load messages'); } finally {
       setLoadingThread(false);
       setTimeout(() => inputRef.current?.focus(), 50);
+    }
+  }
+
+  async function loadOlderMessages() {
+    if (!selectedId || loadingOlder || !hasMore || thread.length === 0) return;
+    setLoadingOlder(true);
+    try {
+      const oldest = thread[0]?.created_at;
+      if (!oldest) return;
+      const older = await loadThread(selectedId, oldest);
+      if (older.length === 0) {
+        setHasMore(false);
+        return;
+      }
+      setThread(prev => {
+        const seen = new Set(prev.map(m => m.id));
+        const merged = older.filter(m => !seen.has(m.id));
+        return merged.length ? [...merged, ...prev] : prev;
+      });
+    } catch (e: any) {
+      console.error('loadOlderMessages:', e);
+      toast.error('Failed to load older messages');
+    } finally {
+      setLoadingOlder(false);
     }
   }
 
@@ -266,6 +350,9 @@ export default function InternalMessages() {
                 {selectedItem?.email && (
                   <div className="text-[10px]" style={{ color: '#8696a0' }}>{selectedItem.email}</div>
                 )}
+                <div className="text-[10px]" style={{ color: wsConnected ? '#16a34a' : '#f59e0b' }}>
+                  {wsConnected ? 'Live' : 'Syncing...'}
+                </div>
               </div>
             </div>
 
@@ -278,25 +365,39 @@ export default function InternalMessages() {
                   {t('noMessages') || 'No messages yet. Say hi!'}
                 </div>
               ) : (
-                thread.map(msg => {
-                  const isMe = msg.from_user_id === myId;
-                  return (
-                    <div key={msg.id} className={`flex mb-2 ${isMe ? 'justify-end' : 'justify-start'}`}>
-                      <div className="max-w-[75%] rounded-lg px-3 py-2 shadow-sm"
-                        style={{ background: isMe ? '#d9fdd3' : 'white' }}>
-                        <p className="text-sm whitespace-pre-wrap" style={{ color: '#3b4a54' }}>
-                          {msg.content}
-                        </p>
-                        <div className="flex items-center justify-end gap-1 mt-0.5">
-                          <span className="text-[10px]" style={{ color: '#8696a0' }}>
-                            {formatTime(msg.created_at, lang)}
-                          </span>
-                          {isMe && <DoubleCheck isRead={msg.is_read} />}
+                <>
+                  {thread.length > 0 && (
+                    <div className="flex justify-center mb-3">
+                      <button
+                        onClick={loadOlderMessages}
+                        disabled={loadingOlder || !hasMore}
+                        className="text-[11px] px-3 py-1.5 rounded-full border disabled:opacity-50"
+                        style={{ borderColor: '#d1d5db', color: '#6b7280', background: '#fff' }}
+                      >
+                        {loadingOlder ? 'Loading...' : (hasMore ? 'Load older messages' : 'No more history')}
+                      </button>
+                    </div>
+                  )}
+                  {thread.map(msg => {
+                    const isMe = msg.from_user_id === myId;
+                    return (
+                      <div key={msg.id} className={`flex mb-2 ${isMe ? 'justify-end' : 'justify-start'}`}>
+                        <div className="max-w-[75%] rounded-lg px-3 py-2 shadow-sm"
+                          style={{ background: isMe ? '#d9fdd3' : 'white' }}>
+                          <p className="text-sm whitespace-pre-wrap" style={{ color: '#3b4a54' }}>
+                            {msg.content}
+                          </p>
+                          <div className="flex items-center justify-end gap-1 mt-0.5">
+                            <span className="text-[10px]" style={{ color: '#8696a0' }}>
+                              {formatTime(msg.created_at, lang)}
+                            </span>
+                            {isMe && <DoubleCheck isRead={msg.is_read} />}
+                          </div>
                         </div>
                       </div>
-                    </div>
-                  );
-                })
+                    );
+                  })}
+                </>
               )}
               <div ref={threadEndRef} />
             </div>

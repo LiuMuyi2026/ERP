@@ -70,11 +70,31 @@ class BulkPermissionUpdate(BaseModel):
 
 # ── Users ─────────────────────────────────────────────────────────────────────
 
+@router.get("/users-lite")
+async def list_users_lite(ctx: dict = Depends(get_current_user_with_tenant)):
+    """Safe user directory for non-admin pages (no password fields)."""
+    result = await ctx["db"].execute(text("""
+        SELECT u.id, u.email, u.full_name, u.role, u.is_active, u.is_admin,
+               u.avatar_url, p.name AS position_name
+        FROM users u
+        LEFT JOIN employees e ON e.user_id = u.id
+        LEFT JOIN positions p ON p.id = e.position_id
+        ORDER BY u.created_at
+    """))
+    rows = []
+    for row in result.fetchall():
+        d = dict(row._mapping)
+        if d.get("is_admin") and not d.get("full_name"):
+            d["full_name"] = d.get("email", "").split("@")[0] + " (管理员)"
+        rows.append(d)
+    return rows
+
+
 @router.get("/users")
-async def list_users(ctx: dict = Depends(get_current_user_with_tenant)):
+async def list_users(ctx: dict = Depends(require_admin_with_tenant)):
     result = await ctx["db"].execute(text("""
         SELECT u.id, u.email, u.full_name, u.role, u.is_active, u.is_admin, u.created_at,
-               u.plain_password, u.avatar_url,
+               u.avatar_url,
                p.name AS position_name
         FROM users u
         LEFT JOIN employees e ON e.user_id = u.id

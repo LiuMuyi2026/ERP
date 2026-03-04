@@ -939,7 +939,7 @@ function CustomersTab() {
   useEffect(() => {
     (async () => {
       try {
-        const data = await api.get('/api/admin/users');
+        const data = await api.get('/api/admin/users-lite');
         setUsers((data.users || data || []).map((u: any) => ({ id: String(u.id), full_name: u.full_name || u.email, email: u.email, role: u.role, position_name: u.position_name })));
       } catch {}
     })();

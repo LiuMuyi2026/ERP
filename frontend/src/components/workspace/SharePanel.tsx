@@ -141,7 +141,7 @@ export default function SharePanel({ pageId, pageTitle, onClose }: SharePanelPro
 
         // Load all users
         try {
-          const usersData = await api.get('/api/admin/users');
+          const usersData = await api.get('/api/admin/users-lite');
           if (Array.isArray(usersData?.users)) setMembers(usersData.users);
           else if (Array.isArray(usersData)) setMembers(usersData);
         } catch {}

@@ -310,7 +310,7 @@ function AssigneePicker({ value, onChange }: { value: string[]; onChange: (v: st
   const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    api.get('/api/admin/users').then((data: any) => {
+    api.get('/api/admin/users-lite').then((data: any) => {
       if (Array.isArray(data)) setUsers(data);
     }).catch(() => {});
   }, []);

@@ -521,7 +521,7 @@ export default function HRPage() {
       api.get('/api/hr/employees').catch(() => []),
       api.get('/api/hr/departments').catch(() => []),
       api.get('/api/hr/leave-requests').catch(() => []),
-      api.get('/api/admin/users').catch(() => []),
+      api.get('/api/admin/users-lite').catch(() => []),
       api.get('/api/workspace/user-tasks').catch(() => []),
       api.get('/api/admin/positions').catch(() => []),
     ]).then(([emps, depts, lvs, users, tasks, pos]) => {

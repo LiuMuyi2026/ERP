@@ -2279,7 +2279,7 @@ export default function CRMPage() {
       api.get(`/api/crm/receivables${qs}`).catch(() => []),
       api.get(`/api/crm/payables${qs}`).catch(() => []),
       api.get('/api/crm/risks/pending-approvals').catch(() => []),
-      api.get('/api/admin/users').catch(() => []),
+      api.get('/api/admin/users-lite').catch(() => []),
       api.get('/api/inventory/products').catch(() => []),
     ]);
     setOverview(ov);

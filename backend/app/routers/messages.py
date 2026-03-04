@@ -1,9 +1,11 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from sqlalchemy import text
 from pydantic import BaseModel
 from app.deps import get_current_user_with_tenant
+from app.routers.ws_messages import messages_ws_manager
 from datetime import datetime, timezone
+from typing import Optional
 import uuid
 import csv
 import io
@@ -13,6 +15,22 @@ router = APIRouter(prefix="/messages", tags=["messages"])
 
 class SendMessage(BaseModel):
     content: str
+
+
+# ── User directory (non-admin safe fields only) ───────────────────────────────
+
+@router.get("/users")
+async def list_message_users(ctx: dict = Depends(get_current_user_with_tenant)):
+    """List active users for internal messaging, excluding the current user."""
+    uid = ctx["sub"]
+    result = await ctx["db"].execute(text("""
+        SELECT id, full_name, email, avatar_url
+        FROM users
+        WHERE is_active = TRUE
+          AND id != CAST(:uid AS uuid)
+        ORDER BY COALESCE(full_name, email), created_at
+    """), {"uid": uid})
+    return [dict(r._mapping) for r in result.fetchall()]
 
 
 # ── Conversations list ────────────────────────────────────────────────────────
@@ -73,6 +91,61 @@ async def unread_count(ctx: dict = Depends(get_current_user_with_tenant)):
         {"uid": ctx["sub"]},
     )
     return {"count": result.scalar() or 0}
+
+
+# ── Unified unread summary ────────────────────────────────────────────────────
+
+@router.get("/unread-summary")
+async def unread_summary(ctx: dict = Depends(get_current_user_with_tenant)):
+    """Unified unread counters for internal / WhatsApp / email."""
+    db = ctx["db"]
+    uid = ctx["sub"]
+    role = ctx.get("role", "")
+    is_admin_scope = role in ("platform_admin", "tenant_admin", "manager")
+
+    internal = 0
+    whatsapp = 0
+    email = 0
+
+    try:
+        r = await db.execute(
+            text("SELECT COUNT(*) FROM messages WHERE to_user_id = CAST(:uid AS uuid) AND is_read = FALSE"),
+            {"uid": uid},
+        )
+        internal = int(r.scalar() or 0)
+    except Exception:
+        internal = 0
+
+    try:
+        wa_sql = """
+            SELECT COALESCE(SUM(c.unread_count), 0)
+            FROM whatsapp_contacts c
+            JOIN whatsapp_accounts a ON a.id = c.wa_account_id AND a.is_active = TRUE
+            WHERE COALESCE(c.is_archived, FALSE) = FALSE
+        """
+        params: dict = {}
+        if not is_admin_scope:
+            wa_sql += " AND a.owner_user_id = CAST(:uid AS uuid)"
+            params["uid"] = uid
+        wa_row = await db.execute(text(wa_sql), params)
+        whatsapp = int(wa_row.scalar() or 0)
+    except Exception:
+        whatsapp = 0
+
+    try:
+        e = await db.execute(text(
+            "SELECT COUNT(*) FROM emails WHERE direction = 'inbound' AND is_read = FALSE AND is_deleted = FALSE"
+        ))
+        email = int(e.scalar() or 0)
+    except Exception:
+        email = 0
+
+    return {
+        "internal": internal,
+        "whatsapp": whatsapp,
+        "email": email,
+        "total": internal + whatsapp + email,
+    }
 
 
 # ── Admin helpers ─────────────────────────────────────────────────────────────
@@ -188,31 +261,59 @@ async def admin_export_messages(ctx: dict = Depends(get_current_user_with_tenant
 @router.get("/{other_user_id}")
 async def get_thread(
     other_user_id: str,
-    limit: int = 60,
+    limit: int = Query(60, ge=1, le=200),
+    before: Optional[str] = None,
     ctx: dict = Depends(get_current_user_with_tenant),
 ):
     db = ctx["db"]
     uid = ctx["sub"]
+    before_dt: Optional[datetime] = None
+    if before:
+        try:
+            normalized = before.replace("Z", "+00:00")
+            before_dt = datetime.fromisoformat(normalized)
+        except Exception:
+            raise HTTPException(status_code=400, detail="Invalid before timestamp")
+
     result = await db.execute(text("""
-        SELECT
-            m.id::text, m.from_user_id::text, m.to_user_id::text,
-            m.content, m.is_read, m.created_at,
-            u.full_name AS from_name, u.email AS from_email
-        FROM messages m
-        JOIN users u ON u.id = m.from_user_id
-        WHERE (m.from_user_id = CAST(:uid AS uuid) AND m.to_user_id = CAST(:other AS uuid))
-           OR (m.from_user_id = CAST(:other AS uuid) AND m.to_user_id = CAST(:uid AS uuid))
-        ORDER BY m.created_at ASC
-        LIMIT :limit
-    """), {"uid": uid, "other": other_user_id, "limit": limit})
+        SELECT * FROM (
+            SELECT
+                m.id::text, m.from_user_id::text, m.to_user_id::text,
+                m.content, m.is_read, m.created_at,
+                u.full_name AS from_name, u.email AS from_email
+            FROM messages m
+            JOIN users u ON u.id = m.from_user_id
+            WHERE (
+                (m.from_user_id = CAST(:uid AS uuid) AND m.to_user_id = CAST(:other AS uuid))
+                OR
+                (m.from_user_id = CAST(:other AS uuid) AND m.to_user_id = CAST(:uid AS uuid))
+            )
+            AND (:before IS NULL OR m.created_at < :before)
+            ORDER BY m.created_at DESC
+            LIMIT :limit
+        ) recent
+        ORDER BY recent.created_at ASC
+    """), {"uid": uid, "other": other_user_id, "limit": limit, "before": before_dt})
     rows = [dict(r._mapping) for r in result.fetchall()]
 
-    # Mark messages from other user as read
-    await db.execute(text("""
-        UPDATE messages SET is_read = TRUE
-        WHERE from_user_id = CAST(:other AS uuid) AND to_user_id = CAST(:uid AS uuid) AND is_read = FALSE
-    """), {"uid": uid, "other": other_user_id})
-    await db.commit()
+    # Only mark as read on latest thread load (not when paginating older history).
+    if before_dt is None:
+        update_result = await db.execute(text("""
+            UPDATE messages SET is_read = TRUE
+            WHERE from_user_id = CAST(:other AS uuid) AND to_user_id = CAST(:uid AS uuid) AND is_read = FALSE
+        """), {"uid": uid, "other": other_user_id})
+        await db.commit()
+        if (update_result.rowcount or 0) > 0:
+            await messages_ws_manager.send_to_user(
+                ctx.get("tenant_slug", ""),
+                other_user_id,
+                {
+                    "type": "message_read",
+                    "reader_id": uid,
+                    "other_user_id": other_user_id,
+                    "read_at": datetime.now(timezone.utc).isoformat(),
+                },
+            )
     return rows
 
 
@@ -243,4 +344,12 @@ async def send_message(
         WHERE m.id = :id
     """), {"id": msg_id})
     row = result.fetchone()
-    return dict(row._mapping)
+    message = dict(row._mapping)
+
+    tenant_slug = ctx.get("tenant_slug", "")
+    event = {"type": "internal_message", "message": message}
+    await messages_ws_manager.send_to_user(tenant_slug, other_user_id, event)
+    # Mirror to sender's other tabs/devices so state stays consistent.
+    await messages_ws_manager.send_to_user(tenant_slug, uid, event)
+
+    return message

@@ -632,7 +632,7 @@ export function WorkflowTab({ leadId, isCold, onMarkCold }: {
   useEffect(() => {
     Promise.all([
       api.get(`/api/crm/leads/${leadId}/workflow`).catch(() => ({ workflow_data: {}, is_returning_customer: false })),
-      api.get('/api/admin/users').catch(() => []),
+      api.get('/api/admin/users-lite').catch(() => []),
       api.get('/api/inventory/suppliers').catch(() => []),
       api.get('/api/inventory/products').catch(() => []),
     ]).then(([wf, us, sups, prods]) => {

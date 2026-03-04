@@ -1573,7 +1573,7 @@ export default function Customer360Page() {
   useEffect(() => { load(); }, [load]);
 
   useEffect(() => {
-    api.get('/api/admin/users').then((res: any) => {
+    api.get('/api/admin/users-lite').then((res: any) => {
       const list = Array.isArray(res) ? res : res.users ?? [];
       setTenantUsers(list.map((u: any) => ({ id: u.id, email: u.email || '', full_name: u.full_name || u.email || '', role: u.role || '', position_name: u.position_name })));
     }).catch(() => {});

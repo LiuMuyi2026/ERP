@@ -439,7 +439,7 @@ function AssignContactModal({ contact, onClose, onAssigned }: {
   const [assigning, setAssigning] = useState(false);
 
   useEffect(() => {
-    api.get('/api/admin/users').then(d => setUsers(Array.isArray(d) ? d : (d?.items || []))).catch(() => setUsers([]));
+    api.get('/api/admin/users-lite').then(d => setUsers(Array.isArray(d) ? d : (d?.items || []))).catch(() => setUsers([]));
   }, []);
 
   const filtered = search
@@ -567,7 +567,7 @@ export default function WhatsAppInbox() {
 
   // Load users list for assigned_to filter
   useEffect(() => {
-    api.get('/api/admin/users').then(d => setAllUsers(Array.isArray(d) ? d : (d?.items || []))).catch(() => {});
+    api.get('/api/admin/users-lite').then(d => setAllUsers(Array.isArray(d) ? d : (d?.items || []))).catch(() => {});
   }, []);
 
   useEffect(() => { loadData(); }, [filterAccount, filterGroup, filterLabel, filterLeadStatus, filterAssigned]);
