@@ -100,6 +100,18 @@ function normalizeLanguageCode(value?: string) {
   return v.split('-')[0];
 }
 
+function parseMessageMetadata(metadata: unknown): Record<string, any> {
+  if (!metadata) return {};
+  if (typeof metadata === 'object') return metadata as Record<string, any>;
+  if (typeof metadata !== 'string') return {};
+  try {
+    const parsed = JSON.parse(metadata);
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
 function guessLanguageFromPhone(phone?: string) {
   const p = (phone || '').replace(/\s+/g, '');
   if (p.startsWith('+86')) return 'zh-CN';
@@ -466,8 +478,10 @@ export default function WhatsAppChatPanel({
   // WhatsApp Web style menus
   const [showMoreMenu, setShowMoreMenu] = useState(false);
   const [showAttachMenu, setShowAttachMenu] = useState(false);
-  const [isMobile, setIsMobile] = useState(false);
-  const [viewportHeight, setViewportHeight] = useState<number | null>(null);
+  const [isMobile, setIsMobile] = useState(() => {
+    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return false;
+    return window.matchMedia('(max-width: 768px)').matches;
+  });
 
   const effectiveContactId = contactId || resolvedContactId;
   const params = useParams();
@@ -516,27 +530,6 @@ export default function WhatsAppChatPanel({
     }
     return () => cleanup?.();
   }, []);
-
-  useEffect(() => {
-    if (!isMobile || typeof window === 'undefined') {
-      setViewportHeight(null);
-      return;
-    }
-    const vv = window.visualViewport;
-    if (!vv) return;
-    const update = () => setViewportHeight(Math.round(vv.height));
-    update();
-    if (typeof vv.addEventListener === 'function') {
-      vv.addEventListener('resize', update);
-      vv.addEventListener('scroll', update);
-    }
-    return () => {
-      if (typeof vv.removeEventListener === 'function') {
-        vv.removeEventListener('resize', update);
-        vv.removeEventListener('scroll', update);
-      }
-    };
-  }, [isMobile]);
 
   // ── Load messages ──
   async function loadMessages(olderPage = false) {
@@ -1410,7 +1403,7 @@ export default function WhatsAppChatPanel({
 
   // ── Render contact card message ──
   function renderContactMessage(msg: Message) {
-    const meta = typeof msg.metadata === 'string' ? JSON.parse(msg.metadata) : (msg.metadata || {});
+    const meta = parseMessageMetadata(msg.metadata);
     return (
       <div className="flex items-center gap-2 p-2 rounded-lg" style={{ background: 'rgba(0,0,0,0.04)' }}>
         <div className="w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-bold" style={{ background: '#128C7E' }}>
@@ -1426,7 +1419,7 @@ export default function WhatsAppChatPanel({
 
   // ── Render location message ──
   function renderLocationMessage(msg: Message) {
-    const meta = typeof msg.metadata === 'string' ? JSON.parse(msg.metadata) : (msg.metadata || {});
+    const meta = parseMessageMetadata(msg.metadata);
     const lat = meta.latitude || msg.content?.split(',')[0] || '0';
     const lng = meta.longitude || msg.content?.split(',')[1] || '0';
     const mapUrl = `https://www.openstreetmap.org/?mlat=${lat}&mlon=${lng}#map=15/${lat}/${lng}`;
@@ -1479,7 +1472,7 @@ export default function WhatsAppChatPanel({
 
   // ── Render call message ──
   function renderCallMessage(msg: Message) {
-    const meta = typeof msg.metadata === 'string' ? JSON.parse(msg.metadata) : (msg.metadata || {});
+    const meta = parseMessageMetadata(msg.metadata);
     const isVideo = meta.call_type === 'video';
     return (
       <div className="flex items-center gap-2 p-2 rounded-lg" style={{ background: 'rgba(0,0,0,0.04)' }}>
@@ -1500,7 +1493,7 @@ export default function WhatsAppChatPanel({
   const isTypingNow = wsTyping || presence?.status === 'composing';
 
   return (
-    <div className="flex flex-col h-full min-h-0" style={{ height: isMobile && viewportHeight ? `${viewportHeight}px` : undefined }}>
+    <div className="flex flex-col h-full min-h-0">
       {/* ── Header ── */}
       <div className="px-4 py-2.5 flex items-center gap-3" style={{ background: '#008069' }}>
         {onBack && (

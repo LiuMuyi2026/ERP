@@ -589,7 +589,10 @@ function AssignContactModal({ contact, onClose, onAssigned, isMobile = false }: 
 // ── Main WhatsApp Inbox Component ──────────────────────────────────────────
 export default function WhatsAppInbox() {
   const tCrm = useTranslations('crm');
-  const [isMobile, setIsMobile] = useState(false);
+  const [isMobile, setIsMobile] = useState(() => {
+    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return false;
+    return window.matchMedia('(max-width: 768px)').matches;
+  });
 
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [accounts, setAccounts] = useState<WaAccount[]>([]);
@@ -946,15 +949,14 @@ export default function WhatsAppInbox() {
   }
 
   return (
-    <div className={`h-full min-h-0 w-full min-w-0 ${isMobile ? 'block' : 'flex'}`} style={{ background: '#eae6df' }}>
+    <div className="h-full min-h-0 w-full min-w-0 flex" style={{ background: '#eae6df' }}>
       {/* ── Left Panel: Contact List ── */}
       <div
-        className="flex flex-col h-full flex-shrink-0"
+        className={`flex-col h-full min-h-0 flex-shrink-0 ${isMobile && selectedContact ? 'hidden' : 'flex'} md:flex`}
         style={{
           width: isMobile ? '100%' : 380,
           borderRight: isMobile ? 'none' : '1px solid #d1d7db',
           background: 'white',
-          display: isMobile && !!selectedContact ? 'none' : 'flex',
         }}
       >
         {/* Header bar — WhatsApp green */}
@@ -1114,7 +1116,7 @@ export default function WhatsAppInbox() {
                   onMouseEnter={e => { if (!isSelected) e.currentTarget.style.background = '#f5f6f6'; }}
                   onMouseLeave={e => { if (!isSelected) e.currentTarget.style.background = 'transparent'; }}>
                   {/* Avatar */}
-                  <div className="w-12 h-12 rounded-full flex items-center justify-center text-white text-sm font-bold flex-shrink-0 overflow-hidden"
+                  <div className="relative w-12 h-12 rounded-full flex items-center justify-center text-white text-sm font-bold flex-shrink-0 overflow-hidden"
                     style={{ background: conv.is_group ? '#00a884' : '#dfe5e7' }}>
                     {isSafeImageSrc(conv.profile_pic_url) ? (
                       <Image
@@ -1254,8 +1256,7 @@ export default function WhatsAppInbox() {
 
       {/* ── Right Panel: Chat or Empty ── */}
       <div
-        className="flex-1 flex flex-col h-full min-h-0 min-w-0"
-        style={{ display: isMobile && !selectedContact ? 'none' : 'flex' }}
+        className={`flex-1 flex-col h-full min-h-0 min-w-0 ${isMobile && !selectedContact ? 'hidden' : 'flex'} md:flex`}
       >
         {selectedContact ? (
           <div className="flex-1 min-h-0">
