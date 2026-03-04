@@ -76,7 +76,10 @@ export default function MessagesCenter() {
   return (
     <div className="h-screen flex flex-col" style={{ background: '#f0f2f5' }}>
       {/* Tab bar */}
-      <div className="flex items-center gap-1 px-6 py-2 flex-shrink-0" style={{ background: 'white', borderBottom: '1px solid #e5e7eb' }}>
+      <div
+        className="flex items-center gap-1 px-6 py-2 flex-shrink-0 sticky top-0 z-20"
+        style={{ background: 'white', borderBottom: '1px solid #e5e7eb' }}
+      >
         <h1 className="text-base font-semibold mr-4" style={{ color: '#3b4a54' }}>
           {t('title') || 'Messages Center'}
         </h1>

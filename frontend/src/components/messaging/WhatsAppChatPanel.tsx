@@ -83,6 +83,7 @@ const DISAPPEARING_OPTIONS = [
 ];
 
 type AiAction = 'summarize' | 'enrich_profile' | 'sales_strategy' | 'sales_tips' | 'suggest_reply';
+type EnrichedProfile = Record<string, any>;
 
 export default function WhatsAppChatPanel({
   contactId, leadId, contactName, profilePicUrl, isGroup, disappearingDuration,
@@ -302,6 +303,8 @@ export default function WhatsAppChatPanel({
   const [aiLoading, setAiLoading] = useState<AiAction | null>(null);
   const [aiResult, setAiResult] = useState<{ action: AiAction; result: string } | null>(null);
   const [aiSuggestions, setAiSuggestions] = useState<string[]>([]);
+  const [enrichedDraft, setEnrichedDraft] = useState<EnrichedProfile | null>(null);
+  const [enrichSaving, setEnrichSaving] = useState(false);
 
   // CRM sidebar
   const [showCrmSidebar, setShowCrmSidebar] = useState(false);
@@ -719,6 +722,7 @@ export default function WhatsAppChatPanel({
   async function runAiAction(action: AiAction) {
     setAiLoading(action);
     setAiResult(null);
+    if (action !== 'enrich_profile') setEnrichedDraft(null);
     if (action === 'suggest_reply') setAiSuggestions([]);
     try {
       const data = await api.post('/api/whatsapp/ai/analyze', {
@@ -733,6 +737,13 @@ export default function WhatsAppChatPanel({
         const suggestions = lines.map((l: string) => l.replace(/^\d+\.\s*/, '').trim()).filter((l: string) => l.length > 0);
         setAiSuggestions(suggestions.slice(0, 3));
         setAiResult({ action, result: data.result || 'No suggestions' });
+      } else if (action === 'enrich_profile') {
+        setAiResult({ action, result: data.result || 'No result' });
+        if (data.structured_profile && typeof data.structured_profile === 'object') {
+          setEnrichedDraft(data.structured_profile);
+        } else {
+          setEnrichedDraft(null);
+        }
       } else {
         setAiResult({ action, result: data.result || 'No result' });
       }
@@ -740,6 +751,45 @@ export default function WhatsAppChatPanel({
       setAiResult({ action, result: `Error: ${err.message || 'Analysis failed'}` });
     }
     finally { setAiLoading(null); }
+  }
+
+  async function applyEnrichedProfileToCustomer360() {
+    const targetLeadId = crmContext?.lead?.id || leadId;
+    if (!targetLeadId) {
+      toast.error('当前聊天未关联客户，无法写入客户360');
+      return;
+    }
+    if (!enrichedDraft) {
+      toast.error('没有可写入的提取结果');
+      return;
+    }
+
+    const topFields = new Set([
+      'full_name', 'company', 'title', 'email', 'phone', 'whatsapp', 'country', 'source',
+    ]);
+    const payload: Record<string, any> = {};
+    const customFields: Record<string, any> = {};
+    for (const [k, v] of Object.entries(enrichedDraft)) {
+      if (v === null || v === '' || (Array.isArray(v) && v.length === 0)) continue;
+      if (topFields.has(k)) payload[k] = v;
+      else customFields[k] = v;
+    }
+    if (Object.keys(customFields).length) payload.custom_fields = customFields;
+    if (Object.keys(payload).length === 0) {
+      toast.error('没有可保存字段');
+      return;
+    }
+
+    setEnrichSaving(true);
+    try {
+      await api.patch(`/api/crm/leads/${targetLeadId}/profile`, payload);
+      toast.success('客户信息已更新到客户360');
+      if (showCrmSidebar) loadCrmContext();
+    } catch (e: any) {
+      toast.error(e.message || '保存失败');
+    } finally {
+      setEnrichSaving(false);
+    }
   }
 
   // ── CRM Context ──
@@ -1477,6 +1527,50 @@ export default function WhatsAppChatPanel({
                     <div className="whitespace-pre-wrap text-xs leading-relaxed" style={{ color: 'var(--notion-text)' }}>{aiResult.result}</div>
                   </div>
                 ) : null}
+              </div>
+            </div>
+          )}
+
+          {/* Enrich profile confirmation editor */}
+          {aiResult?.action === 'enrich_profile' && enrichedDraft && (
+            <div className="px-4 pb-4">
+              <div className="rounded-lg p-3" style={{ background: '#eff6ff', border: '1px solid #bfdbfe' }}>
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-xs font-semibold" style={{ color: '#1d4ed8' }}>
+                    AI提取结果确认（可编辑）
+                  </span>
+                  <button
+                    onClick={applyEnrichedProfileToCustomer360}
+                    disabled={enrichSaving}
+                    className="px-3 py-1 rounded-md text-xs font-semibold text-white disabled:opacity-50"
+                    style={{ background: '#2563eb' }}
+                  >
+                    {enrichSaving ? '保存中...' : '确认并写入客户360'}
+                  </button>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2">
+                  {Object.entries(enrichedDraft).map(([k, v]) => (
+                    <div key={k} className="flex flex-col gap-1">
+                      <label className="text-[11px] font-medium" style={{ color: '#334155' }}>{k}</label>
+                      {Array.isArray(v) ? (
+                        <textarea
+                          value={v.join('\n')}
+                          onChange={(e) => setEnrichedDraft(prev => ({ ...(prev || {}), [k]: e.target.value.split('\n').map(s => s.trim()).filter(Boolean) }))}
+                          className="px-2 py-1.5 rounded text-xs outline-none"
+                          style={{ border: '1px solid #cbd5e1', background: 'white', minHeight: 70 }}
+                        />
+                      ) : (
+                        <input
+                          value={String(v ?? '')}
+                          onChange={(e) => setEnrichedDraft(prev => ({ ...(prev || {}), [k]: e.target.value }))}
+                          className="px-2 py-1.5 rounded text-xs outline-none"
+                          style={{ border: '1px solid #cbd5e1', background: 'white' }}
+                        />
+                      )}
+                    </div>
+                  ))}
+                </div>
               </div>
             </div>
           )}

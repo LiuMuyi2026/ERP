@@ -3325,7 +3325,6 @@ type TabId = typeof TABS[number]['id'];
 export default function CustomerHubPage() {
   const searchParams = useSearchParams();
   const router = useRouter();
-  const { tenant } = useParams<{ tenant: string }>();
   const [activeTab, setActiveTab] = useState<TabId>(() => {
     const t = searchParams.get('tab');
     return (TABS.find(x => x.id === t)?.id ?? 'customers') as TabId;
@@ -3349,9 +3348,6 @@ export default function CustomerHubPage() {
             <p style={{ fontSize: 13, color: 'var(--notion-text-muted)', margin: 0 }}>客户管理 · AI 智搜</p>
           </div>
           <div style={{ flex: 1 }} />
-          <button onClick={() => router.push(`/${tenant}/crm`)} style={{ fontSize: 13, padding: '6px 14px', borderRadius: 8, border: '1px solid var(--notion-border)', background: 'none', cursor: 'pointer', color: 'var(--notion-text-muted)' }}>
-            ← 返回线索管理
-          </button>
         </div>
 
         {/* Tab bar */}

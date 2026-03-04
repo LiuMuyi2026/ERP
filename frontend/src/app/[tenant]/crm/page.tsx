@@ -9,7 +9,6 @@ import SlideOver from '@/components/ui/SlideOver';
 import { HandIcon } from '@/components/ui/HandIcon';
 import { useTranslations } from 'next-intl';
 import LeadFilesTab from './components/LeadFilesTab';
-import WhatsAppAnalytics from '@/components/messaging/WhatsAppAnalytics';
 import LeadModal from './components/LeadModal';
 // ── Types ─────────────────────────────────────────────────────────────────────
 type Lead = {
@@ -2148,7 +2147,7 @@ function PublicPoolTab({ leads, users, onRestore }: { leads: Lead[]; users: Tena
 }
 
 // ── Main CRM Page ─────────────────────────────────────────────────────────────
-type TabKey = 'dashboard' | 'leads' | 'pool' | 'receivables' | 'files' | 'risks' | 'messages';
+type TabKey = 'dashboard' | 'leads' | 'pool' | 'receivables' | 'files' | 'risks';
 
 export default function CRMPage() {
   const tCrm = useTranslations('crm');
@@ -2402,7 +2401,6 @@ export default function CRMPage() {
     ['receivables', tCrm('tabReceivables')],
     ['files', tCrm('tabFiles')],
     ['risks', tCrm('tabRisks')],
-    ['messages', tCrm('tabAnalytics') || tCrm('tabMessages')],
   ];
 
   if (loading) {
@@ -2411,8 +2409,7 @@ export default function CRMPage() {
 
   return (
     <div className="h-full flex flex-col">
-      {/* Header — hidden on messages tab */}
-      <div className={`px-8 pt-8 pb-4 flex items-center justify-between ${tab === 'messages' ? 'hidden' : ''}`}>
+      <div className="px-8 pt-8 pb-4 flex items-center justify-between">
         <h1 className="text-2xl font-bold mb-1" style={{ color: 'var(--notion-text)' }}>{tCrm('crmHub')}</h1>
         {/* View scope switcher */}
         {meIsAdmin ? (
@@ -2453,8 +2450,7 @@ export default function CRMPage() {
         )}
       </div>
 
-      {/* KPI row — hidden on messages tab */}
-      <div className={`px-8 pb-4 grid grid-cols-7 gap-3 ${tab === 'messages' ? 'hidden' : ''}`}>
+      <div className="px-8 pb-4 grid grid-cols-7 gap-3">
         {([
           { label: tCrm('kpiLeadPool'), value: overview?.leads_open ?? 0, kpiType: 'leads_open' as KpiPanelType, accent: '#7c3aed' },
           { label: tCrm('kpiActiveCustomers'), value: overview?.accounts_active ?? 0, kpiType: 'accounts_active' as KpiPanelType, accent: '#0284c7' },
@@ -2483,8 +2479,7 @@ export default function CRMPage() {
         })}
       </div>
 
-      {/* KPI Detail Panel — hidden on messages tab */}
-      {kpiPanel && tab !== 'messages' && (
+      {kpiPanel && (
         <KpiDetailPanel
           type={kpiPanel}
           onClose={() => setKpiPanel(null)}
@@ -2493,7 +2488,7 @@ export default function CRMPage() {
       )}
 
       {/* Toolbar */}
-      <div className={`flex items-center gap-3 border-b ${tab === 'messages' ? 'px-4 py-2' : 'px-8 pb-4'}`} style={{ borderColor: 'var(--notion-border)' }}>
+      <div className="flex items-center gap-3 border-b px-8 pb-4" style={{ borderColor: 'var(--notion-border)' }}>
         <div className="flex gap-0.5 rounded-md p-0.5" style={{ background: 'var(--notion-active)' }}>
           {TABS.map(([key, label]) => (
             <button key={key} onClick={() => setTab(key)}
@@ -2508,19 +2503,17 @@ export default function CRMPage() {
           ))}
         </div>
 
-        {tab !== 'messages' && (
-          <div className="ml-auto flex gap-2">
-            <button onClick={() => setShowLeadModal(true)}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium text-white"
-              style={{ background: '#7c3aed' }}>
-              {tCrm('newLeadAction')}
-            </button>
-          </div>
-        )}
+        <div className="ml-auto flex gap-2">
+          <button onClick={() => setShowLeadModal(true)}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium text-white"
+            style={{ background: '#7c3aed' }}>
+            {tCrm('newLeadAction')}
+          </button>
+        </div>
       </div>
 
       {/* Content */}
-      <div className={`flex-1 min-h-0 ${tab === 'messages' ? 'overflow-hidden' : 'overflow-auto px-8 py-4'}`}>
+      <div className="flex-1 min-h-0 overflow-auto px-8 py-4">
         {tab === 'dashboard' && (
           <CRMDashboardTab onStageClick={(key) => { setTab('leads'); setLeadsFunnelFilter(key); }} globalScope={viewScope} />
         )}
@@ -2567,12 +2560,6 @@ export default function CRMPage() {
               </div>
             ) : undefined} />
         )}
-        {tab === 'messages' && (
-          <div className="flex-1 min-h-0">
-            <WhatsAppAnalytics />
-          </div>
-        )}
-
         {/* Risk approval decision modal */}
         {approvalDeciding && (
           <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.4)' }}>
