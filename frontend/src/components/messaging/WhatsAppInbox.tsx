@@ -589,6 +589,7 @@ function AssignContactModal({ contact, onClose, onAssigned }: {
 // ── Main WhatsApp Inbox Component ──────────────────────────────────────────
 export default function WhatsAppInbox() {
   const tCrm = useTranslations('crm');
+  const [isMobile, setIsMobile] = useState(false);
 
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [accounts, setAccounts] = useState<WaAccount[]>([]);
@@ -623,6 +624,15 @@ export default function WhatsAppInbox() {
   const unreadSyncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const typingTimersRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
   const [typingByKey, setTypingByKey] = useState<Record<string, boolean>>({});
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const mq = window.matchMedia('(max-width: 768px)');
+    const update = () => setIsMobile(mq.matches);
+    update();
+    mq.addEventListener('change', update);
+    return () => mq.removeEventListener('change', update);
+  }, []);
 
   async function handleBatchAutoLink() {
     setBatchLinking(true);
@@ -925,9 +935,17 @@ export default function WhatsAppInbox() {
   }
 
   return (
-    <div className="flex h-full min-h-0 w-full min-w-0" style={{ background: '#eae6df' }}>
+    <div className={`h-full min-h-0 w-full min-w-0 ${isMobile ? 'block' : 'flex'}`} style={{ background: '#eae6df' }}>
       {/* ── Left Panel: Contact List ── */}
-      <div className="flex flex-col h-full flex-shrink-0" style={{ width: 380, borderRight: '1px solid #d1d7db', background: 'white' }}>
+      <div
+        className="flex flex-col h-full flex-shrink-0"
+        style={{
+          width: isMobile ? '100%' : 380,
+          borderRight: isMobile ? 'none' : '1px solid #d1d7db',
+          background: 'white',
+          display: isMobile && !!selectedContact ? 'none' : 'flex',
+        }}
+      >
         {/* Header bar — WhatsApp green */}
         <div className="flex items-center justify-between px-4 py-2.5 flex-shrink-0" style={{ background: '#008069' }}>
           <div className="flex items-center gap-2 min-w-0 flex-1 overflow-x-auto">
@@ -1218,7 +1236,29 @@ export default function WhatsAppInbox() {
       </div>
 
       {/* ── Right Panel: Chat or Empty ── */}
-      <div className="flex-1 flex flex-col h-full min-w-0">
+      <div
+        className="flex-1 flex flex-col h-full min-w-0"
+        style={{ display: isMobile && !selectedContact ? 'none' : 'flex' }}
+      >
+        {isMobile && selectedContact && (
+          <div
+            className="h-11 px-2 flex items-center gap-2 flex-shrink-0"
+            style={{ background: '#008069', color: 'white', borderBottom: '1px solid rgba(255,255,255,0.12)' }}
+          >
+            <button
+              onClick={() => setSelectedContact(null)}
+              className="w-8 h-8 rounded-full flex items-center justify-center"
+              style={{ background: 'rgba(255,255,255,0.12)' }}
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round">
+                <path d="m15 18-6-6 6-6" />
+              </svg>
+            </button>
+            <span className="text-sm font-medium truncate">
+              {selectedContact.display_name || selectedContact.push_name || selectedContact.phone_number || 'Chat'}
+            </span>
+          </div>
+        )}
         {selectedContact ? (
           <WhatsAppChatPanel
             key={selectedContact.id}

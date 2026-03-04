@@ -864,11 +864,11 @@ export default function WorkspacePage() {
           </div>
 
           {/* ── File browser toolbar ── */}
-          <div className="flex items-center gap-2 px-6 py-2.5 flex-shrink-0 flex-wrap"
+          <div className="flex items-center gap-2 px-3 sm:px-6 py-2.5 flex-shrink-0 flex-wrap"
             style={{ borderBottom: '1px solid var(--notion-border)', background: 'var(--notion-card, white)' }}>
 
             {/* Search */}
-            <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg flex-1 min-w-[180px] max-w-[320px]"
+            <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg flex-1 min-w-0 max-w-full sm:min-w-[180px] sm:max-w-[320px]"
               style={{ border: '1px solid var(--notion-border)', background: 'var(--notion-bg)' }}>
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ color: 'var(--notion-text-muted)', flexShrink: 0 }}>
                 <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>

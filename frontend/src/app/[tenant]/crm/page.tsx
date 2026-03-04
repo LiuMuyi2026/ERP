@@ -1229,6 +1229,7 @@ function LeadsTab({ leads, users, onCreateLead, defaultStatusFilter }: {
 
   // ── View & Sort ──
   const [viewMode, setViewMode]   = useState<ViewMode>('table');
+  const [isMobile, setIsMobile] = useState(false);
   const [groupBy, setGroupBy] = useState<GroupBy>('none');
   const [showGroupByMenu, setShowGroupByMenu] = useState(false);
   const groupByRef = useRef<HTMLDivElement>(null);
@@ -1256,6 +1257,19 @@ function LeadsTab({ leads, users, onCreateLead, defaultStatusFilter }: {
   useEffect(() => {
     setFunnelStage(defaultStatusFilter ?? '');
   }, [defaultStatusFilter]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const mq = window.matchMedia('(max-width: 768px)');
+    const update = () => setIsMobile(mq.matches);
+    update();
+    mq.addEventListener('change', update);
+    return () => mq.removeEventListener('change', update);
+  }, []);
+
+  useEffect(() => {
+    if (isMobile && viewMode === 'table') setViewMode('card');
+  }, [isMobile, viewMode]);
 
   // close menus on outside click
   useEffect(() => {
@@ -1986,6 +2000,7 @@ function LeadsTab({ leads, users, onCreateLead, defaultStatusFilter }: {
             ['kanban', '⊞', tCrm('kanbanMode')],
             ['card',   '▦', tCrm('cardMode')],
           ] as [ViewMode, string, string][]).map(([mode, icon, label]) => {
+            if (isMobile && mode === 'table') return null;
             const active = viewMode === mode;
             return (
               <button key={mode} onClick={() => setViewMode(mode)}

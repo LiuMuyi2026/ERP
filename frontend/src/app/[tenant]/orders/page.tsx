@@ -127,7 +127,8 @@ export default function OrdersPage() {
   const soLabels = getSOStatusLabels(t);
 
   const [tab, setTab] = useState<'purchase' | 'sales'>('purchase');
-  const [viewMode, setViewMode] = useState<'table' | 'kanban'>('table');
+  const [viewMode, setViewMode] = useState<'table' | 'kanban' | 'card'>('table');
+  const [isMobile, setIsMobile] = useState(false);
   const [purchaseOrders, setPurchaseOrders] = useState<PurchaseOrder[]>([]);
   const [salesOrders, setSalesOrders] = useState<SalesOrder[]>([]);
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
@@ -169,6 +170,19 @@ export default function OrdersPage() {
   }, []);
 
   useEffect(() => { loadData(); }, [loadData]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const mq = window.matchMedia('(max-width: 768px)');
+    const update = () => setIsMobile(mq.matches);
+    update();
+    mq.addEventListener('change', update);
+    return () => mq.removeEventListener('change', update);
+  }, []);
+
+  useEffect(() => {
+    if (isMobile && viewMode === 'table') setViewMode('card');
+  }, [isMobile, viewMode]);
 
   // Filtered lists
   const filteredPO = purchaseOrders.filter(p => {
@@ -373,15 +387,62 @@ export default function OrdersPage() {
     );
   }
 
+  function renderPurchaseCards() {
+    return (
+      <div className="space-y-3">
+        {filteredPO.map((po) => (
+          <div
+            key={po.id}
+            className="rounded-xl p-3"
+            style={{ background: 'var(--notion-card)', border: '1px solid var(--notion-border)' }}
+            onClick={() => { setSelectedPO(po); setPanelMode('detail'); }}
+          >
+            <div className="flex items-center justify-between gap-2 mb-1.5">
+              <span className="text-sm font-semibold" style={{ color: '#c2410c' }}>{po.po_number}</span>
+              <StatusBadge status={po.status} styles={PO_STATUS_STYLES} labels={poLabels} />
+            </div>
+            <div className="text-xs space-y-1" style={{ color: 'var(--notion-text-muted)' }}>
+              <div>{po.supplier_name || '—'} · {po.product_name || '—'}</div>
+              <div>{fmt(po.total, po.currency)} · {fmtDate(po.expected_date)}</div>
+            </div>
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  function renderSalesCards() {
+    return (
+      <div className="space-y-3">
+        {filteredSO.map((so) => (
+          <div
+            key={so.id}
+            className="rounded-xl p-3"
+            style={{ background: 'var(--notion-card)', border: '1px solid var(--notion-border)' }}
+          >
+            <div className="flex items-center justify-between gap-2 mb-1.5">
+              <span className="text-sm font-semibold" style={{ color: '#0284c7' }}>{so.contract_no}</span>
+              <StatusBadge status={so.status} styles={SO_STATUS_STYLES} labels={soLabels} />
+            </div>
+            <div className="text-xs space-y-1" style={{ color: 'var(--notion-text-muted)' }}>
+              <div>{so.account_name || '—'} · {so.account_country || '—'}</div>
+              <div>{fmt(so.contract_amount, so.currency)} · ETA {fmtDate(so.eta)}</div>
+            </div>
+          </div>
+        ))}
+      </div>
+    );
+  }
+
   return (
     <div className="flex h-full" style={{ background: 'var(--notion-bg)', color: 'var(--notion-text)' }}>
       {/* ── Main content ── */}
       <div className="flex-1 flex flex-col overflow-hidden" style={{ minWidth: 0 }}>
         {/* Header */}
-        <div className="px-8 pt-8 pb-4">
+        <div className={isMobile ? 'px-4 pt-4 pb-3' : 'px-8 pt-8 pb-4'}>
           <div className="flex items-center justify-between mb-4">
             <div>
-              <h1 className="text-2xl font-bold flex items-center gap-2" style={{ color: 'var(--notion-text)' }}><HandIcon name="package" size={24} /> {t('title')}</h1>
+              <h1 className={`${isMobile ? 'text-xl' : 'text-2xl'} font-bold flex items-center gap-2`} style={{ color: 'var(--notion-text)' }}><HandIcon name="package" size={isMobile ? 20 : 24} /> {t('title')}</h1>
               <p className="text-sm mt-0.5" style={{ color: '#9B9A97' }}>{t('subtitle')}</p>
             </div>
             {tab === 'purchase' && (
@@ -413,14 +474,14 @@ export default function OrdersPage() {
           </div>
 
           {/* Search + filter bar */}
-          <div className="flex items-center gap-2">
-            <div className="relative flex-1 max-w-xs">
+          <div className={`flex gap-2 ${isMobile ? 'flex-col items-stretch' : 'items-center'}`}>
+            <div className={`relative flex-1 ${isMobile ? '' : 'max-w-xs'}`}>
               <input value={search} onChange={e => setSearch(e.target.value)}
                 placeholder={tab === 'purchase' ? t('searchPO') : t('searchSO')}
                 style={{ ...inputStyle, paddingLeft: 32 }} />
               <span className="absolute left-2.5 top-1/2 -translate-y-1/2" style={{ color: '#9B9A97' }}><HandIcon name="magnifier" size={14} /></span>
             </div>
-            <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} style={{ ...inputStyle, width: 'auto' }}>
+            <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} style={{ ...inputStyle, width: isMobile ? '100%' : 'auto' }}>
               <option value="">{t('allStatus')}</option>
               {(tab === 'purchase' ? PO_STATUS_OPTIONS : Object.keys(SO_STATUS_STYLES)).map(s => (
                 <option key={s} value={s}>
@@ -436,11 +497,13 @@ export default function OrdersPage() {
             )}
 
             {/* View mode toggle */}
-            <div className="flex items-center gap-0.5 p-0.5 rounded-lg ml-auto" style={{ background: 'var(--notion-active)' }}>
+            <div className={`flex items-center gap-0.5 p-0.5 rounded-lg ${isMobile ? '' : 'ml-auto'}`} style={{ background: 'var(--notion-active)' }}>
               {([
                 { mode: 'table' as const, icon: '☰', label: '表格' },
                 { mode: 'kanban' as const, icon: '⊞', label: '看板' },
+                { mode: 'card' as const, icon: '▦', label: '卡片' },
               ]).map(item => {
+                if (isMobile && item.mode === 'table') return null;
                 const active = viewMode === item.mode;
                 return (
                   <button key={item.mode} onClick={() => setViewMode(item.mode)}
@@ -459,13 +522,15 @@ export default function OrdersPage() {
         </div>
 
         {/* Table */}
-        <div className="flex-1 overflow-auto px-8 pb-8">
+        <div className={isMobile ? 'flex-1 overflow-auto px-4 pb-6' : 'flex-1 overflow-auto px-8 pb-8'}>
           {loading ? (
             <div className="flex items-center justify-center h-48">
               <div className="w-6 h-6 rounded-full border-2 border-t-transparent animate-spin" style={{ borderColor: '#c2410c', borderTopColor: 'transparent' }} />
             </div>
           ) : viewMode === 'kanban' ? (
             tab === 'purchase' ? renderPurchaseKanban() : renderSalesKanban()
+          ) : viewMode === 'card' ? (
+            tab === 'purchase' ? renderPurchaseCards() : renderSalesCards()
           ) : tab === 'purchase' ? (
             /* ── Purchase Orders Table ── */
             filteredPO.length === 0 ? (
@@ -606,8 +671,14 @@ export default function OrdersPage() {
 
       {/* ── Right panel: Detail or Create ── */}
       {panelOpen && (
-        <div className="flex-shrink-0 border-l flex flex-col overflow-hidden"
-          style={{ width: 420, borderColor: 'var(--notion-border)', background: 'var(--notion-card, white)' }}>
+        <div
+          className={`border-l flex flex-col overflow-hidden ${isMobile ? 'fixed inset-0 z-[120]' : 'flex-shrink-0'}`}
+          style={{
+            width: isMobile ? '100%' : 420,
+            borderColor: 'var(--notion-border)',
+            background: 'var(--notion-card, white)',
+          }}
+        >
 
           {/* Panel header */}
           <div className="flex items-center justify-between px-5 py-4 border-b" style={{ borderColor: 'var(--notion-border)' }}>
