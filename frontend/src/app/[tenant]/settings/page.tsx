@@ -10,6 +10,7 @@ import { useTheme } from '@/lib/theme';
 import { HandIcon } from '@/components/ui/HandIcon';
 import { UserAvatar, parseAvatarConfig, serializeAvatarConfig, AvatarConfig } from '@/components/ui/UserAvatar';
 import { AvatarPicker } from '@/components/ui/AvatarPicker';
+import { DEFAULT_EMAIL_UI_PREFS, loadEmailUiPrefs, saveEmailUiPrefs, type EmailUiPrefs } from '@/lib/emailPrefs';
 
 const LANGUAGES: { code: LangCode; label: string; native: string }[] = [
   { code: 'en', label: 'English', native: 'English' },
@@ -1423,6 +1424,8 @@ function NotificationsSection() {
 
 function EmailSettingsSection() {
   const tSettings = useTranslations('settings');
+  const locale = useLocale();
+  const { tenant } = useParams<{ tenant: string }>();
   const currentUser = getCurrentUser();
   const canManageAdminSMTP = currentUser?.role === 'tenant_admin' || currentUser?.role === 'platform_admin';
 
@@ -1451,6 +1454,8 @@ function EmailSettingsSection() {
   const [loadingUserSmtp, setLoadingUserSmtp] = useState(true);
   const [savingUserSmtp, setSavingUserSmtp] = useState(false);
   const [userSmtpSaved, setUserSmtpSaved] = useState<string | null>(null);
+  const [emailUiPrefs, setEmailUiPrefs] = useState<EmailUiPrefs>({ ...DEFAULT_EMAIL_UI_PREFS, targetLanguage: locale });
+  const [emailUiSaved, setEmailUiSaved] = useState<string | null>(null);
 
   useEffect(() => {
     if (!canManageAdminSMTP) {
@@ -1501,6 +1506,12 @@ function EmailSettingsSection() {
       });
     return () => { alive = false; };
   }, []);
+
+  useEffect(() => {
+    const next = loadEmailUiPrefs(tenant || '');
+    if (!next.targetLanguage) next.targetLanguage = locale;
+    setEmailUiPrefs(next);
+  }, [tenant, locale]);
 
   function updateAdminSmtp<K extends keyof NotificationSmtpForm>(field: K, value: NotificationSmtpForm[K]) {
     setAdminSmtpConfig(prev => ({ ...prev, [field]: value }));
@@ -1594,6 +1605,12 @@ function EmailSettingsSection() {
     } finally {
       setSavingUserSmtp(false);
     }
+  }
+
+  function saveEmailUiPreferences() {
+    saveEmailUiPrefs(tenant || '', emailUiPrefs);
+    setEmailUiSaved('Saved');
+    setTimeout(() => setEmailUiSaved(null), 1600);
   }
 
   return (
@@ -1991,6 +2008,80 @@ function EmailSettingsSection() {
               {userSmtpSaved && <span className="text-xs" style={{ color: 'var(--notion-text-muted)' }}>{userSmtpSaved}</span>}
             </div>
             <p className="text-xs mt-2" style={{ color: 'var(--notion-text-muted)' }}>{tSettings('notifPersonalSmtpNote')}</p>
+          </div>
+        </SettingsCard>
+      </div>
+
+      <div className="mt-10">
+        <p className="text-sm font-semibold uppercase tracking-wider mb-2" style={{ color: 'var(--notion-text-muted)' }}>
+          Email Assistant & Translation
+        </p>
+        <SettingsCard>
+          <div className="grid gap-4 md:grid-cols-2">
+            <div className="space-y-1">
+              <label className="text-xs font-semibold" style={{ color: 'var(--notion-text-muted)' }}>Incoming auto-translate</label>
+              <div className="flex items-center gap-3">
+                <Toggle value={emailUiPrefs.autoTranslateIncoming} onChange={() => setEmailUiPrefs(prev => ({ ...prev, autoTranslateIncoming: !prev.autoTranslateIncoming }))} />
+                <p className="text-xs" style={{ color: 'var(--notion-text-muted)' }}>Translate received email to target language</p>
+              </div>
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs font-semibold" style={{ color: 'var(--notion-text-muted)' }}>Outgoing auto-translate</label>
+              <div className="flex items-center gap-3">
+                <Toggle value={emailUiPrefs.autoTranslateOutgoing} onChange={() => setEmailUiPrefs(prev => ({ ...prev, autoTranslateOutgoing: !prev.autoTranslateOutgoing }))} />
+                <p className="text-xs" style={{ color: 'var(--notion-text-muted)' }}>Preview translated draft and confirm before send</p>
+              </div>
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs font-semibold" style={{ color: 'var(--notion-text-muted)' }}>Target language</label>
+              <select
+                value={emailUiPrefs.targetLanguage}
+                onChange={e => setEmailUiPrefs(prev => ({ ...prev, targetLanguage: e.target.value }))}
+                className="w-full px-3 py-2.5 rounded-xl text-sm outline-none"
+                style={{ border: '1px solid var(--notion-border)', color: 'var(--notion-text)' }}
+              >
+                {LANGUAGES.map((lang) => (
+                  <option key={lang.code} value={lang.code}>{lang.native} ({lang.label})</option>
+                ))}
+              </select>
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs font-semibold" style={{ color: 'var(--notion-text-muted)' }}>Compose default font</label>
+              <select
+                value={emailUiPrefs.composerFontFamily}
+                onChange={e => setEmailUiPrefs(prev => ({ ...prev, composerFontFamily: e.target.value }))}
+                className="w-full px-3 py-2.5 rounded-xl text-sm outline-none"
+                style={{ border: '1px solid var(--notion-border)', color: 'var(--notion-text)' }}
+              >
+                {['Arial', 'Georgia', 'Times New Roman', 'Verdana', 'Courier New'].map((f) => (
+                  <option key={f} value={f}>{f}</option>
+                ))}
+              </select>
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs font-semibold" style={{ color: 'var(--notion-text-muted)' }}>Compose default size</label>
+              <select
+                value={emailUiPrefs.composerFontSize}
+                onChange={e => setEmailUiPrefs(prev => ({ ...prev, composerFontSize: e.target.value }))}
+                className="w-full px-3 py-2.5 rounded-xl text-sm outline-none"
+                style={{ border: '1px solid var(--notion-border)', color: 'var(--notion-text)' }}
+              >
+                {['12px', '13px', '14px', '16px', '18px'].map((s) => (
+                  <option key={s} value={s}>{s}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+          <div className="flex items-center gap-3 mt-4">
+            <button
+              type="button"
+              onClick={saveEmailUiPreferences}
+              className="px-4 py-2 rounded-xl text-sm font-semibold"
+              style={{ background: 'var(--notion-accent)', color: 'white' }}
+            >
+              Save Email Preferences
+            </button>
+            {emailUiSaved && <span className="text-xs" style={{ color: 'var(--notion-text-muted)' }}>{emailUiSaved}</span>}
           </div>
         </SettingsCard>
       </div>

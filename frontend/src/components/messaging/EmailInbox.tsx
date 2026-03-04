@@ -8,6 +8,7 @@ import toast from 'react-hot-toast';
 import { relTime } from './wa-helpers';
 import EmailComposer from './EmailComposer';
 import EmailReader from './EmailReader';
+import { DEFAULT_EMAIL_UI_PREFS, loadEmailUiPrefs, type EmailUiPrefs } from '@/lib/emailPrefs';
 
 type EmailItem = {
   id: string;
@@ -64,7 +65,6 @@ export default function EmailInbox() {
   const isZh = locale.toLowerCase().startsWith('zh');
   const params = useParams();
   const tenantSlug = params?.tenant as string || '';
-  const translatePrefKey = `wa_auto_translate_${tenantSlug || 'default'}`;
   const [folder, setFolder] = useState<Folder>('inbox');
   const [emails, setEmails] = useState<EmailItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -82,7 +82,7 @@ export default function EmailInbox() {
   const [linkingEmail, setLinkingEmail] = useState<string | null>(null);
   const [leadSearch, setLeadSearch] = useState('');
   const [leadResults, setLeadResults] = useState<any[]>([]);
-  const [autoTranslateEnabled, setAutoTranslateEnabled] = useState(false);
+  const [emailPrefs, setEmailPrefs] = useState<EmailUiPrefs>({ ...DEFAULT_EMAIL_UI_PREFS });
   const [threadItems, setThreadItems] = useState<EmailItem[]>([]);
   const [showThread, setShowThread] = useState(false);
   const [loadingThread, setLoadingThread] = useState(false);
@@ -103,22 +103,8 @@ export default function EmailInbox() {
   const [slaItems, setSlaItems] = useState<SlaItem[]>([]);
 
   useEffect(() => {
-    try {
-      const raw = window.localStorage.getItem(translatePrefKey);
-      if (raw === '1') setAutoTranslateEnabled(true);
-      if (raw === '0') setAutoTranslateEnabled(false);
-    } catch {
-      // ignore localStorage errors
-    }
-  }, [translatePrefKey]);
-
-  useEffect(() => {
-    try {
-      window.localStorage.setItem(translatePrefKey, autoTranslateEnabled ? '1' : '0');
-    } catch {
-      // ignore localStorage errors
-    }
-  }, [autoTranslateEnabled, translatePrefKey]);
+    setEmailPrefs(loadEmailUiPrefs(tenantSlug));
+  }, [tenantSlug]);
 
   const loadUnreadCount = useCallback(async () => {
     try {
@@ -460,18 +446,6 @@ export default function EmailInbox() {
             </span>
           )}
           <div className="flex-1" />
-          <button
-            onClick={() => setAutoTranslateEnabled(v => !v)}
-            className="text-[11px] px-2.5 py-1 rounded-full border"
-            style={{
-              borderColor: autoTranslateEnabled ? '#86efac' : '#dbe3ea',
-              color: autoTranslateEnabled ? '#166534' : '#667781',
-              background: autoTranslateEnabled ? '#f0fdf4' : 'white',
-            }}
-            title={`Auto Translate (${locale})`}
-          >
-            {autoTranslateEnabled ? (isZh ? '自动翻译: 开' : 'Auto Translate: On') : (isZh ? '自动翻译: 关' : 'Auto Translate: Off')}
-          </button>
           <button onClick={handleCompose}
             className="px-3 py-1.5 rounded-full text-[11px] font-medium text-white"
             style={{ background: '#2563eb' }}>
@@ -721,8 +695,8 @@ export default function EmailInbox() {
         {viewMode === 'read' && selectedEmail && (
           <EmailReader
             email={selectedEmail}
-            autoTranslateEnabled={autoTranslateEnabled}
-            userTargetLanguage={locale}
+            autoTranslateEnabled={emailPrefs.autoTranslateIncoming}
+            userTargetLanguage={emailPrefs.targetLanguage || locale}
             onReply={handleReply}
             onForward={handleForward}
             onLinkCustomer={() => setLinkingEmail(selectedEmail.id)}
@@ -744,8 +718,10 @@ export default function EmailInbox() {
           <EmailComposer
             defaultTo={selectedEmail?.to_email}
             defaultSubject={selectedEmail?.subject}
-            autoTranslateEnabled={autoTranslateEnabled}
-            userTargetLanguage={locale}
+            autoTranslateEnabled={emailPrefs.autoTranslateOutgoing}
+            userTargetLanguage={emailPrefs.targetLanguage || locale}
+            defaultFontFamily={emailPrefs.composerFontFamily}
+            defaultFontSize={emailPrefs.composerFontSize}
             onSent={handleSent}
             onCancel={() => { setViewMode('list'); setSelectedEmail(null); }}
           />
@@ -754,8 +730,10 @@ export default function EmailInbox() {
         {viewMode === 'reply' && selectedEmail && (
           <EmailComposer
             replyTo={selectedEmail}
-            autoTranslateEnabled={autoTranslateEnabled}
-            userTargetLanguage={locale}
+            autoTranslateEnabled={emailPrefs.autoTranslateOutgoing}
+            userTargetLanguage={emailPrefs.targetLanguage || locale}
+            defaultFontFamily={emailPrefs.composerFontFamily}
+            defaultFontSize={emailPrefs.composerFontSize}
             onSent={handleSent}
             onCancel={() => setViewMode('read')}
           />

@@ -65,6 +65,19 @@ class EmailTemplateRequest(BaseModel):
     is_active: bool = True
 
 
+class EmailAIWriteRequest(BaseModel):
+    draft_text: Optional[str] = ""
+    to_email: Optional[str] = None
+    subject: Optional[str] = None
+    target_language: Optional[str] = "en"
+
+
+class EmailAIPolishRequest(BaseModel):
+    text: str
+    style: Optional[str] = "professional"
+    target_language: Optional[str] = "en"
+
+
 # ── Send Email ───────────────────────────────────────────────────────────────
 
 @router.post("/send")
@@ -168,6 +181,86 @@ async def send_email_endpoint(body: SendEmailRequest, ctx: dict = Depends(get_cu
         raise HTTPException(status_code=502, detail=f"Failed to send email: {status_msg}")
 
     return {"id": email_id, "status": status, "message_id": message_id, "thread_id": thread_id}
+
+
+# ── AI Assist ────────────────────────────────────────────────────────────────
+
+@router.post("/ai/write")
+async def ai_write_email(body: EmailAIWriteRequest, ctx: dict = Depends(get_current_user_with_tenant)):
+    db = ctx["db"]
+    tenant_ref = ctx.get("tenant_id") or ctx.get("tenant_slug")
+    target_lang = (body.target_language or "en").strip() or "en"
+    draft = (body.draft_text or "").strip()
+    to_email = (body.to_email or "").strip()
+    subject = (body.subject or "").strip()
+
+    prompt = f"""
+You are an expert business email assistant.
+Task: generate a complete, polished email body based on the user's draft and intent.
+
+Output rules:
+- Return body text only (no markdown fences, no explanation).
+- Keep paragraph formatting clean and readable.
+- Keep placeholders/numbers/emails exactly when possible.
+- Write in language: {target_lang}
+
+Context:
+- To: {to_email or "(not provided)"}
+- Subject: {subject or "(not provided)"}
+- Draft:
+{draft or "(empty draft)"}
+"""
+    try:
+        from app.services.ai.provider import generate_text_for_tenant
+        result = await generate_text_for_tenant(
+            db,
+            tenant_ref,
+            prompt,
+            system_instruction="You write clear, concise professional emails. Return only the final email body.",
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"AI write failed: {e}")
+
+    return {"result": (result or "").strip()}
+
+
+@router.post("/ai/polish")
+async def ai_polish_text(body: EmailAIPolishRequest, ctx: dict = Depends(get_current_user_with_tenant)):
+    db = ctx["db"]
+    tenant_ref = ctx.get("tenant_id") or ctx.get("tenant_slug")
+    src = (body.text or "").strip()
+    if not src:
+        raise HTTPException(status_code=400, detail="text is required")
+
+    target_lang = (body.target_language or "en").strip() or "en"
+    style = (body.style or "professional").strip() or "professional"
+
+    prompt = f"""
+Polish the following selected email text.
+
+Requirements:
+- Preserve original meaning and facts.
+- Improve clarity, fluency, and tone.
+- Keep it concise and natural.
+- Style: {style}
+- Output language: {target_lang}
+- Return only the polished text.
+
+Text:
+{src}
+"""
+    try:
+        from app.services.ai.provider import generate_text_for_tenant
+        result = await generate_text_for_tenant(
+            db,
+            tenant_ref,
+            prompt,
+            system_instruction="You are a writing editor. Return only polished text.",
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"AI polish failed: {e}")
+
+    return {"result": (result or "").strip()}
 
 
 # ── Webhook: Inbound Email ───────────────────────────────────────────────────
