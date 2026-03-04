@@ -89,6 +89,7 @@ export default function InternalMessages() {
   const [loadingThread, setLoadingThread] = useState(false);
   const [loadingOlder, setLoadingOlder] = useState(false);
   const [hasMore, setHasMore] = useState(true);
+  const [myId, setMyId] = useState('');
   const threadEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -258,7 +259,6 @@ export default function InternalMessages() {
   }, [conversations, allUsers, search]);
 
   const selName = selectedItem?.full_name || selectedItem?.email || '';
-  const [myId, setMyId] = useState('');
 
   useEffect(() => {
     try { setMyId(JSON.parse(localStorage.getItem('nexus_user') || '{}').id || ''); } catch {}
