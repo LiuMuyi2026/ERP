@@ -622,55 +622,79 @@ async def get_messages(
     ctx: dict = Depends(get_current_user_with_tenant),
 ):
     db = ctx["db"]
-    contact = await _verify_contact_ownership(db, contact_id, ctx["sub"], ctx.get("role", ""))
+    await _verify_contact_ownership(db, contact_id, ctx["sub"], ctx.get("role", ""))
     actual_limit = min(limit, 200)
-
-    q = """SELECT m.*, COALESCE(u.full_name, u.email) AS created_by_name
-           FROM whatsapp_messages m LEFT JOIN users u ON u.id = m.created_by
-           WHERE m.wa_contact_id = :cid AND m.is_deleted = FALSE"""
-    params: dict = {"cid": contact_id}
-
+    where_sql = "m.wa_contact_id = CAST(:cid AS uuid)"
+    params: dict = {"cid": contact_id, "lim": actual_limit}
     if before:
-        q += " AND m.timestamp < :before"
+        where_sql += " AND m.timestamp < :before"
         params["before"] = before
-    q += " ORDER BY m.timestamp DESC LIMIT :lim"
-    params["lim"] = actual_limit
+
     try:
+        # Preferred query for current schemas.
+        q = f"""
+            SELECT
+                m.id::text, m.wa_account_id::text, m.wa_contact_id::text, m.wa_message_id,
+                m.direction, m.message_type, m.content, m.media_url, m.media_mime_type,
+                m.status, m.metadata, m.timestamp, m.created_at,
+                m.reply_to_message_id::text, m.is_deleted, m.is_edited, m.edit_history,
+                m.created_by::text,
+                COALESCE(u.full_name, u.email) AS created_by_name
+            FROM whatsapp_messages m
+            LEFT JOIN users u ON u.id = m.created_by
+            WHERE {where_sql} AND COALESCE(m.is_deleted, FALSE) = FALSE
+            ORDER BY m.timestamp DESC
+            LIMIT :lim
+        """
         rows = await db.execute(text(q), params)
+        messages = [dict(r._mapping) for r in rows.fetchall()]
     except Exception as e:
-        logger.warning("get_messages fallback without created_by join: %s", e)
-        q = """SELECT m.*, NULL::text AS created_by_name
-               FROM whatsapp_messages m
-               WHERE m.wa_contact_id = :cid"""
-        if before:
-            q += " AND m.timestamp < :before"
-        q += " ORDER BY m.timestamp DESC LIMIT :lim"
+        # Legacy fallback: avoid optional columns/joins that may not exist yet.
+        logger.warning("get_messages fallback query activated: %s", e)
+        q = f"""
+            SELECT
+                m.id::text, m.wa_account_id::text, m.wa_contact_id::text, m.wa_message_id,
+                m.direction, m.message_type, m.content, m.media_url, m.media_mime_type,
+                m.status, m.metadata, m.timestamp, m.created_at
+            FROM whatsapp_messages m
+            WHERE {where_sql}
+            ORDER BY m.timestamp DESC
+            LIMIT :lim
+        """
         rows = await db.execute(text(q), params)
-    messages = [dict(r._mapping) for r in rows.fetchall()]
+        messages = [dict(r._mapping) for r in rows.fetchall()]
+        for m in messages:
+            m.setdefault("is_deleted", False)
+            m.setdefault("is_edited", False)
+            m.setdefault("reply_to_message_id", None)
+            m.setdefault("created_by", None)
+            m.setdefault("created_by_name", None)
+
     has_more = len(messages) == actual_limit
     messages.reverse()
-    logger.info("get_messages: contact_id=%s, total=%d, has_more=%s",
-                contact_id, len(messages), has_more)
 
-    # Fetch reactions for these messages
+    # Reactions are optional; if table/columns are unavailable keep empty.
     if messages:
+        for m in messages:
+            m["reactions"] = []
         try:
-            msg_ids = [str(m["id"]) for m in messages]
-            reaction_rows = await db.execute(text("""
-                SELECT r.* FROM whatsapp_reactions r
-                JOIN whatsapp_messages m ON m.id = r.wa_message_id
-                WHERE r.wa_message_id = ANY(:ids::uuid[])
-            """), {"ids": msg_ids})
-            reactions_by_msg: dict = {}
-            for r in reaction_rows.fetchall():
-                mid = str(r.wa_message_id)
-                reactions_by_msg.setdefault(mid, []).append({"reactor_jid": r.reactor_jid, "emoji": r.emoji})
-            for m in messages:
-                m["reactions"] = reactions_by_msg.get(str(m["id"]), [])
-        except Exception as e:
-            logger.warning("get_messages reactions fallback: %s", e)
-            for m in messages:
-                m["reactions"] = []
+            msg_ids = [m["id"] for m in messages if m.get("id")]
+            if msg_ids:
+                reaction_rows = await db.execute(text("""
+                    SELECT wa_message_id::text AS wa_message_id, reactor_jid, emoji
+                    FROM whatsapp_reactions
+                    WHERE wa_message_id = ANY(:ids::uuid[])
+                """), {"ids": msg_ids})
+                reactions_by_msg: dict[str, list[dict]] = {}
+                for r in reaction_rows.fetchall():
+                    reactions_by_msg.setdefault(r.wa_message_id, []).append({
+                        "reactor_jid": r.reactor_jid,
+                        "emoji": r.emoji,
+                    })
+                for m in messages:
+                    m["reactions"] = reactions_by_msg.get(m["id"], [])
+        except Exception:
+            pass
 
     return {"messages": messages, "has_more": has_more}
 
