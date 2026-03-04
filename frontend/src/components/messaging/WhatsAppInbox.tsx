@@ -38,6 +38,8 @@ type Conversation = {
   disappearing_duration?: number;
   group_metadata?: any;
   merge_key?: string;
+  assigned_to?: string;
+  assigned_user_name?: string;
 };
 
 function parsePreview(raw?: string): { text: string; isMe: boolean } {
@@ -361,6 +363,152 @@ function LinkContactModal({ contact, onClose, onLinked }: {
   );
 }
 
+// ── Add Contact Modal ──────────────────────────────────────────────────────
+function AddContactModal({ accounts, onClose, onAdded }: {
+  accounts: WaAccount[]; onClose: () => void; onAdded: () => void;
+}) {
+  const tCrm = useTranslations('crm');
+  const [accountId, setAccountId] = useState(accounts[0]?.id || '');
+  const [phone, setPhone] = useState('');
+  const [displayName, setDisplayName] = useState('');
+  const [adding, setAdding] = useState(false);
+
+  async function handleAdd() {
+    if (!phone.trim() || !accountId) return;
+    setAdding(true);
+    try {
+      await api.post('/api/whatsapp/contacts/add', { phone_number: phone.trim(), account_id: accountId, display_name: displayName.trim() || undefined });
+      toast.success(tCrm('waInboxAddContact') + ' OK');
+      onAdded();
+    } catch (e: any) { toast.error(e.message || 'Failed to add contact'); }
+    finally { setAdding(false); }
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-[9999]" onClick={onClose}>
+      <div className="rounded-xl w-full max-w-md shadow-xl border overflow-hidden"
+        style={{ background: 'var(--notion-card, white)', borderColor: 'var(--notion-border)' }}
+        onClick={e => e.stopPropagation()}>
+        <div className="px-5 py-3 border-b flex items-center justify-between" style={{ borderColor: 'var(--notion-border)' }}>
+          <h3 className="text-sm font-semibold" style={{ color: 'var(--notion-text)' }}>{tCrm('waInboxAddContactTitle')}</h3>
+          <button onClick={onClose} className="text-lg" style={{ color: 'var(--notion-text-muted)' }}>&times;</button>
+        </div>
+        <div className="px-5 py-4 space-y-3">
+          <div>
+            <label className="text-xs font-medium mb-1 block" style={{ color: 'var(--notion-text-muted)' }}>{tCrm('waInboxAddContactAccount')}</label>
+            <select value={accountId} onChange={e => setAccountId(e.target.value)}
+              className="w-full px-3 py-2 rounded-md text-sm outline-none border"
+              style={{ borderColor: 'var(--notion-border)', color: 'var(--notion-text)' }}>
+              {accounts.filter(a => a.status === 'connected').map(a => (
+                <option key={a.id} value={a.id}>{a.label || a.display_name || a.phone_number || 'Account'}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="text-xs font-medium mb-1 block" style={{ color: 'var(--notion-text-muted)' }}>{tCrm('waInboxAddContactPhone')}</label>
+            <input type="text" value={phone} onChange={e => setPhone(e.target.value)}
+              placeholder="+1234567890"
+              className="w-full px-3 py-2 rounded-md text-sm outline-none border"
+              style={{ borderColor: 'var(--notion-border)', color: 'var(--notion-text)' }} />
+          </div>
+          <div>
+            <label className="text-xs font-medium mb-1 block" style={{ color: 'var(--notion-text-muted)' }}>{tCrm('waInboxAddContactName')}</label>
+            <input type="text" value={displayName} onChange={e => setDisplayName(e.target.value)}
+              placeholder="John Doe"
+              className="w-full px-3 py-2 rounded-md text-sm outline-none border"
+              style={{ borderColor: 'var(--notion-border)', color: 'var(--notion-text)' }} />
+          </div>
+          <button onClick={handleAdd} disabled={adding || !phone.trim() || !accountId}
+            className="w-full px-4 py-2 rounded-md text-sm font-medium text-white disabled:opacity-50"
+            style={{ background: '#25D366' }}>
+            {adding ? '...' : tCrm('waInboxAddContactVerify')}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Assign Contact Modal ──────────────────────────────────────────────────
+function AssignContactModal({ contact, onClose, onAssigned }: {
+  contact: Conversation; onClose: () => void; onAssigned: () => void;
+}) {
+  const tCrm = useTranslations('crm');
+  const [users, setUsers] = useState<any[]>([]);
+  const [search, setSearch] = useState('');
+  const [assigning, setAssigning] = useState(false);
+
+  useEffect(() => {
+    api.get('/api/admin/users').then(d => setUsers(Array.isArray(d) ? d : (d?.items || []))).catch(() => setUsers([]));
+  }, []);
+
+  const filtered = search
+    ? users.filter(u => (u.full_name || '').toLowerCase().includes(search.toLowerCase()) || (u.email || '').toLowerCase().includes(search.toLowerCase()))
+    : users;
+
+  async function handleAssign(userId: string | null) {
+    setAssigning(true);
+    try {
+      await api.post(`/api/whatsapp/contacts/${contact.id}/assign`, { user_id: userId });
+      onAssigned();
+    } catch (e: any) { toast.error(e.message || 'Failed to assign'); }
+    finally { setAssigning(false); }
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-[9999]" onClick={onClose}>
+      <div className="rounded-xl w-full max-w-md shadow-xl border overflow-hidden"
+        style={{ background: 'var(--notion-card, white)', borderColor: 'var(--notion-border)' }}
+        onClick={e => e.stopPropagation()}>
+        <div className="px-5 py-3 border-b flex items-center justify-between" style={{ borderColor: 'var(--notion-border)' }}>
+          <div>
+            <h3 className="text-sm font-semibold" style={{ color: 'var(--notion-text)' }}>{tCrm('waInboxAssign')}</h3>
+            <p className="text-[11px] mt-0.5" style={{ color: 'var(--notion-text-muted)' }}>
+              {contact.display_name || contact.push_name || contact.phone_number}
+            </p>
+          </div>
+          <button onClick={onClose} className="text-lg" style={{ color: 'var(--notion-text-muted)' }}>&times;</button>
+        </div>
+
+        {contact.assigned_user_name && (
+          <div className="px-5 py-2 border-b flex items-center justify-between" style={{ borderColor: 'var(--notion-border)', background: '#f0fdf4' }}>
+            <span className="text-xs" style={{ color: '#15803d' }}>{tCrm('waInboxAssigned')}: <strong>{contact.assigned_user_name}</strong></span>
+            <button onClick={() => handleAssign(null)} disabled={assigning}
+              className="text-[10px] px-2 py-0.5 rounded font-medium" style={{ background: '#fef2f2', color: '#dc2626' }}>{tCrm('waInboxUnassign')}</button>
+          </div>
+        )}
+
+        <div className="px-5 py-3">
+          <input type="text" value={search} onChange={e => setSearch(e.target.value)}
+            placeholder="Search users..."
+            autoFocus
+            className="w-full px-3 py-2 rounded-md text-sm outline-none border"
+            style={{ borderColor: 'var(--notion-border)', color: 'var(--notion-text)' }} />
+        </div>
+
+        <div className="px-5 pb-4 max-h-[300px] overflow-y-auto">
+          {filtered.map(u => (
+            <button key={u.id} onClick={() => handleAssign(u.id)} disabled={assigning}
+              className="w-full text-left px-3 py-2 rounded-md text-sm flex items-center justify-between gap-2 hover:bg-gray-50 transition-colors"
+              style={{ color: 'var(--notion-text)' }}>
+              <div className="min-w-0">
+                <p className="text-xs font-medium truncate">{u.full_name || u.email}</p>
+                <p className="text-[10px] truncate" style={{ color: 'var(--notion-text-muted)' }}>{u.email}</p>
+              </div>
+              {contact.assigned_to === u.id && (
+                <span className="text-[9px] px-1.5 py-0.5 rounded flex-shrink-0" style={{ background: '#dcfce7', color: '#15803d' }}>Current</span>
+              )}
+            </button>
+          ))}
+          {filtered.length === 0 && (
+            <p className="text-xs text-center py-4" style={{ color: 'var(--notion-text-muted)' }}>No users found</p>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Main WhatsApp Inbox Component ──────────────────────────────────────────
 export default function WhatsAppInbox() {
   const tCrm = useTranslations('crm');
@@ -388,6 +536,12 @@ export default function WhatsAppInbox() {
   // Link modal
   const [linkingContact, setLinkingContact] = useState<Conversation | null>(null);
 
+  // Add / Assign / Delete
+  const [showAddContact, setShowAddContact] = useState(false);
+  const [assigningContact, setAssigningContact] = useState<Conversation | null>(null);
+  const [filterAssigned, setFilterAssigned] = useState('');
+  const [allUsers, setAllUsers] = useState<{ id: string; full_name?: string; email?: string }[]>([]);
+
   async function loadData() {
     setLoading(true);
     try {
@@ -396,6 +550,7 @@ export default function WhatsAppInbox() {
       if (filterGroup) params.set('is_group', filterGroup);
       if (filterLabel) params.set('label_id', filterLabel);
       if (filterLeadStatus) params.set('lead_status', filterLeadStatus);
+      if (filterAssigned) params.set('assigned_to', filterAssigned);
       params.set('sort_by', 'last_message');
       const qs = params.toString();
       const [convs, accs, lbls] = await Promise.all([
@@ -410,7 +565,12 @@ export default function WhatsAppInbox() {
     finally { setLoading(false); }
   }
 
-  useEffect(() => { loadData(); }, [filterAccount, filterGroup, filterLabel, filterLeadStatus]);
+  // Load users list for assigned_to filter
+  useEffect(() => {
+    api.get('/api/admin/users').then(d => setAllUsers(Array.isArray(d) ? d : (d?.items || []))).catch(() => {});
+  }, []);
+
+  useEffect(() => { loadData(); }, [filterAccount, filterGroup, filterLabel, filterLeadStatus, filterAssigned]);
 
   // ── WebSocket real-time updates ──
   const { on: onWsEvent } = useWhatsAppSocket();
@@ -597,6 +757,18 @@ export default function WhatsAppInbox() {
     setCtxMenu(null);
   }
 
+  async function handleDeleteContact(conv: Conversation) {
+    setCtxMenu(null);
+    if (!confirm(tCrm('waInboxDeleteConfirm'))) return;
+    const delMsgs = confirm(tCrm('waInboxDeleteMessages') + '?');
+    try {
+      await api.delete(`/api/whatsapp/contacts/${conv.id}?delete_messages=${delMsgs}`);
+      setConversations(prev => prev.filter(c => c.id !== conv.id));
+      if (selectedContact?.id === conv.id) setSelectedContact(null);
+      toast.success(tCrm('waInboxDeleteContact') + ' OK');
+    } catch (e: any) { toast.error(e.message || 'Delete failed'); }
+  }
+
   return (
     <div className="flex h-full" style={{ background: '#eae6df' }}>
       {/* ── Left Panel: Contact List ── */}
@@ -630,6 +802,13 @@ export default function WhatsAppInbox() {
                 <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/><line x1="1" y1="1" x2="23" y2="23"/>
               </svg>
             )}
+          </button>
+          <button onClick={() => setShowAddContact(true)}
+            className="p-2 rounded-full hover:bg-white/10 transition-colors flex-shrink-0"
+            title={tCrm('waInboxAddContact')}>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+            </svg>
           </button>
           <button onClick={() => setShowAccountPanel(true)}
             className="p-2 rounded-full hover:bg-white/10 transition-colors flex-shrink-0"
@@ -681,6 +860,14 @@ export default function WhatsAppInbox() {
                 <option key={s} value={s}>{s}</option>
               ))}
             </select>
+            {allUsers.length > 0 && (
+              <select value={filterAssigned} onChange={e => setFilterAssigned(e.target.value)}
+                className="px-2 py-1 rounded-full text-[11px] outline-none cursor-pointer"
+                style={{ border: '1px solid #d1d7db', color: filterAssigned ? '#008069' : '#667781', background: filterAssigned ? '#e7fcf5' : 'white' }}>
+                <option value="">{tCrm('waInboxAllUsers')}</option>
+                {allUsers.map(u => <option key={u.id} value={u.id}>{u.full_name || u.email}</option>)}
+              </select>
+            )}
           </div>
         </div>
 
@@ -743,9 +930,11 @@ export default function WhatsAppInbox() {
                         </span>
                       </div>
                     </div>
-                    {isLinked && (
+                    {(isLinked || conv.assigned_user_name) && (
                       <p className="text-[11px] truncate" style={{ color: '#00a884' }}>
-                        CRM: {crmName}
+                        {isLinked && <>CRM: {crmName}</>}
+                        {isLinked && conv.assigned_user_name && <> &middot; </>}
+                        {conv.assigned_user_name && <span style={{ color: '#6366f1' }}>{conv.assigned_user_name}</span>}
                       </p>
                     )}
                     <div className="flex items-center justify-between gap-2 mt-0.5">
@@ -803,6 +992,14 @@ export default function WhatsAppInbox() {
                 <button className="w-full text-left px-4 py-2 text-[13px] hover:bg-[#f5f6f6]" style={{ color: '#111b21' }}
                   onClick={() => handleMute(ctxMenu.conv)}>
                   {ctxMenu.conv.is_muted ? 'Unmute' : 'Mute'} notifications
+                </button>
+                <button className="w-full text-left px-4 py-2 text-[13px] hover:bg-[#f5f6f6]" style={{ color: '#111b21' }}
+                  onClick={() => { setAssigningContact(ctxMenu.conv); setCtxMenu(null); }}>
+                  {ctxMenu.conv.assigned_to ? tCrm('waInboxReassign') : tCrm('waInboxAssign')}
+                </button>
+                <button className="w-full text-left px-4 py-2 text-[13px] hover:bg-[#f5f6f6]" style={{ color: '#dc2626' }}
+                  onClick={() => handleDeleteContact(ctxMenu.conv)}>
+                  {tCrm('waInboxDeleteContact')}
                 </button>
               </div>
             )}
@@ -982,6 +1179,24 @@ export default function WhatsAppInbox() {
           contact={linkingContact}
           onClose={() => setLinkingContact(null)}
           onLinked={() => { setLinkingContact(null); loadData(); }}
+        />
+      )}
+
+      {/* Add Contact Modal */}
+      {showAddContact && (
+        <AddContactModal
+          accounts={accounts}
+          onClose={() => setShowAddContact(false)}
+          onAdded={() => { setShowAddContact(false); loadData(); }}
+        />
+      )}
+
+      {/* Assign Contact Modal */}
+      {assigningContact && (
+        <AssignContactModal
+          contact={assigningContact}
+          onClose={() => setAssigningContact(null)}
+          onAssigned={() => { setAssigningContact(null); loadData(); }}
         />
       )}
     </div>

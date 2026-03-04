@@ -142,6 +142,14 @@ class LabelActionBody(BaseModel):
 class BlockBody(BaseModel):
     block: bool = True
 
+class AddContactBody(BaseModel):
+    phone_number: str
+    account_id: str
+    display_name: Optional[str] = None
+
+class AssignContactBody(BaseModel):
+    user_id: Optional[str] = None
+
 class ProfileUpdateBody(BaseModel):
     name: Optional[str] = None
     status_text: Optional[str] = None
@@ -971,6 +979,7 @@ async def dashboard(
     lead_id: Optional[str] = None,
     lead_status: Optional[str] = None,
     account_id: Optional[str] = None,
+    assigned_to: Optional[str] = None,
     date_from: Optional[str] = None,
     date_to: Optional[str] = None,
     sort_by: Optional[str] = "last_message",
@@ -984,7 +993,7 @@ async def dashboard(
     is_admin = role in ("platform_admin", "tenant_admin", "manager")
 
     # Build WHERE filters for the base query
-    where_clauses = []
+    where_clauses = ["COALESCE(c.is_deleted, FALSE) = FALSE"]
     params: dict = {}
 
     if not include_archived:
@@ -1001,6 +1010,9 @@ async def dashboard(
     if account_id:
         where_clauses.append("c.wa_account_id = :aid")
         params["aid"] = account_id
+    if assigned_to:
+        where_clauses.append("c.assigned_to = :ato")
+        params["ato"] = assigned_to
     if date_from:
         where_clauses.append("c.last_message_at >= :df")
         params["df"] = date_from
@@ -1024,6 +1036,7 @@ async def dashboard(
                    a.wa_jid AS owner_wa_jid, a.owner_user_id, u.full_name AS owner_name,
                    l.full_name AS lead_name, l.status AS lead_status,
                    ca.name AS crm_account_name,
+                   au.full_name AS assigned_user_name,
                    COALESCE(c.is_pinned, FALSE) AS is_pinned,
                    COALESCE(c.is_muted, FALSE) AS is_muted,
                    CASE WHEN c.is_group THEN c.id::text
@@ -1036,6 +1049,7 @@ async def dashboard(
             LEFT JOIN users u ON u.id = a.owner_user_id
             LEFT JOIN leads l ON l.id = c.lead_id
             LEFT JOIN crm_accounts ca ON ca.id = c.account_id
+            LEFT JOIN users au ON au.id = c.assigned_to
             WHERE 1=1 {where_sql}
         ),
         ranked AS (
@@ -1075,13 +1089,15 @@ async def admin_list_conversations(
                a.wa_jid AS owner_wa_jid, a.owner_user_id, u.full_name AS owner_name,
                l.full_name AS lead_name, l.status AS lead_status,
                ca.name AS crm_account_name,
+               au.full_name AS assigned_user_name,
                (SELECT content FROM whatsapp_messages wm WHERE wm.wa_contact_id = c.id ORDER BY wm.timestamp DESC LIMIT 1) AS last_message_preview
         FROM whatsapp_contacts c
         JOIN whatsapp_accounts a ON a.id = c.wa_account_id AND a.is_active = TRUE
         LEFT JOIN users u ON u.id = a.owner_user_id
         LEFT JOIN leads l ON l.id = c.lead_id
         LEFT JOIN crm_accounts ca ON ca.id = c.account_id
-        WHERE 1=1
+        LEFT JOIN users au ON au.id = c.assigned_to
+        WHERE COALESCE(c.is_deleted, FALSE) = FALSE
     """
     params: dict = {}
     if search:
@@ -1141,6 +1157,115 @@ async def fix_duplicate_contacts(ctx: dict = Depends(require_admin_with_tenant))
 
     await db.commit()
     return {"ok": True, "merged": merged, "renamed": renamed, "total_processed": merged + renamed}
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Contact management (add / delete / assign)
+# ══════════════════════════════════════════════════════════════════════════════
+
+@router.post("/contacts/add")
+async def add_contact(body: AddContactBody, ctx: dict = Depends(get_current_user_with_tenant)):
+    """Manually add a WhatsApp contact by phone number."""
+    db = ctx["db"]
+    uid = ctx["sub"]
+    role = ctx.get("role", "")
+    is_admin = role in ("platform_admin", "tenant_admin", "manager")
+
+    # Verify account ownership
+    if is_admin:
+        acc = await db.execute(text(
+            "SELECT id, display_name FROM whatsapp_accounts WHERE id = :aid AND is_active = TRUE"
+        ), {"aid": body.account_id})
+    else:
+        acc = await db.execute(text(
+            "SELECT id, display_name FROM whatsapp_accounts WHERE id = :aid AND owner_user_id = :uid AND is_active = TRUE"
+        ), {"aid": body.account_id, "uid": uid})
+    account = acc.fetchone()
+    if not account:
+        raise HTTPException(status_code=404, detail="WhatsApp account not found")
+
+    # Verify number on WhatsApp
+    try:
+        result = await wa_bridge.check_number(body.account_id, [body.phone_number])
+        results = result.get("results", [])
+        if not results or not results[0].get("exists"):
+            raise HTTPException(status_code=400, detail="Phone number is not on WhatsApp")
+        jid = normalize_jid(results[0].get("jid", ""))
+        if not jid:
+            raise HTTPException(status_code=400, detail="Could not resolve WhatsApp JID")
+    except BridgeError as e:
+        raise HTTPException(status_code=502, detail=f"WhatsApp verification failed: {e}")
+
+    # Upsert contact (restore if soft-deleted)
+    contact_id = str(uuid.uuid4())
+    now = _now_iso()
+    row = await db.execute(text("""
+        INSERT INTO whatsapp_contacts (id, wa_account_id, wa_jid, phone_number, display_name, is_deleted, created_at, updated_at)
+        VALUES (:id, :aid, :jid, :phone, :name, FALSE, :now, :now)
+        ON CONFLICT (wa_account_id, wa_jid) DO UPDATE SET
+            is_deleted = FALSE,
+            display_name = COALESCE(EXCLUDED.display_name, whatsapp_contacts.display_name),
+            phone_number = COALESCE(EXCLUDED.phone_number, whatsapp_contacts.phone_number),
+            updated_at = :now
+        RETURNING id, wa_jid, phone_number, display_name
+    """), {"id": contact_id, "aid": body.account_id, "jid": jid,
+           "phone": body.phone_number, "name": body.display_name, "now": now})
+    contact = row.fetchone()
+    await db.commit()
+
+    return {"ok": True, "contact": dict(contact._mapping) if contact else None}
+
+
+@router.delete("/contacts/{contact_id}")
+async def delete_contact(
+    contact_id: str,
+    delete_messages: bool = False,
+    ctx: dict = Depends(get_current_user_with_tenant),
+):
+    """Soft-delete a WhatsApp contact. Optionally hard-delete messages."""
+    db = ctx["db"]
+    contact = await _verify_contact_ownership(db, contact_id, ctx["sub"], ctx.get("role", ""))
+
+    # Soft-delete + archive the contact
+    await db.execute(text("""
+        UPDATE whatsapp_contacts SET is_deleted = TRUE, is_archived = TRUE, updated_at = NOW()
+        WHERE id = :cid
+    """), {"cid": contact_id})
+
+    deleted_messages = 0
+    if delete_messages:
+        res = await db.execute(text(
+            "DELETE FROM whatsapp_messages WHERE wa_contact_id = :cid"
+        ), {"cid": contact_id})
+        deleted_messages = res.rowcount
+
+    await db.commit()
+    return {"ok": True, "deleted_messages": deleted_messages}
+
+
+@router.post("/contacts/{contact_id}/assign")
+async def assign_contact(
+    contact_id: str,
+    body: AssignContactBody,
+    ctx: dict = Depends(get_current_user_with_tenant),
+):
+    """Assign (or unassign) a contact to a user."""
+    db = ctx["db"]
+    await _verify_contact_ownership(db, contact_id, ctx["sub"], ctx.get("role", ""))
+
+    if body.user_id:
+        # Verify user exists
+        u = await db.execute(text("SELECT id FROM users WHERE id = :uid"), {"uid": body.user_id})
+        if not u.fetchone():
+            raise HTTPException(status_code=404, detail="User not found")
+
+    await db.execute(text("""
+        UPDATE whatsapp_contacts SET assigned_to = :uid, updated_at = NOW()
+        WHERE id = :cid
+    """), {"uid": body.user_id, "cid": contact_id})
+    await db.commit()
+
+    return {"ok": True}
 
 
 # ══════════════════════════════════════════════════════════════════════════════

@@ -1372,6 +1372,11 @@ TENANT_MIGRATION_DDL = [
     "ALTER TABLE messages ADD COLUMN IF NOT EXISTS lead_id UUID",
     # Index for internal message queries
     "CREATE INDEX IF NOT EXISTS idx_messages_pair ON messages(from_user_id, to_user_id, created_at DESC)",
+
+    # ── Phase 12: WhatsApp contact management (assigned_to + soft delete) ──
+    "ALTER TABLE whatsapp_contacts ADD COLUMN IF NOT EXISTS assigned_to UUID",
+    "CREATE INDEX IF NOT EXISTS idx_wa_contacts_assigned ON whatsapp_contacts(assigned_to)",
+    "ALTER TABLE whatsapp_contacts ADD COLUMN IF NOT EXISTS is_deleted BOOLEAN DEFAULT FALSE",
 ]
 
 
