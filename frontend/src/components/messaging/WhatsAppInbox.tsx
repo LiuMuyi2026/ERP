@@ -250,21 +250,46 @@ function LinkContactModal({ contact, onClose, onLinked }: {
   const [results, setResults] = useState<any[]>([]);
   const [searching, setSearching] = useState(false);
   const [linking, setLinking] = useState(false);
+  const [users, setUsers] = useState<{ id: string; full_name?: string; email?: string }[]>([]);
+  const [ownerUserId, setOwnerUserId] = useState('');
   const debounceRef = useRef<ReturnType<typeof setTimeout>>();
 
   const isLinked = !!(contact.lead_id || contact.account_id);
   const currentLink = contact.crm_account_name || contact.lead_name;
 
   useEffect(() => { setResults([]); setSearch(''); }, [tab]);
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      try {
+        const [me, allUsers] = await Promise.all([
+          api.get('/api/auth/me').catch(() => null),
+          api.get('/api/admin/users-lite').catch(() => []),
+        ]);
+        if (!mounted) return;
+        const list = Array.isArray(allUsers) ? allUsers : (allUsers?.items || []);
+        setUsers(list);
+        const preset = contact.assigned_to || me?.id || list?.[0]?.id || '';
+        setOwnerUserId(preset);
+      } catch {
+        if (mounted) {
+          setUsers([]);
+          setOwnerUserId('');
+        }
+      }
+    })();
+    return () => { mounted = false; };
+  }, [contact.assigned_to]);
 
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
+    if (tab === 'lead' && !ownerUserId) { setResults([]); return; }
     if (!search.trim()) { setResults([]); return; }
     debounceRef.current = setTimeout(async () => {
       setSearching(true);
       try {
         const endpoint = tab === 'lead'
-          ? `/api/crm/leads?search=${encodeURIComponent(search)}&limit=20`
+          ? `/api/crm/leads?search=${encodeURIComponent(search)}&limit=20${ownerUserId ? `&user_id=${encodeURIComponent(ownerUserId)}` : ''}`
           : `/api/crm/accounts?search=${encodeURIComponent(search)}&limit=20`;
         const data = await api.get(endpoint);
         setResults(Array.isArray(data) ? data : (data?.items || []));
@@ -272,7 +297,7 @@ function LinkContactModal({ contact, onClose, onLinked }: {
       finally { setSearching(false); }
     }, 300);
     return () => { if (debounceRef.current) clearTimeout(debounceRef.current); };
-  }, [search, tab]);
+  }, [search, tab, ownerUserId]);
 
   async function handleLink(targetId: string) {
     setLinking(true);
@@ -299,6 +324,7 @@ function LinkContactModal({ contact, onClose, onLinked }: {
     try {
       const name = contact.push_name || contact.display_name || contact.phone_number || 'Unknown';
       const leadData: any = { full_name: name, source: 'WhatsApp' };
+      if (ownerUserId) leadData.assigned_to = ownerUserId;
       if (contact.phone_number) { leadData.phone = contact.phone_number; leadData.whatsapp = contact.phone_number; }
       const newLead: any = await api.post('/api/crm/leads', leadData);
       const leadId = newLead.id || newLead.lead_id;
@@ -343,8 +369,18 @@ function LinkContactModal({ contact, onClose, onLinked }: {
         </div>
 
         <div className="px-5 py-3">
+          {tab === 'lead' && (
+            <select value={ownerUserId} onChange={e => { setOwnerUserId(e.target.value); setResults([]); }}
+              className="w-full px-3 py-2 rounded-md text-sm outline-none border mb-2"
+              style={{ borderColor: 'var(--notion-border)', color: 'var(--notion-text)' }}>
+              <option value="">Select user first...</option>
+              {users.map(u => (
+                <option key={u.id} value={u.id}>{u.full_name || u.email || u.id}</option>
+              ))}
+            </select>
+          )}
           <input type="text" value={search} onChange={e => setSearch(e.target.value)}
-            placeholder={tab === 'lead' ? 'Search leads by name, email, phone...' : 'Search accounts by name...'}
+            placeholder={tab === 'lead' ? 'Search leads under selected user...' : 'Search accounts by name...'}
             autoFocus
             className="w-full px-3 py-2 rounded-md text-sm outline-none border"
             style={{ borderColor: 'var(--notion-border)', color: 'var(--notion-text)' }} />
