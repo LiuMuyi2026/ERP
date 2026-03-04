@@ -720,6 +720,7 @@ export default function WhatsAppInbox() {
 
     // New message: bump conversation to top, update preview and unread
     unsubs.push(onWsEvent('new_message', (ev) => {
+      let needsReload = false;
       setConversations((prev) => {
         // Try exact contact_id match first, then fallback to merge_key
         let idx = prev.findIndex((c) => c.id === ev.contact_id);
@@ -729,28 +730,31 @@ export default function WhatsAppInbox() {
         }
         if (idx >= 0) {
           const updated = { ...prev[idx] };
-          updated.last_message_preview = ev.message?.content || '';
+          const dir = ev.direction || ev.message?.direction || '';
+          updated.last_message_preview = `${dir === 'outbound' ? 'outbound' : 'inbound'}:${ev.message?.message_type || 'text'}:${ev.message?.content || ''}`;
           updated.last_message_at = ev.message?.timestamp || new Date().toISOString();
           // Only increment unread if this isn't the currently open chat
           const isOpen = selectedContact && (selectedContact.id === ev.contact_id ||
             (selectedContact.merge_key && ev.contact_jid && selectedContact.merge_key === ev.contact_jid.split('@')[0]));
           if (!isOpen) {
-            // For merged conversations, ev.unread_count is per-contact and can be lower than total.
-            // Keep UI monotonic (+1) and then reconcile from server shortly after.
             updated.unread_count = (updated.unread_count || 0) + 1;
-            if (unreadSyncTimerRef.current) clearTimeout(unreadSyncTimerRef.current);
-            unreadSyncTimerRef.current = setTimeout(() => {
-              loadData();
-            }, 600);
+            needsReload = true;
           }
           const rest = [...prev];
           rest.splice(idx, 1);
           return [updated, ...rest];
         }
-        // New contact not in list — reload
-        loadData();
+        // New contact not in list — schedule reload outside updater
+        needsReload = true;
         return prev;
       });
+      // Schedule server reconciliation OUTSIDE of state updater
+      if (needsReload) {
+        if (unreadSyncTimerRef.current) clearTimeout(unreadSyncTimerRef.current);
+        unreadSyncTimerRef.current = setTimeout(() => {
+          loadData();
+        }, 2000);
+      }
     }));
 
     // Connection status change

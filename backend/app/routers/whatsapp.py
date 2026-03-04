@@ -3656,6 +3656,8 @@ async def _handle_messages_upsert(db: AsyncSession, instance: str, data: dict, t
     """Handle MESSAGES_UPSERT event — new incoming/outgoing message."""
     # Evolution sends array or single message
     messages = data if isinstance(data, list) else [data]
+    # Collect WS events to broadcast AFTER db.commit() so frontend API calls see committed data.
+    _pending_ws_events: list[dict] = []
 
     for msg_data in messages:
         key = msg_data.get("key", {})
@@ -3846,14 +3848,14 @@ async def _handle_messages_upsert(db: AsyncSession, instance: str, data: dict, t
                     hit = id_row.fetchone()
                     db_message_id = str(hit.id) if hit else None
 
-                # Broadcast new_message via WebSocket
+                # Queue new_message for broadcast AFTER commit
                 if tenant_slug and not is_history:
                     # Get updated unread count
                     uc_row = await db.execute(text(
                         "SELECT unread_count FROM whatsapp_contacts WHERE id = :cid"
                     ), {"cid": contact_id})
                     uc = uc_row.fetchone()
-                    await _ws_emit_for_account(db, tenant_slug, instance, {
+                    _pending_ws_events.append({
                         "type": "new_message",
                         "contact_id": contact_id,
                         "contact_jid": remote_jid,
@@ -3903,6 +3905,10 @@ async def _handle_messages_upsert(db: AsyncSession, instance: str, data: dict, t
                         logger.debug("Auto interaction log failed (table may not exist): %s", e)
 
     await db.commit()
+
+    # Broadcast WS events AFTER commit so frontend API calls see committed data
+    for evt in _pending_ws_events:
+        await _ws_emit_for_account(db, tenant_slug, instance, evt)
 
 
 async def _handle_messages_update(db: AsyncSession, instance: str, data: dict, tenant_slug: str = ""):
