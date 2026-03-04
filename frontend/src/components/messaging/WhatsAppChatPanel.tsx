@@ -255,6 +255,7 @@ export default function WhatsAppChatPanel({
         const beforeParam = olderPage && messages.length > 0
           ? `&before=${messages[0].timestamp}` : '';
         const resp: any = await api.get(`/api/whatsapp/conversations/${contactId}/messages?limit=50${beforeParam}`);
+        console.log('[WhatsAppChat] loadMessages resp:', { contactId, olderPage, resp_type: typeof resp, msg_count: resp?.messages?.length ?? (Array.isArray(resp) ? resp.length : 0) });
         // Support both new {messages, has_more} and legacy array format
         if (resp && typeof resp === 'object' && 'messages' in resp) {
           data = resp.messages;

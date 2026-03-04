@@ -6,7 +6,7 @@ import { api } from '@/lib/api';
 import { useTranslations } from 'next-intl';
 import { WorkflowTab } from './WorkflowTab';
 import { HandIcon } from '@/components/ui/HandIcon';
-import WhatsAppChatPanel from '../../components/WhatsAppChatPanel';
+import WhatsAppChatPanel from '@/components/messaging/WhatsAppChatPanel';
 import SlideOver from '@/components/ui/SlideOver';
 import LeadModal, { TenantUser } from '../../components/LeadModal';
 

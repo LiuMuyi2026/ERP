@@ -55,6 +55,9 @@ class Settings(BaseSettings):
     evo_webhook_secret: str = ""
     backend_public_url: str = ""  # e.g. https://nexus-backend-xxx.onrender.com
 
+    email_webhook_secret: str = ""
+    email_inbound_provider: str = "sendgrid"  # sendgrid | mailgun
+
     class Config:
         env_file = ".env"
         case_sensitive = False

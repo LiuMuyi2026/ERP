@@ -519,7 +519,7 @@ async def send_notification(
             email_skipped += 1
             continue
 
-        ok, msg = await send_email(smtp_config, to_email, subject, text_body, html_body)
+        ok, msg, _mid = await send_email(smtp_config, to_email, subject, text_body, html_body)
         if ok:
             email_sent += 1
         else:

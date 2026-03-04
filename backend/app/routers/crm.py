@@ -2958,6 +2958,28 @@ async def list_communications(
             JOIN whatsapp_contacts c ON c.id = m.wa_contact_id
             LEFT JOIN leads l ON l.id = c.lead_id
             WHERE m.is_deleted = FALSE
+
+            UNION ALL
+
+            SELECT
+                e.id::text           AS id,
+                'email'              AS source,
+                'email'              AS channel,
+                e.direction,
+                COALESCE(e.subject || ': ' || SUBSTRING(e.body_text, 1, 200), '') AS content,
+                COALESCE(e.sent_at, e.received_at, e.created_at) AS timestamp,
+                eu.full_name         AS created_by_name,
+                e.lead_id::text,
+                el.full_name         AS lead_name,
+                el.company           AS lead_company,
+                NULL                 AS message_type,
+                NULL                 AS media_url,
+                e.status,
+                NULL                 AS wa_contact_id
+            FROM emails e
+            LEFT JOIN users eu ON eu.id = e.sender_user_id
+            LEFT JOIN leads el ON el.id = e.lead_id
+            WHERE e.is_deleted = FALSE
         )
         SELECT * FROM unified
         WHERE {where_sql}
@@ -2984,6 +3006,17 @@ async def list_communications(
             JOIN whatsapp_contacts c ON c.id = m.wa_contact_id
             LEFT JOIN leads l ON l.id = c.lead_id
             WHERE m.is_deleted = FALSE
+
+            UNION ALL
+
+            SELECT e.id, 'email' AS source, 'email' AS channel, e.direction,
+                   COALESCE(e.subject || ': ' || SUBSTRING(e.body_text, 1, 200), '') AS content,
+                   COALESCE(e.sent_at, e.received_at, e.created_at) AS timestamp,
+                   e.lead_id, el.full_name AS lead_name, el.company AS lead_company,
+                   NULL::text AS message_type, e.status
+            FROM emails e
+            LEFT JOIN leads el ON el.id = e.lead_id
+            WHERE e.is_deleted = FALSE
         )
         SELECT COUNT(*) FROM unified WHERE {where_sql}
     """
@@ -2996,6 +3029,75 @@ async def list_communications(
     total = total_row.scalar() or 0
 
     return {"items": items, "total": total, "page": page, "page_size": page_size}
+
+
+# ---------------------------------------------------------------------------
+# Link Communication to Customer
+# ---------------------------------------------------------------------------
+
+class LinkCommBody(BaseModel):
+    source: str       # interaction | whatsapp_message | email
+    lead_id: Optional[str] = None
+    account_id: Optional[str] = None
+
+
+@router.patch("/communications/{comm_id}/link")
+async def link_communication(
+    comm_id: str,
+    body: LinkCommBody,
+    ctx: dict = Depends(get_current_user_with_tenant),
+):
+    """Link a communication record (interaction/whatsapp/email) to a lead/account."""
+    db = ctx["db"]
+
+    if body.source == "interaction":
+        if body.lead_id:
+            await db.execute(text(
+                "UPDATE interactions SET lead_id = CAST(:lid AS uuid) WHERE id = CAST(:cid AS uuid)"
+            ), {"lid": body.lead_id, "cid": comm_id})
+        else:
+            await db.execute(text(
+                "UPDATE interactions SET lead_id = NULL WHERE id = CAST(:cid AS uuid)"
+            ), {"cid": comm_id})
+    elif body.source == "whatsapp_message":
+        # Link via the whatsapp_contact, not the message itself
+        contact_row = await db.execute(text(
+            "SELECT wa_contact_id FROM whatsapp_messages WHERE id = CAST(:mid AS uuid)"
+        ), {"mid": comm_id})
+        contact = contact_row.fetchone()
+        if contact and contact.wa_contact_id:
+            if body.lead_id:
+                await db.execute(text(
+                    "UPDATE whatsapp_contacts SET lead_id = CAST(:lid AS uuid) WHERE id = CAST(:cid AS uuid)"
+                ), {"lid": body.lead_id, "cid": str(contact.wa_contact_id)})
+            else:
+                await db.execute(text(
+                    "UPDATE whatsapp_contacts SET lead_id = NULL WHERE id = CAST(:cid AS uuid)"
+                ), {"cid": str(contact.wa_contact_id)})
+    elif body.source == "email":
+        sets = []
+        params: dict = {"cid": comm_id}
+        if body.lead_id is not None:
+            if body.lead_id:
+                sets.append("lead_id = CAST(:lid AS uuid)")
+                params["lid"] = body.lead_id
+            else:
+                sets.append("lead_id = NULL")
+        if body.account_id is not None:
+            if body.account_id:
+                sets.append("account_id = CAST(:aid AS uuid)")
+                params["aid"] = body.account_id
+            else:
+                sets.append("account_id = NULL")
+        if sets:
+            await db.execute(text(
+                f"UPDATE emails SET {', '.join(sets)} WHERE id = CAST(:cid AS uuid)"
+            ), params)
+    else:
+        raise HTTPException(status_code=400, detail=f"Unknown source: {body.source}")
+
+    await db.commit()
+    return {"ok": True}
 
 
 # ---------------------------------------------------------------------------
@@ -3028,7 +3130,7 @@ async def send_lead_email(
     from app.services.mailer import build_smtp_config, send_email as smtp_send
 
     config = build_smtp_config()
-    ok, result = await smtp_send(config, body.to_email, body.subject, body.body, body.html_body)
+    ok, result, _mid = await smtp_send(config, body.to_email, body.subject, body.body, body.html_body)
     if not ok:
         raise HTTPException(status_code=502, detail=f"Email send failed: {result}")
 

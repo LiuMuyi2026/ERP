@@ -5,7 +5,7 @@ import { api } from '@/lib/api';
 import { HandIcon } from '@/components/ui/HandIcon';
 import SlideOver from '@/components/ui/SlideOver';
 import { useTranslations } from 'next-intl';
-import { relTime, absTime } from './wa-helpers';
+import { relTime, absTime } from '@/components/messaging/wa-helpers';
 
 /* ------------------------------------------------------------------ */
 /* Types                                                               */
@@ -13,7 +13,7 @@ import { relTime, absTime } from './wa-helpers';
 
 type CommItem = {
   id: string;
-  source: 'interaction' | 'whatsapp_message';
+  source: 'interaction' | 'whatsapp_message' | 'email';
   channel: string;
   direction: string;
   content: string;
@@ -104,11 +104,11 @@ export default function MessageManagement() {
   const [page, setPage] = useState(1);
   const pageSize = 50;
 
-  /* Filters — default to internal logs only (WhatsApp has its own tab) */
+  /* Filters */
   const [search, setSearch] = useState('');
   const [channel, setChannel] = useState('');
   const [direction, setDirection] = useState('');
-  const [source, setSource] = useState('interaction');
+  const [source, setSource] = useState('');
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
   const [sortBy, setSortBy] = useState('time_desc');
@@ -121,6 +121,12 @@ export default function MessageManagement() {
 
   /* Expanded WA conversations — track which wa_contact_id are expanded inline */
   const [expandedWa, setExpandedWa] = useState<Set<string>>(new Set());
+
+  /* Customer linking */
+  const [linkingItem, setLinkingItem] = useState<CommItem | null>(null);
+  const [linkSearch, setLinkSearch] = useState('');
+  const [linkResults, setLinkResults] = useState<any[]>([]);
+  const [linkLoading, setLinkLoading] = useState(false);
 
   /* ---- Load data ---- */
   const load = useCallback(async () => {
@@ -245,38 +251,25 @@ export default function MessageManagement() {
           </p>
         </div>
 
-        {/* Source toggle — switch between manual, auto, and all */}
+        {/* Source toggle — switch between manual, auto, email, and all */}
         <div className="flex items-center gap-1 rounded-lg p-0.5" style={{ background: '#f0f2f5' }}>
-          <button
-            onClick={() => { setSource('interaction'); setPage(1); }}
-            className="px-3 py-1.5 rounded-md text-[12px] font-medium transition-all"
-            style={{
-              background: source === 'interaction' ? 'white' : 'transparent',
-              color: source === 'interaction' ? '#111b21' : '#8696a0',
-              boxShadow: source === 'interaction' ? '0 1px 3px rgba(0,0,0,0.08)' : 'none',
-            }}>
-            {tMsg('srcManual') || '手动记录'}
-          </button>
-          <button
-            onClick={() => { setSource('whatsapp_message'); setPage(1); }}
-            className="px-3 py-1.5 rounded-md text-[12px] font-medium transition-all"
-            style={{
-              background: source === 'whatsapp_message' ? 'white' : 'transparent',
-              color: source === 'whatsapp_message' ? '#111b21' : '#8696a0',
-              boxShadow: source === 'whatsapp_message' ? '0 1px 3px rgba(0,0,0,0.08)' : 'none',
-            }}>
-            {tMsg('srcAuto') || '自动记录'}
-          </button>
-          <button
-            onClick={() => { setSource(''); setPage(1); }}
-            className="px-3 py-1.5 rounded-md text-[12px] font-medium transition-all"
-            style={{
-              background: source === '' ? 'white' : 'transparent',
-              color: source === '' ? '#111b21' : '#8696a0',
-              boxShadow: source === '' ? '0 1px 3px rgba(0,0,0,0.08)' : 'none',
-            }}>
-            {tMsg('all') || '全部'}
-          </button>
+          {([
+            ['interaction', tMsg('srcManual') || '手动记录'],
+            ['whatsapp_message', tMsg('srcAuto') || '自动记录(WA)'],
+            ['email', tMsg('srcEmail') || '邮件'],
+            ['', tMsg('all') || '全部'],
+          ] as const).map(([key, label]) => (
+            <button key={key}
+              onClick={() => { setSource(key); setPage(1); }}
+              className="px-3 py-1.5 rounded-md text-[12px] font-medium transition-all"
+              style={{
+                background: source === key ? 'white' : 'transparent',
+                color: source === key ? '#111b21' : '#8696a0',
+                boxShadow: source === key ? '0 1px 3px rgba(0,0,0,0.08)' : 'none',
+              }}>
+              {label}
+            </button>
+          ))}
         </div>
       </div>
 
@@ -419,7 +412,7 @@ export default function MessageManagement() {
           </svg>
           <p className="text-[14px]" style={{ color: '#667781' }}>{t('noInteractions')}</p>
           <p className="text-[12px] mt-1" style={{ color: '#8696a0' }}>
-            {source === 'interaction' ? '暂无手动记录' : source === 'whatsapp_message' ? '暂无自动记录' : '暂无通讯记录'}
+            {source === 'interaction' ? '暂无手动记录' : source === 'whatsapp_message' ? '暂无自动记录' : source === 'email' ? '暂无邮件记录' : '暂无通讯记录'}
           </p>
         </div>
       )}
@@ -662,9 +655,19 @@ export default function MessageManagement() {
                       </span>
                     </td>
                     <td className="px-4 py-3">
-                      <span className="text-[13px] font-medium" style={{ color: '#111b21' }}>{item.lead_name || '—'}</span>
-                      {item.lead_company && (
-                        <span className="text-[11px] ml-1.5" style={{ color: '#8696a0' }}>{item.lead_company}</span>
+                      {item.lead_name ? (
+                        <span>
+                          <span className="text-[13px] font-medium" style={{ color: '#111b21' }}>{item.lead_name}</span>
+                          {item.lead_company && (
+                            <span className="text-[11px] ml-1.5" style={{ color: '#8696a0' }}>{item.lead_company}</span>
+                          )}
+                        </span>
+                      ) : (
+                        <button onClick={(e) => { e.stopPropagation(); setLinkingItem(item); setLinkSearch(''); setLinkResults([]); }}
+                          className="text-[11px] px-2 py-1 rounded border hover:bg-gray-50"
+                          style={{ borderColor: '#d1d5db', color: '#4338ca' }}>
+                          {tMsg('linkCustomer') || '关联客户'}
+                        </button>
                       )}
                     </td>
                     <td className="px-4 py-3">
@@ -882,6 +885,58 @@ export default function MessageManagement() {
           </div>
         )}
       </SlideOver>
+
+      {/* ── Link to Customer Modal ── */}
+      {linkingItem && (
+        <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/40"
+          onClick={() => setLinkingItem(null)}>
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-sm p-5"
+            onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-sm font-semibold mb-3" style={{ color: '#3b4a54' }}>
+              {tMsg('linkCustomer') || '关联客户'}
+            </h3>
+            <input type="text" value={linkSearch}
+              onChange={async (e) => {
+                const q = e.target.value;
+                setLinkSearch(q);
+                if (q.length < 2) { setLinkResults([]); return; }
+                try {
+                  const data = await api.get(`/api/crm/leads?search=${encodeURIComponent(q)}&page_size=10`);
+                  setLinkResults(data.items || []);
+                } catch { setLinkResults([]); }
+              }}
+              placeholder={tMsg('searchLeads') || '搜索客户...'}
+              className="w-full text-sm border rounded-lg px-3 py-2 mb-2 outline-none"
+              style={{ borderColor: '#e5e7eb' }} />
+            <div className="max-h-48 overflow-auto space-y-1">
+              {linkResults.map((lead: any) => (
+                <button key={lead.id}
+                  onClick={async () => {
+                    try {
+                      await api.patch(`/api/crm/communications/${linkingItem.id}/link`, {
+                        source: linkingItem.source,
+                        lead_id: lead.id,
+                      });
+                      setLinkingItem(null);
+                      load();
+                    } catch (e: any) { alert(e.message || 'Failed'); }
+                  }}
+                  className="w-full text-left px-3 py-2 rounded-lg hover:bg-gray-50 text-sm">
+                  <div className="font-medium" style={{ color: '#3b4a54' }}>{lead.full_name}</div>
+                  {lead.company && (
+                    <div className="text-xs" style={{ color: '#8696a0' }}>{lead.company}</div>
+                  )}
+                </button>
+              ))}
+            </div>
+            <button onClick={() => setLinkingItem(null)}
+              className="mt-3 w-full text-xs py-2 rounded-lg border"
+              style={{ borderColor: '#e5e7eb', color: '#667781' }}>
+              {tMsg('cancel') || '取消'}
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

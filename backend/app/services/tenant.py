@@ -1326,6 +1326,48 @@ TENANT_MIGRATION_DDL = [
 
     # ── Phase 10: JID phone index for merge queries ──────────────────────
     "CREATE INDEX IF NOT EXISTS idx_wa_contacts_jid_phone ON whatsapp_contacts(SPLIT_PART(wa_jid, '@', 1))",
+
+    # ── Phase 11: Emails table for full email send/receive ─────────────
+    """CREATE TABLE IF NOT EXISTS emails (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        direction VARCHAR(10) NOT NULL,
+        from_email VARCHAR(255) NOT NULL,
+        from_name VARCHAR(255),
+        to_email VARCHAR(255) NOT NULL,
+        to_name VARCHAR(255),
+        cc TEXT,
+        bcc TEXT,
+        subject VARCHAR(500),
+        body_text TEXT,
+        body_html TEXT,
+        attachments_json JSONB DEFAULT '[]',
+        status VARCHAR(30) DEFAULT 'sent',
+        error_message TEXT,
+        message_id_header VARCHAR(500),
+        in_reply_to VARCHAR(500),
+        references_header TEXT,
+        thread_id UUID,
+        lead_id UUID,
+        account_id UUID,
+        sender_user_id UUID,
+        is_read BOOLEAN DEFAULT FALSE,
+        is_deleted BOOLEAN DEFAULT FALSE,
+        smtp_config_source VARCHAR(30),
+        webhook_provider VARCHAR(30),
+        raw_headers JSONB DEFAULT '{}',
+        received_at TIMESTAMPTZ,
+        sent_at TIMESTAMPTZ,
+        created_at TIMESTAMPTZ DEFAULT NOW()
+    )""",
+    "CREATE INDEX IF NOT EXISTS idx_emails_direction ON emails(direction, created_at DESC)",
+    "CREATE INDEX IF NOT EXISTS idx_emails_thread ON emails(thread_id, created_at)",
+    "CREATE INDEX IF NOT EXISTS idx_emails_lead ON emails(lead_id)",
+    "CREATE INDEX IF NOT EXISTS idx_emails_from ON emails(from_email)",
+    "CREATE INDEX IF NOT EXISTS idx_emails_to ON emails(to_email)",
+    "CREATE INDEX IF NOT EXISTS idx_emails_message_id ON emails(message_id_header)",
+
+    # Add lead_id to messages table for customer linking
+    "ALTER TABLE messages ADD COLUMN IF NOT EXISTS lead_id UUID",
 ]
 
 

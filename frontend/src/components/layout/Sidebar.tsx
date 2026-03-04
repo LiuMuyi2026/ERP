@@ -731,6 +731,7 @@ export default function Sidebar({ tenant, userName, userRole, avatarUrl, collaps
   const appItems = [
     { key: 'customers',  label: tNav('customerCenter'),  path: 'crm/customers', icon: 'building',      bg: '#e0e7ff', color: '#4338ca' },
     { key: 'crm',        label: tNav('customerMgmt'),   path: 'crm',           icon: 'people-group',  bg: '#dbeafe', color: '#1e40af' },
+    { key: 'messages',   label: tNav('messagesCenter'),  path: 'messages',      icon: 'chat-bubble',   bg: '#fce7f3', color: '#be185d' },
     { key: 'inventory',  label: tNav('supplyChain'),     path: 'inventory',     icon: 'factory',       bg: '#ffedd5', color: '#c2410c' },
     { key: 'accounting', label: tNav('financeMgmt'),     path: 'accounting',    icon: 'money-bag',     bg: '#dcfce7', color: '#166534' },
     { key: 'hr',         label: tNav('peopleMgmt'),      path: 'hr',            icon: 'person',        bg: '#ede9fe', color: '#5b21b6' },
