@@ -53,6 +53,7 @@ interface WhatsAppChatPanelProps {
     display_name?: string;
   };
   onBack?: () => void;
+  onConversationInvalid?: (contactId?: string, reason?: string) => void;
 }
 
 function formatTime(iso: string) {
@@ -141,7 +142,7 @@ type EnrichedProfile = Record<string, any>;
 export default function WhatsAppChatPanel({
   contactId, leadId, contactName, profilePicUrl, isGroup, disappearingDuration,
   isBlocked: initialIsBlocked, isArchived: initialIsArchived, conversation,
-  onBack,
+  onBack, onConversationInvalid,
 }: WhatsAppChatPanelProps) {
   const locale = useLocale();
   const isZhHans = locale.toLowerCase().startsWith('zh-cn') || locale.toLowerCase() === 'zh';
@@ -393,6 +394,7 @@ export default function WhatsAppChatPanel({
   // Typing indicator
   const typingTimer = useRef<NodeJS.Timeout | null>(null);
   const typingSupportedRef = useRef(true);
+  const invalidNotifiedRef = useRef(false);
   const lastReadAtRef = useRef(0);
 
   // Resolved contactId (when opened via leadId, resolve from messages)
@@ -486,8 +488,15 @@ export default function WhatsAppChatPanel({
 
   const effectiveContactId = contactId || resolvedContactId;
 
+  const notifyConversationInvalid = useCallback((reason: string) => {
+    if (invalidNotifiedRef.current) return;
+    invalidNotifiedRef.current = true;
+    onConversationInvalid?.(effectiveContactId, reason);
+  }, [onConversationInvalid, effectiveContactId]);
+
   useEffect(() => {
     typingSupportedRef.current = true;
+    invalidNotifiedRef.current = false;
   }, [effectiveContactId]);
   const params = useParams();
   const tenantSlug = params?.tenant as string || '';
@@ -586,6 +595,9 @@ export default function WhatsAppChatPanel({
       }
     } catch (err: any) {
       console.error('[WhatsAppChat] loadMessages failed:', err?.message || err);
+      if (err instanceof ApiError && err.status === 404) {
+        notifyConversationInvalid('messages_404');
+      }
       if (!olderPage) {
         setMessages([]);
         setLoadError(err?.message || '无法加载消息');
@@ -605,7 +617,10 @@ export default function WhatsAppChatPanel({
     lastReadAtRef.current = now;
     try {
       await api.post(`/api/whatsapp/conversations/${effectiveContactId}/read`, {});
-    } catch {
+    } catch (e: any) {
+      if (e instanceof ApiError && e.status === 404) {
+        notifyConversationInvalid('read_404');
+      }
       // Some backends return 400 for transient/merged conversation ids.
       // Swallow to keep chat panel stable.
     }
@@ -661,8 +676,14 @@ export default function WhatsAppChatPanel({
   // ── Presence: initial fetch (WS is primary for updates) ──
   useEffect(() => {
     if (!effectiveContactId) return;
-    api.get(`/api/whatsapp/conversations/${effectiveContactId}/presence`).then(setPresence).catch(() => {});
-  }, [effectiveContactId]);
+    api.get(`/api/whatsapp/conversations/${effectiveContactId}/presence`)
+      .then(setPresence)
+      .catch((e: any) => {
+        if (e instanceof ApiError && e.status === 404) {
+          notifyConversationInvalid('presence_404');
+        }
+      });
+  }, [effectiveContactId, notifyConversationInvalid]);
 
   // ── WebSocket event handlers ──
   useEffect(() => {
@@ -728,9 +749,10 @@ export default function WhatsAppChatPanel({
     api.post(`/api/whatsapp/conversations/${effectiveContactId}/typing`, { type }).catch((e: any) => {
       if (e instanceof ApiError && e.status === 404) {
         typingSupportedRef.current = false;
+        notifyConversationInvalid('typing_404');
       }
     });
-  }, [effectiveContactId]);
+  }, [effectiveContactId, notifyConversationInvalid]);
 
   const translateWithAi = useCallback(async (
     text: string,
@@ -878,6 +900,7 @@ export default function WhatsAppChatPanel({
     } catch (e: any) {
       console.error('sendMessage:', e);
       if (e instanceof ApiError && e.status === 404) {
+        notifyConversationInvalid('send_404');
         toast.error('Conversation not found. Please refresh the chat list.');
       } else {
         toast.error('Failed to send message');

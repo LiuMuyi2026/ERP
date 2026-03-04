@@ -983,7 +983,7 @@ export default function Sidebar({ tenant, userName, userRole, avatarUrl, collaps
 
       {/* ── Top Nav ── */}
       <div className="px-2 mt-1 mb-2 space-y-0.5">
-        <SidebarNavItem icon={<Icons.Search />} label={tNav('search')} onClick={() => setSearchOpen(true)} shortcut="⌘K" />
+        <SidebarNavItem icon={<Icons.Search />} label={tNav('search')} onClick={() => (onOpenCommandPalette ? onOpenCommandPalette() : setSearchOpen(true))} shortcut="⌘K" />
         <div
           className="flex items-center gap-2.5 px-3 rounded-lg cursor-pointer transition-all"
           style={{

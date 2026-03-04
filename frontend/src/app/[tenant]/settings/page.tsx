@@ -2893,7 +2893,7 @@ function BroadcastManager() {
                   color: bc.status === 'completed' ? '#15803d' : bc.status === 'sending' ? '#a16207' : '#6b7280',
                 }}>{bc.status}</span>
               <p className="text-xs mt-0.5" style={{ color: 'var(--notion-text-muted)' }}>
-                Sent: {bc.sent_count || 0} | Failed: {bc.failed_count || 0} | Recipients: {JSON.parse(bc.target_contacts || '[]').length}
+                Sent: {bc.sent_count || 0} | Failed: {bc.failed_count || 0} | Recipients: {safeJsonArrayLength(bc.target_contacts)}
               </p>
             </div>
             {bc.status === 'draft' && (
@@ -2977,6 +2977,19 @@ function SettingsCard({ children, style }: { children: React.ReactNode; style?: 
 
 function SettingsDivider() {
   return <div className="h-px my-3" style={{ background: 'var(--notion-border)' }} />;
+}
+
+function safeJsonArrayLength(raw: unknown): number {
+  if (Array.isArray(raw)) return raw.length;
+  if (typeof raw !== 'string') return 0;
+  const s = raw.trim();
+  if (!s) return 0;
+  try {
+    const parsed = JSON.parse(s);
+    return Array.isArray(parsed) ? parsed.length : 0;
+  } catch {
+    return 0;
+  }
 }
 
 function SettingsRow({ label, value }: { label: string; value: React.ReactNode }) {

@@ -627,6 +627,7 @@ export default function WhatsAppInbox() {
   const unreadSyncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const typingTimersRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
   const [typingByKey, setTypingByKey] = useState<Record<string, boolean>>({});
+  const recoveringInvalidRef = useRef(false);
 
   useEffect(() => {
     if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return;
@@ -878,6 +879,48 @@ export default function WhatsAppInbox() {
         .catch(() => loadData());
     }
   }
+
+  const handleConversationInvalid = useCallback(async (invalidContactId?: string, reason?: string) => {
+    if (!selectedContact || recoveringInvalidRef.current) return;
+    // Ignore stale callback from an old chat panel instance.
+    if (invalidContactId && invalidContactId !== selectedContact.id) return;
+    recoveringInvalidRef.current = true;
+    try {
+      const previous = selectedContact;
+      const params = new URLSearchParams();
+      if (filterAccount) params.set('account_id', filterAccount);
+      if (filterGroup) params.set('is_group', filterGroup);
+      if (filterLabel) params.set('label_id', filterLabel);
+      if (filterLeadStatus) params.set('lead_status', filterLeadStatus);
+      if (filterAssigned) params.set('assigned_to', filterAssigned);
+      params.set('sort_by', 'last_message');
+      const qs = params.toString();
+      const convs = await api.get(`/api/whatsapp/dashboard${qs ? `?${qs}` : ''}`).catch(() => []);
+      const nextConversations = Array.isArray(convs) ? convs : [];
+      setConversations(nextConversations);
+
+      const byId = nextConversations.find((c) => c.id === previous.id);
+      const byMerge = previous.merge_key
+        ? nextConversations.find((c) => c.merge_key && c.merge_key === previous.merge_key)
+        : null;
+      const byPhone = previous.phone_number
+        ? nextConversations.find((c) => c.phone_number && c.phone_number === previous.phone_number)
+        : null;
+      const recovered = byId || byMerge || byPhone || null;
+
+      if (recovered) {
+        setSelectedContact(recovered);
+        if (reason === 'send_404') {
+          toast('Conversation refreshed to latest session.');
+        }
+      } else {
+        setSelectedContact(null);
+        toast.error('Conversation expired. Please re-open from the list.');
+      }
+    } finally {
+      recoveringInvalidRef.current = false;
+    }
+  }, [selectedContact, filterAccount, filterGroup, filterLabel, filterLeadStatus, filterAssigned]);
 
   // Client-side search filtering
   const filtered = search
@@ -1268,6 +1311,7 @@ export default function WhatsAppInbox() {
               isGroup={selectedContact.is_group}
               disappearingDuration={selectedContact.disappearing_duration}
               onBack={isMobile ? () => setSelectedContact(null) : undefined}
+              onConversationInvalid={handleConversationInvalid}
               conversation={{
                 phone_number: selectedContact.phone_number,
                 crm_account_name: selectedContact.crm_account_name,

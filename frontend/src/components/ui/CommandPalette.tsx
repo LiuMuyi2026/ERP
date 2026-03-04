@@ -1,8 +1,9 @@
 'use client';
 
-import { useEffect, useState, useRef, useCallback } from 'react';
+import { useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { HandIcon } from '@/components/ui/HandIcon';
+import { api } from '@/lib/api';
 
 interface CommandItem {
   id: string;
@@ -10,6 +11,7 @@ interface CommandItem {
   description?: string;
   icon?: string;
   group: string;
+  keywords?: string[];
   action: () => void;
 }
 
@@ -23,34 +25,113 @@ export default function CommandPalette({ open, onClose, tenant }: CommandPalette
   const router = useRouter();
   const [query, setQuery] = useState('');
   const [activeIdx, setActiveIdx] = useState(0);
+  const [remoteItems, setRemoteItems] = useState<CommandItem[]>([]);
+  const [remoteLoading, setRemoteLoading] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
 
-  const allItems: CommandItem[] = [
-    // Navigation
-    { id: 'nav-workspace', label: 'Workspace', description: 'Go to Workspace', icon: 'document', group: 'Navigate', action: () => { router.push(`/${tenant}/workspace`); onClose(); } },
-    { id: 'nav-crm', label: 'CRM', description: 'Go to CRM', icon: 'people-group', group: 'Navigate', action: () => { router.push(`/${tenant}/crm`); onClose(); } },
-    { id: 'nav-hr', label: 'HR & People', description: 'Go to HR', icon: 'building', group: 'Navigate', action: () => { router.push(`/${tenant}/hr`); onClose(); } },
-    { id: 'nav-accounting', label: 'Accounting', description: 'Go to Accounting', icon: 'credit-card', group: 'Navigate', action: () => { router.push(`/${tenant}/accounting`); onClose(); } },
-    { id: 'nav-inventory', label: 'Inventory', description: 'Go to Inventory', icon: 'package', group: 'Navigate', action: () => { router.push(`/${tenant}/inventory`); onClose(); } },
-    { id: 'nav-integrations', label: 'Integrations', description: 'Go to Integrations', icon: 'link', group: 'Navigate', action: () => { router.push(`/${tenant}/settings/integrations`); onClose(); } },
-  ];
+  const navigate = useCallback((href: string) => {
+    router.push(href);
+    onClose();
+  }, [onClose, router]);
 
-  const filtered = query.trim()
-    ? allItems.filter(item =>
-        item.label.toLowerCase().includes(query.toLowerCase()) ||
-        item.description?.toLowerCase().includes(query.toLowerCase()) ||
-        item.group.toLowerCase().includes(query.toLowerCase())
-      )
-    : allItems;
+  const baseItems: CommandItem[] = useMemo(() => ([
+    { id: 'page-workspace', label: 'Workspace', description: 'Pages, docs, templates', icon: 'document', group: 'Pages', keywords: ['docs', 'knowledge'], action: () => navigate(`/${tenant}/workspace`) },
+    { id: 'page-crm', label: 'CRM', description: 'Leads, pipeline, contracts', icon: 'people-group', group: 'Pages', keywords: ['leads', 'customers', 'contracts'], action: () => navigate(`/${tenant}/crm`) },
+    { id: 'page-customers', label: 'Customer Center', description: 'Customer list and 360 view', icon: 'building', group: 'Pages', keywords: ['customer', 'account'], action: () => navigate(`/${tenant}/crm/customers`) },
+    { id: 'page-messages', label: 'Messages', description: 'WhatsApp, email, internal messages', icon: 'chat-bubble', group: 'Pages', keywords: ['whatsapp', 'email', 'inbox'], action: () => navigate(`/${tenant}/messages`) },
+    { id: 'page-orders', label: 'Orders', description: 'Purchase and sales orders', icon: 'receipt', group: 'Pages', keywords: ['purchase', 'sales'], action: () => navigate(`/${tenant}/orders`) },
+    { id: 'page-inventory', label: 'Inventory', description: 'Products, stock, suppliers', icon: 'factory', group: 'Pages', keywords: ['stock', 'supplier', 'warehouse'], action: () => navigate(`/${tenant}/inventory`) },
+    { id: 'page-accounting', label: 'Accounting', description: 'Financials, invoices, balances', icon: 'money-bag', group: 'Pages', keywords: ['finance', 'invoice'], action: () => navigate(`/${tenant}/accounting`) },
+    { id: 'page-hr', label: 'HR & People', description: 'Employees and leave management', icon: 'person', group: 'Pages', keywords: ['employee', 'leave'], action: () => navigate(`/${tenant}/hr`) },
+    { id: 'page-operations', label: 'Operations', description: 'Operational workflows', icon: 'box', group: 'Pages', keywords: ['operations'], action: () => navigate(`/${tenant}/operations`) },
+    { id: 'sys-settings', label: 'Settings', description: 'Tenant settings and preferences', icon: 'settings', group: 'System', keywords: ['profile', 'preferences'], action: () => navigate(`/${tenant}/settings`) },
+    { id: 'sys-integrations', label: 'Integrations', description: 'Connected apps and automations', icon: 'link', group: 'System', keywords: ['app', 'n8n', 'automation'], action: () => navigate(`/${tenant}/settings/integrations`) },
+    { id: 'sys-notifications', label: 'Notifications', description: 'Alerts and reminders', icon: 'bell', group: 'System', keywords: ['alerts'], action: () => navigate(`/${tenant}/notifications`) },
+    { id: 'sys-admin', label: 'Admin', description: 'Permissions and system administration', icon: 'shield', group: 'System', keywords: ['roles', 'permission', 'users'], action: () => navigate(`/${tenant}/admin`) },
+  ]), [navigate, tenant]);
 
-  const groups = Array.from(new Set(filtered.map(i => i.group)));
+  useEffect(() => {
+    if (!open) return;
+    const q = query.trim();
+    if (q.length < 2) {
+      setRemoteItems([]);
+      setRemoteLoading(false);
+      return;
+    }
+    const timer = setTimeout(async () => {
+      setRemoteLoading(true);
+      try {
+        const [workspaceRes, integrationRes] = await Promise.allSettled([
+          api.get(`/api/workspace/search?q=${encodeURIComponent(q)}`),
+          api.get(`/api/integrations/directory/apps?q=${encodeURIComponent(q)}`),
+        ]);
 
-  const flatItems = groups.flatMap(g => filtered.filter(i => i.group === g));
+        const items: CommandItem[] = [];
+        if (workspaceRes.status === 'fulfilled' && Array.isArray(workspaceRes.value)) {
+          for (const row of workspaceRes.value.slice(0, 20)) {
+            items.push({
+              id: `workspace-page-${row.id}`,
+              label: row.title || 'Untitled',
+              description: row.workspace_name ? `Workspace: ${row.workspace_name}` : 'Workspace page',
+              icon: 'document',
+              group: 'Workspace Pages',
+              keywords: ['workspace', 'page'],
+              action: () => navigate(`/${tenant}/workspace/${row.id}`),
+            });
+          }
+        }
+        if (integrationRes.status === 'fulfilled' && Array.isArray(integrationRes.value)) {
+          for (const app of integrationRes.value.slice(0, 12)) {
+            const desc = [app.source, app.category, app.description].filter(Boolean).join(' · ');
+            items.push({
+              id: `integration-app-${app.app_key || app.id}`,
+              label: app.name || app.app_key || 'Integration App',
+              description: desc || 'Integration app',
+              icon: 'link',
+              group: 'System Info',
+              keywords: ['integration', 'app', String(app.app_key || '')],
+              action: () => navigate(`/${tenant}/settings/integrations`),
+            });
+          }
+        }
+        setRemoteItems(items);
+      } catch {
+        setRemoteItems([]);
+      } finally {
+        setRemoteLoading(false);
+      }
+    }, 260);
+    return () => clearTimeout(timer);
+  }, [open, query, navigate, tenant]);
+
+  const normalizedQuery = query.trim().toLowerCase();
+  const filteredLocal = normalizedQuery
+    ? baseItems.filter(item =>
+      item.label.toLowerCase().includes(normalizedQuery) ||
+      item.description?.toLowerCase().includes(normalizedQuery) ||
+      item.group.toLowerCase().includes(normalizedQuery) ||
+      item.keywords?.some((kw) => kw.toLowerCase().includes(normalizedQuery))
+    )
+    : baseItems;
+
+  const filtered = [...filteredLocal, ...remoteItems];
+  const seen = new Set<string>();
+  const deduped = filtered.filter((item) => {
+    if (seen.has(item.id)) return false;
+    seen.add(item.id);
+    return true;
+  });
+
+  const groups = Array.from(new Set(deduped.map(i => i.group)));
+
+  const flatItems = groups.flatMap(g => deduped.filter(i => i.group === g));
 
   useEffect(() => {
     if (open) {
       setQuery('');
+      setRemoteItems([]);
+      setRemoteLoading(false);
       setActiveIdx(0);
       setTimeout(() => inputRef.current?.focus(), 10);
     }
@@ -63,6 +144,7 @@ export default function CommandPalette({ open, onClose, tenant }: CommandPalette
   const handleKey = useCallback((e: KeyboardEvent) => {
     if (!open) return;
     if (e.key === 'Escape') { onClose(); return; }
+    if (flatItems.length === 0) return;
     if (e.key === 'ArrowDown') {
       e.preventDefault();
       setActiveIdx(i => Math.min(i + 1, flatItems.length - 1));
@@ -88,6 +170,13 @@ export default function CommandPalette({ open, onClose, tenant }: CommandPalette
     el?.scrollIntoView({ block: 'nearest' });
   }, [activeIdx]);
 
+  useEffect(() => {
+    setActiveIdx((idx) => {
+      if (flatItems.length === 0) return 0;
+      return Math.min(idx, flatItems.length - 1);
+    });
+  }, [flatItems.length]);
+
   if (!open) return null;
 
   return (
@@ -97,7 +186,7 @@ export default function CommandPalette({ open, onClose, tenant }: CommandPalette
       onClick={e => { if (e.target === e.currentTarget) onClose(); }}
     >
       <div
-        className="w-[480px] max-h-[60vh] flex flex-col rounded-xl shadow-2xl border overflow-hidden"
+        className="w-[92vw] max-w-[640px] max-h-[70vh] flex flex-col rounded-xl shadow-2xl border overflow-hidden"
         style={{ background: 'var(--notion-card-elevated, var(--notion-card, white))', borderColor: 'var(--notion-border)' }}
       >
         {/* Search input */}
@@ -122,13 +211,23 @@ export default function CommandPalette({ open, onClose, tenant }: CommandPalette
 
         {/* Results */}
         <div ref={listRef} className="flex-1 overflow-y-auto py-1.5">
+          {remoteLoading && (
+            <div className="px-4 py-2 text-xs" style={{ color: 'var(--notion-text-muted)' }}>
+              Searching...
+            </div>
+          )}
+          {!remoteLoading && query.trim().length > 0 && query.trim().length < 2 && (
+            <div className="px-4 py-2 text-xs" style={{ color: 'var(--notion-text-muted)' }}>
+              Type at least 2 characters to search workspace pages and system data.
+            </div>
+          )}
           {flatItems.length === 0 && (
             <div className="text-center py-10 text-sm" style={{ color: 'var(--notion-text-muted)' }}>
               No results for &ldquo;{query}&rdquo;
             </div>
           )}
           {groups.map(group => {
-            const items = filtered.filter(i => i.group === group);
+            const items = deduped.filter(i => i.group === group);
             const startIdx = flatItems.findIndex(i => i.group === group);
             return (
               <div key={group}>

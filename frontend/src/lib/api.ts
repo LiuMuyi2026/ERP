@@ -5,6 +5,17 @@ const UPLOAD_TIMEOUT = 60_000;    // 60s for uploads
 const STREAM_TIMEOUT = 120_000;   // 120s for streaming
 const MAX_RETRIES = 2;            // retry up to 2 times (GET only)
 
+export class ApiError extends Error {
+  status?: number;
+  detail?: string;
+  constructor(message: string, status?: number, detail?: string) {
+    super(message);
+    this.name = 'ApiError';
+    this.status = status;
+    this.detail = detail;
+  }
+}
+
 export function getApiUrl(): string {
   return API_URL;
 }
@@ -88,15 +99,15 @@ export async function apiRequest<T = any>(
       if (response.status === 401 && typeof window !== 'undefined') {
         localStorage.removeItem('nexus_token');
         window.location.href = '/login';
-        throw new Error('Session expired');
+        throw new ApiError('Session expired', 401, 'Session expired');
       }
       // Retry on transient server errors for safe methods
       if (isRetryable(method, response.status) && attempt < maxAttempts - 1) {
-        lastError = new Error(`HTTP ${response.status}`);
+        lastError = new ApiError(`HTTP ${response.status}`, response.status);
         continue;
       }
       const error = await response.json().catch(() => ({ detail: 'Unknown error' }));
-      throw new Error(error.detail || `HTTP ${response.status}`);
+      throw new ApiError(error.detail || `HTTP ${response.status}`, response.status, error.detail);
     }
     return response.json();
   }
