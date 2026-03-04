@@ -836,7 +836,7 @@ export default function PageView() {
             {isVoiceMemo && voiceState === 'paused' && (
               <span className="text-xs px-2 py-1 rounded-md"
                 style={{ color: '#b45309', background: 'rgba(245,158,11,0.07)', border: '1px solid rgba(245,158,11,0.2)' }}>
-                ⏸ 已暂停
+                {isZh ? '⏸ 已暂停' : '⏸ Paused'}
               </span>
             )}
 

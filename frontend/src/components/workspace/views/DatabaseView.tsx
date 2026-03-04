@@ -22,6 +22,14 @@ const VIEW_MODES_EN: { id: ViewMode; label: string; icon: string }[] = [
   { id: 'list',     label: 'List', icon: '☰' },
 ];
 
+const VIEW_MODES_ZH: { id: ViewMode; label: string; icon: string }[] = [
+  { id: 'table',    label: '表格', icon: '⊞' },
+  { id: 'kanban',   label: '看板', icon: '⋮⋮' },
+  { id: 'calendar', label: '日历', icon: 'alarm-clock' },
+  { id: 'gallery',  label: '画廊', icon: '⊟' },
+  { id: 'list',     label: '列表', icon: '☰' },
+];
+
 const COLUMN_TYPES_EN: { type: ColumnType; label: string; icon: string }[] = [
   { type: 'title',        label: 'Title', icon: '𝐀' },
   { type: 'text',         label: 'Text', icon: '¶' },
@@ -33,6 +41,19 @@ const COLUMN_TYPES_EN: { type: ColumnType; label: string; icon: string }[] = [
   { type: 'checkbox',     label: 'Checkbox', icon: '☑' },
   { type: 'url',          label: 'URL', icon: 'link' },
   { type: 'email',        label: 'Email', icon: 'envelope' },
+];
+
+const COLUMN_TYPES_ZH: { type: ColumnType; label: string; icon: string }[] = [
+  { type: 'title',        label: '标题', icon: '𝐀' },
+  { type: 'text',         label: '文本', icon: '¶' },
+  { type: 'number',       label: '数字', icon: '#' },
+  { type: 'select',       label: '单选', icon: '◉' },
+  { type: 'multi_select', label: '多选', icon: '⊕' },
+  { type: 'status',       label: '状态', icon: 'lightning' },
+  { type: 'date',         label: '日期', icon: 'alarm-clock' },
+  { type: 'checkbox',     label: '复选框', icon: '☑' },
+  { type: 'url',          label: '链接', icon: 'link' },
+  { type: 'email',        label: '邮箱', icon: 'envelope' },
 ];
 
 // ── Default schema builder ────────────────────────────────────────────────────
@@ -61,18 +82,7 @@ function AddColumnModal({ onAdd, onClose }: {
   onClose: () => void;
 }) {
   const isZh = String(useLocale() || '').toLowerCase().startsWith('zh');
-  const columnTypes = isZh ? [
-    { type: 'title', label: '标题', icon: '𝐀' },
-    { type: 'text', label: '文本', icon: '¶' },
-    { type: 'number', label: '数字', icon: '#' },
-    { type: 'select', label: '单选', icon: '◉' },
-    { type: 'multi_select', label: '多选', icon: '⊕' },
-    { type: 'status', label: '状态', icon: 'lightning' },
-    { type: 'date', label: '日期', icon: 'alarm-clock' },
-    { type: 'checkbox', label: '复选框', icon: '☑' },
-    { type: 'url', label: '链接', icon: 'link' },
-    { type: 'email', label: '邮箱', icon: 'envelope' },
-  ] as { type: ColumnType; label: string; icon: string }[] : COLUMN_TYPES_EN;
+  const columnTypes = isZh ? COLUMN_TYPES_ZH : COLUMN_TYPES_EN;
   const [name, setName] = useState('');
   const [type, setType] = useState<ColumnType>('text');
 
@@ -141,18 +151,7 @@ function SchemaPanel({ schema, onSchemaChange, onClose }: {
   onClose: () => void;
 }) {
   const isZh = String(useLocale() || '').toLowerCase().startsWith('zh');
-  const columnTypes = isZh ? [
-    { type: 'title', label: '标题', icon: '𝐀' },
-    { type: 'text', label: '文本', icon: '¶' },
-    { type: 'number', label: '数字', icon: '#' },
-    { type: 'select', label: '单选', icon: '◉' },
-    { type: 'multi_select', label: '多选', icon: '⊕' },
-    { type: 'status', label: '状态', icon: 'lightning' },
-    { type: 'date', label: '日期', icon: 'alarm-clock' },
-    { type: 'checkbox', label: '复选框', icon: '☑' },
-    { type: 'url', label: '链接', icon: 'link' },
-    { type: 'email', label: '邮箱', icon: 'envelope' },
-  ] as { type: ColumnType; label: string; icon: string }[] : COLUMN_TYPES_EN;
+  const columnTypes = isZh ? COLUMN_TYPES_ZH : COLUMN_TYPES_EN;
   const selectCols = schema.columns.filter(c => c.type === 'select' || c.type === 'status' || c.type === 'multi_select');
   const dateCols = schema.columns.filter(c => c.type === 'date');
 
@@ -230,13 +229,7 @@ interface DatabaseViewProps {
 
 export default function DatabaseView({ initialData, onChange }: DatabaseViewProps) {
   const isZh = String(useLocale() || '').toLowerCase().startsWith('zh');
-  const viewModes = isZh ? [
-    { id: 'table', label: '表格', icon: '⊞' },
-    { id: 'kanban', label: '看板', icon: '⋮⋮' },
-    { id: 'calendar', label: '日历', icon: 'alarm-clock' },
-    { id: 'gallery', label: '画廊', icon: '⊟' },
-    { id: 'list', label: '列表', icon: '☰' },
-  ] as { id: ViewMode; label: string; icon: string }[] : VIEW_MODES_EN;
+  const viewModes = isZh ? VIEW_MODES_ZH : VIEW_MODES_EN;
   const defaultSchema = buildDefaultSchema(isZh);
   const [schema, setSchema] = useState<DBSchema>(initialData?.schema ?? defaultSchema);
   const [rows, setRows] = useState<DBRow[]>(initialData?.rows ?? []);
