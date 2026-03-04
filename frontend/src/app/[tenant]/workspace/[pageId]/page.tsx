@@ -24,18 +24,18 @@ const SharePanel = dynamic(() => import('@/components/workspace/SharePanel'), { 
 // ── Constants ────────────────────────────────────────────────────────────────
 
 const COVER_GRADIENTS = [
-  { label: 'Ocean', value: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)' },
-  { label: 'Sunset', value: 'linear-gradient(135deg, #f093fb 0%, #f5576c 100%)' },
-  { label: 'Sky', value: 'linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)' },
-  { label: 'Forest', value: 'linear-gradient(135deg, #43e97b 0%, #38f9d7 100%)' },
-  { label: 'Fire', value: 'linear-gradient(135deg, #fa709a 0%, #fee140 100%)' },
-  { label: 'Lavender', value: 'linear-gradient(135deg, #a18cd1 0%, #fbc2eb 100%)' },
-  { label: 'Peach', value: 'linear-gradient(135deg, #ffecd2 0%, #fcb69f 100%)' },
-  { label: 'Night', value: 'linear-gradient(135deg, #0f0c29 0%, #302b63 50%, #24243e 100%)' },
-  { label: 'Gold', value: 'linear-gradient(135deg, #f6d365 0%, #fda085 100%)' },
-  { label: 'Mint', value: 'linear-gradient(135deg, #84fab0 0%, #8fd3f4 100%)' },
-  { label: 'Rose', value: 'linear-gradient(135deg, #fbc2eb 0%, #a6c1ee 100%)' },
-  { label: 'Emerald', value: 'linear-gradient(135deg, #43e97b 0%, #38f9d7 100%)' },
+  { label: 'Mist', value: 'linear-gradient(135deg, #d8dee9 0%, #b7c0cf 100%)' },
+  { label: 'Sand', value: 'linear-gradient(135deg, #ece2d7 0%, #d3c5b4 100%)' },
+  { label: 'Paper Sky', value: 'linear-gradient(135deg, #dbe3ec 0%, #c3cedb 100%)' },
+  { label: 'Moss', value: 'linear-gradient(135deg, #d7e1d8 0%, #b9c8b9 100%)' },
+  { label: 'Clay', value: 'linear-gradient(135deg, #e6d7d1 0%, #d3b8ae 100%)' },
+  { label: 'Ink', value: 'linear-gradient(135deg, #d2d8e1 0%, #b6bfd0 100%)' },
+  { label: 'Washi', value: 'linear-gradient(135deg, #f1ece4 0%, #ddd3c6 100%)' },
+  { label: 'Night', value: 'linear-gradient(135deg, #3f4655 0%, #586176 100%)' },
+  { label: 'Wheat', value: 'linear-gradient(135deg, #e8dcc8 0%, #d3c1a3 100%)' },
+  { label: 'Rain', value: 'linear-gradient(135deg, #d8e0e6 0%, #c0ccd8 100%)' },
+  { label: 'Blush', value: 'linear-gradient(135deg, #eadfe1 0%, #d4c5ca 100%)' },
+  { label: 'Fern', value: 'linear-gradient(135deg, #dbe3d7 0%, #c2ceb8 100%)' },
 ];
 
 const COVER_ICONS_LOCAL = COVER_ICON_LIST;
@@ -762,7 +762,7 @@ export default function PageView() {
     return (
       <div className="flex items-center justify-center h-full">
         <div className="flex flex-col items-center gap-3">
-          <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-violet-400 to-purple-600 flex items-center justify-center text-white font-bold text-sm animate-pulse">AI</div>
+          <div className="w-8 h-8 rounded-xl flex items-center justify-center text-white font-bold text-sm animate-pulse" style={{ background: 'linear-gradient(135deg, #8a96b2 0%, #6f7f9f 100%)' }}>AI</div>
           <span className="text-sm" style={{ color: 'var(--notion-text-muted)' }}>{tCommon('loading')}</span>
         </div>
       </div>
@@ -772,7 +772,7 @@ export default function PageView() {
     return (
       <div className="flex items-center justify-center h-full">
         <div className="flex flex-col items-center gap-3 text-center">
-          <p className="text-sm" style={{ color: '#e55' }}>{loadError || tWorkspace('pageNotFound')}</p>
+          <p className="text-sm" style={{ color: 'var(--sb-danger)' }}>{loadError || tWorkspace('pageNotFound')}</p>
           <button onClick={() => router.back()}
             className="px-4 py-2 rounded-md text-sm font-medium border"
             style={{ borderColor: 'var(--notion-border)', color: 'var(--notion-text)' }}>
@@ -789,6 +789,9 @@ export default function PageView() {
 
   const formatVoiceTime = (s: number) =>
     `${Math.floor(s / 60).toString().padStart(2, '0')}:${(s % 60).toString().padStart(2, '0')}`;
+  const mentionQuickPrompts = isZh
+    ? ['总结这个页面', '帮我写一段介绍', '列出行动项', '续写内容', '改进这段文字']
+    : ['Summarize this page', 'Write an introduction', 'List action items', 'Continue this draft', 'Improve this text'];
 
   return (
     <div className="flex h-full overflow-hidden" style={{ background: 'var(--notion-bg)' }}>
@@ -828,14 +831,14 @@ export default function PageView() {
             {/* ── Voice Memo status indicator (read-only in toolbar) ─── */}
             {isVoiceMemo && voiceState === 'recording' && (
               <span className="flex items-center gap-1.5 text-xs px-2 py-1 rounded-md font-mono"
-                style={{ background: 'rgba(220,38,38,0.07)', color: '#dc2626', border: '1px solid rgba(220,38,38,0.18)' }}>
-                <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#dc2626', display: 'inline-block' }} />
+                style={{ background: 'var(--sb-danger-subtle)', color: 'var(--sb-danger)', border: '1px solid rgba(181,112,112,0.28)' }}>
+                <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--sb-danger)', display: 'inline-block' }} />
                 {formatVoiceTime(voiceElapsed)}
               </span>
             )}
             {isVoiceMemo && voiceState === 'paused' && (
               <span className="text-xs px-2 py-1 rounded-md"
-                style={{ color: '#b45309', background: 'rgba(245,158,11,0.07)', border: '1px solid rgba(245,158,11,0.2)' }}>
+                style={{ color: 'rgb(var(--nexus-warning))', background: 'rgba(174,147,99,0.12)', border: '1px solid rgba(174,147,99,0.25)' }}>
                 {isZh ? '⏸ 已暂停' : '⏸ Paused'}
               </span>
             )}
@@ -845,11 +848,11 @@ export default function PageView() {
               onClick={() => setShowShare(v => !v)}
               className="flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-md transition-all"
               style={{
-                background: showShare ? '#ede9fe' : 'transparent',
-                color: showShare ? '#7c3aed' : 'var(--notion-text-muted)',
-                border: showShare ? '1px solid #d8b4fe' : '1px solid transparent',
+                background: showShare ? 'var(--sb-accent-subtle)' : 'transparent',
+                color: showShare ? 'var(--sb-accent)' : 'var(--notion-text-muted)',
+                border: showShare ? '1px solid var(--notion-border)' : '1px solid transparent',
               }}
-              onMouseEnter={e => { if (!showShare) { e.currentTarget.style.background = '#ede9fe'; e.currentTarget.style.color = '#7c3aed'; } }}
+              onMouseEnter={e => { if (!showShare) { e.currentTarget.style.background = 'var(--sb-accent-subtle)'; e.currentTarget.style.color = 'var(--sb-accent)'; } }}
               onMouseLeave={e => { if (!showShare) { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--notion-text-muted)'; } }}
               title={tWorkspace('share')}
             >
@@ -865,11 +868,11 @@ export default function PageView() {
               onClick={() => setShowAiPanel(v => !v)}
               className="flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-md font-medium transition-all"
               style={{
-                background: showAiPanel ? '#ede9fe' : 'transparent',
-                color: showAiPanel ? '#7c3aed' : 'var(--notion-text-muted)',
-                border: showAiPanel ? '1px solid #d8b4fe' : '1px solid transparent',
+                background: showAiPanel ? 'var(--sb-accent-subtle)' : 'transparent',
+                color: showAiPanel ? 'var(--sb-accent)' : 'var(--notion-text-muted)',
+                border: showAiPanel ? '1px solid var(--notion-border)' : '1px solid transparent',
               }}
-              onMouseEnter={e => { if (!showAiPanel) { e.currentTarget.style.background = '#ede9fe'; e.currentTarget.style.color = '#7c3aed'; } }}
+              onMouseEnter={e => { if (!showAiPanel) { e.currentTarget.style.background = 'var(--sb-accent-subtle)'; e.currentTarget.style.color = 'var(--sb-accent)'; } }}
               onMouseLeave={e => { if (!showAiPanel) { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--notion-text-muted)'; } }}
               title={tWorkspace('notionAI')}
             >
@@ -884,11 +887,11 @@ export default function PageView() {
               onClick={openMentionDialog}
               className="flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-md font-medium transition-all"
               style={{
-                background: showMentionDialog ? '#fef3c7' : 'transparent',
-                color: showMentionDialog ? '#b45309' : 'var(--notion-text-muted)',
-                border: showMentionDialog ? '1px solid #fde68a' : '1px solid transparent',
+                background: showMentionDialog ? 'rgba(174,147,99,0.14)' : 'transparent',
+                color: showMentionDialog ? 'rgb(var(--nexus-warning))' : 'var(--notion-text-muted)',
+                border: showMentionDialog ? '1px solid rgba(174,147,99,0.32)' : '1px solid transparent',
               }}
-              onMouseEnter={e => { if (!showMentionDialog) { e.currentTarget.style.background = '#fef3c7'; e.currentTarget.style.color = '#b45309'; } }}
+              onMouseEnter={e => { if (!showMentionDialog) { e.currentTarget.style.background = 'rgba(174,147,99,0.14)'; e.currentTarget.style.color = 'rgb(var(--nexus-warning))'; } }}
               onMouseLeave={e => { if (!showMentionDialog) { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--notion-text-muted)'; } }}
               title={isZh ? '@AI — 插入 AI 内容到当前光标位置' : '@AI - Insert AI content at cursor'}
             >
@@ -930,7 +933,7 @@ export default function PageView() {
 
             {/* Template save */}
             {templateSaved ? (
-              <span className="flex items-center gap-1 text-xs px-2 py-1 rounded-md" style={{ background: '#e8f4fd', color: '#1d6fa8' }}>
+              <span className="flex items-center gap-1 text-xs px-2 py-1 rounded-md" style={{ background: 'rgba(116,129,158,0.16)', color: 'var(--notion-text-muted)' }}>
                 <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="20 6 9 17 4 12" /></svg>
                 {isZh ? '模板' : 'Template'}
               </span>
@@ -960,7 +963,7 @@ export default function PageView() {
           {page.cover_emoji && (
             <div
               className="relative flex items-end justify-center group"
-              style={{ height: 200, background: page.cover_emoji.startsWith('linear-gradient') ? page.cover_emoji : 'linear-gradient(135deg, #e8f4fd 0%, #f0e8ff 50%, #fef3e8 100%)' }}
+              style={{ height: 200, background: page.cover_emoji.startsWith('linear-gradient') ? page.cover_emoji : 'linear-gradient(135deg, rgba(116,129,158,0.16) 0%, rgba(184,191,204,0.2) 52%, rgba(214,199,173,0.2) 100%)' }}
               onMouseEnter={() => setHeaderHovered(true)}
               onMouseLeave={() => setHeaderHovered(false)}
             >
@@ -1037,7 +1040,7 @@ export default function PageView() {
                     onClick={startToolbarRec}
                     className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg transition-all"
                     style={{ color: 'var(--notion-text-muted)', border: '1px solid var(--notion-border)' }}
-                    onMouseEnter={e => { e.currentTarget.style.background = 'rgba(220,38,38,0.06)'; e.currentTarget.style.color = '#dc2626'; e.currentTarget.style.borderColor = 'rgba(220,38,38,0.3)'; }}
+                    onMouseEnter={e => { e.currentTarget.style.background = 'var(--sb-danger-subtle)'; e.currentTarget.style.color = 'var(--sb-danger)'; e.currentTarget.style.borderColor = 'rgba(181,112,112,0.32)'; }}
                     onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--notion-text-muted)'; e.currentTarget.style.borderColor = 'var(--notion-border)'; }}
                   >
                     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -1049,27 +1052,27 @@ export default function PageView() {
                 )}
                 {recorderState === 'recording' && (
                   <>
-                    <span style={{ width: 8, height: 8, borderRadius: '50%', flexShrink: 0, background: '#dc2626', animation: 'pulse 1.2s ease-in-out infinite' }} />
-                    <span className="font-mono text-xs font-bold" style={{ color: '#dc2626' }}>{fmtRecTime(recElapsed)}</span>
+                    <span style={{ width: 8, height: 8, borderRadius: '50%', flexShrink: 0, background: 'var(--sb-danger)', animation: 'pulse 1.2s ease-in-out infinite' }} />
+                    <span className="font-mono text-xs font-bold" style={{ color: 'var(--sb-danger)' }}>{fmtRecTime(recElapsed)}</span>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 2, height: 16 }}>
                       {[3,6,10,14,10,8,14,6,10,13,5,9,14,7,11].map((h, i) => (
-                        <div key={i} style={{ width: 2, borderRadius: 99, height: h * 0.5, background: '#ef4444', animation: `vm-bar ${0.4 + (i % 5) * 0.08}s ease-in-out infinite alternate` }} />
+                        <div key={i} style={{ width: 2, borderRadius: 99, height: h * 0.5, background: 'var(--sb-danger)', animation: `vm-bar ${0.4 + (i % 5) * 0.08}s ease-in-out infinite alternate` }} />
                       ))}
                       <style>{`@keyframes vm-bar { from { transform: scaleY(0.3); } to { transform: scaleY(1.4); } }`}</style>
                     </div>
                     {recInterim && <span className="text-xs truncate" style={{ color: 'var(--notion-text-muted)', maxWidth: 200 }}>{recInterim}</span>}
                     <div style={{ flex: 1 }} />
-                    <button onClick={pauseToolbarRec} className="text-xs px-2 py-1 rounded" style={{ color: '#b45309', background: 'rgba(245,158,11,0.1)' }}>{isZh ? '⏸ 暂停' : '⏸ Pause'}</button>
-                    <button onClick={stopToolbarRec} className="text-xs px-2.5 py-1 rounded font-medium text-white" style={{ background: '#dc2626' }}>{isZh ? '■ 停止' : '■ Stop'}</button>
+                    <button onClick={pauseToolbarRec} className="text-xs px-2 py-1 rounded" style={{ color: 'rgb(var(--nexus-warning))', background: 'rgba(174,147,99,0.16)' }}>{isZh ? '⏸ 暂停' : '⏸ Pause'}</button>
+                    <button onClick={stopToolbarRec} className="text-xs px-2.5 py-1 rounded font-medium text-white" style={{ background: 'var(--sb-danger)' }}>{isZh ? '■ 停止' : '■ Stop'}</button>
                   </>
                 )}
                 {recorderState === 'paused' && (
                   <>
-                    <span style={{ width: 8, height: 8, borderRadius: '50%', flexShrink: 0, background: '#f59e0b' }} />
-                    <span className="font-mono text-xs font-bold" style={{ color: '#b45309' }}>{fmtRecTime(recElapsed)}</span>
-                    <span className="text-xs" style={{ color: '#b45309' }}>{isZh ? '已暂停' : 'Paused'}</span>
+                    <span style={{ width: 8, height: 8, borderRadius: '50%', flexShrink: 0, background: 'rgb(var(--nexus-warning))' }} />
+                    <span className="font-mono text-xs font-bold" style={{ color: 'rgb(var(--nexus-warning))' }}>{fmtRecTime(recElapsed)}</span>
+                    <span className="text-xs" style={{ color: 'rgb(var(--nexus-warning))' }}>{isZh ? '已暂停' : 'Paused'}</span>
                     <div style={{ flex: 1 }} />
-                    <button onClick={resumeToolbarRec} className="text-xs px-2.5 py-1 rounded font-medium text-white" style={{ background: '#dc2626' }}>{isZh ? '▶ 继续' : '▶ Resume'}</button>
+                    <button onClick={resumeToolbarRec} className="text-xs px-2.5 py-1 rounded font-medium text-white" style={{ background: 'var(--sb-danger)' }}>{isZh ? '▶ 继续' : '▶ Resume'}</button>
                     <button onClick={stopToolbarRec} className="text-xs px-2 py-1 rounded" style={{ color: 'var(--notion-text-muted)', border: '1px solid var(--notion-border)' }}>{isZh ? '停止' : 'Stop'}</button>
                   </>
                 )}
@@ -1114,7 +1117,7 @@ export default function PageView() {
             {/* Template badge */}
             {page.is_template && (
               <div className="flex items-center gap-1.5 mt-2 mb-1">
-                <span className="text-xs px-2 py-0.5 rounded-full font-medium" style={{ background: '#e8f4fd', color: '#1d6fa8' }}>{isZh ? '模板' : 'Template'}</span>
+                <span className="text-xs px-2 py-0.5 rounded-full font-medium" style={{ background: 'rgba(116,129,158,0.16)', color: 'var(--notion-text-muted)' }}>{isZh ? '模板' : 'Template'}</span>
                 {page.template_category && (
                   <span className="text-xs px-2 py-0.5 rounded-full" style={{ background: 'var(--notion-active)', color: 'var(--notion-text-muted)' }}>{page.template_category}</span>
                 )}
@@ -1135,9 +1138,9 @@ export default function PageView() {
                 <button
                   onClick={() => { setAiInput(isZh ? '请为本页生成一个完整的大纲...' : 'Write a comprehensive outline for this page...'); setShowAiBar(true); }}
                   className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors"
-                  style={{ background: '#ede9fe', color: '#7c3aed' }}
-                  onMouseEnter={e => { e.currentTarget.style.background = '#ddd6fe'; }}
-                  onMouseLeave={e => { e.currentTarget.style.background = '#ede9fe'; }}
+                  style={{ background: 'var(--sb-accent-subtle)', color: 'var(--sb-accent)' }}
+                  onMouseEnter={e => { e.currentTarget.style.background = 'var(--notion-active)'; }}
+                  onMouseLeave={e => { e.currentTarget.style.background = 'var(--sb-accent-subtle)'; }}
                 >
                   <HandIcon name="sparkle-star" size={14} style={{ display: 'inline', marginRight: 4 }} /> {tWorkspace('writeWithAI')}
                 </button>
@@ -1150,9 +1153,9 @@ export default function PageView() {
                     } catch {}
                   }}
                   className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors"
-                  style={{ background: '#fef2f2', color: '#dc2626' }}
-                  onMouseEnter={e => { e.currentTarget.style.background = '#fee2e2'; }}
-                  onMouseLeave={e => { e.currentTarget.style.background = '#fef2f2'; }}
+                  style={{ background: 'var(--sb-danger-subtle)', color: 'var(--sb-danger)' }}
+                  onMouseEnter={e => { e.currentTarget.style.background = 'rgba(181,112,112,0.18)'; }}
+                  onMouseLeave={e => { e.currentTarget.style.background = 'var(--sb-danger-subtle)'; }}
                 >
                   <HandIcon name="megaphone" size={14} style={{ display: 'inline', marginRight: 4 }} /> {tWorkspace('voiceMemo')}
                 </button>
@@ -1177,7 +1180,7 @@ export default function PageView() {
                     <button
                       onClick={() => toggleTemplateButtonMode(btn)}
                       className="px-1.5 py-1.5 text-[10px] font-semibold transition-colors"
-                      style={{ color: btn.apply_mode === 'replace' ? '#7c3aed' : '#0f766e', borderLeft: '1px solid var(--notion-border)' }}
+                      style={{ color: btn.apply_mode === 'replace' ? 'var(--sb-accent)' : 'var(--notion-text-muted)', borderLeft: '1px solid var(--notion-border)' }}
                       onMouseEnter={e => { e.currentTarget.style.background = 'var(--notion-hover)'; }}
                       onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; }}
                       title={btn.apply_mode === 'replace'
@@ -1220,7 +1223,7 @@ export default function PageView() {
                       onClick={() => deleteTemplateButton(btn.id)}
                       className="px-2 py-1.5 text-xs transition-colors"
                       style={{ color: 'var(--notion-text-muted)', borderLeft: '1px solid var(--notion-border)' }}
-                      onMouseEnter={e => { e.currentTarget.style.background = '#fef2f2'; e.currentTarget.style.color = '#dc2626'; }}
+                      onMouseEnter={e => { e.currentTarget.style.background = 'var(--sb-danger-subtle)'; e.currentTarget.style.color = 'var(--sb-danger)'; }}
                       onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--notion-text-muted)'; }}
                       title={isZh ? '删除模板按钮' : 'Delete template button'}
                     >
@@ -1251,7 +1254,7 @@ export default function PageView() {
               <button
                 onClick={() => setShowAiBar(true)}
                 className="absolute -left-2 top-3 opacity-0 group-hover:opacity-100 p-1.5 rounded-lg transition-all shadow-sm"
-                style={{ background: '#ede9fe', color: '#7c3aed', border: '1px solid #d8b4fe' }}
+                style={{ background: 'var(--sb-accent-subtle)', color: 'var(--sb-accent)', border: '1px solid var(--notion-border)' }}
                 title={tWorkspace('askAI')}
               >
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -1268,11 +1271,11 @@ export default function PageView() {
                   className="flex items-center gap-3 px-3 py-2.5 rounded-xl shadow-xl"
                   style={{
                     background: 'var(--notion-card, white)',
-                    border: '2px solid #7c3aed',
-                    boxShadow: '0 8px 32px rgba(124, 58, 237, 0.15), 0 2px 8px rgba(0,0,0,0.1)',
+                    border: '2px solid var(--sb-accent)',
+                    boxShadow: '0 8px 32px rgba(116,129,158,0.16), 0 2px 8px rgba(0,0,0,0.1)',
                   }}
                 >
-                  <div className="w-6 h-6 rounded-lg bg-gradient-to-br from-violet-500 to-purple-700 flex items-center justify-center text-white font-bold flex-shrink-0" style={{ fontSize: 9 }}>AI</div>
+                  <div className="w-6 h-6 rounded-lg flex items-center justify-center text-white font-bold flex-shrink-0" style={{ fontSize: 9, background: 'linear-gradient(135deg, #8794b0 0%, #6c7b99 100%)' }}>AI</div>
                   <input
                     autoFocus
                     value={aiInput}
@@ -1298,7 +1301,7 @@ export default function PageView() {
                           { full: 'Write an outline', short: 'Outline' },
                           { full: 'Generate action items', short: 'Action items' },
                         ]).map((p) => (
-                      <button key={p.full} onClick={() => setAiInput(p.full)} className="text-[10px] px-2 py-0.5 rounded-full whitespace-nowrap" style={{ background: '#ede9fe', color: '#7c3aed' }}>
+                      <button key={p.full} onClick={() => setAiInput(p.full)} className="text-[10px] px-2 py-0.5 rounded-full whitespace-nowrap" style={{ background: 'var(--sb-accent-subtle)', color: 'var(--sb-accent)' }}>
                         {p.short}
                       </button>
                     ))}
@@ -1309,7 +1312,7 @@ export default function PageView() {
                       onClick={handleAiExecute}
                       disabled={isAiProcessing || !aiInput.trim()}
                       className="px-3 py-1.5 rounded-lg text-xs font-bold text-white transition-opacity disabled:opacity-40 shadow-sm"
-                      style={{ background: '#7c3aed' }}
+                      style={{ background: 'var(--sb-accent)' }}
                     >
                       {isAiProcessing ? '…' : tWorkspace('generate')}
                     </button>
@@ -1333,7 +1336,7 @@ export default function PageView() {
                   }}
                   className="flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-lg transition-colors"
                   style={{ color: 'var(--notion-text-muted)', border: '1px solid var(--notion-border)' }}
-                  onMouseEnter={e => { e.currentTarget.style.background = 'rgba(220,38,38,0.06)'; e.currentTarget.style.color = '#dc2626'; e.currentTarget.style.borderColor = 'rgba(220,38,38,0.3)'; }}
+                  onMouseEnter={e => { e.currentTarget.style.background = 'var(--sb-danger-subtle)'; e.currentTarget.style.color = 'var(--sb-danger)'; e.currentTarget.style.borderColor = 'rgba(181,112,112,0.32)'; }}
                   onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--notion-text-muted)'; e.currentTarget.style.borderColor = 'var(--notion-border)'; }}
                 >
                   <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -1417,7 +1420,7 @@ export default function PageView() {
 
       {/* ── Cover picker modal ── */}
       {showCoverPicker && (
-        <div className="fixed inset-0 z-[200] flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.5)' }}
+        <div className="fixed inset-0 z-[200] flex items-center justify-center" style={{ background: 'var(--sb-overlay)' }}
           onClick={e => { if (e.target === e.currentTarget) setShowCoverPicker(false); }}
         >
           <div className="rounded-2xl shadow-2xl overflow-hidden" style={{ width: 480, background: 'var(--notion-card, white)', border: '1px solid var(--notion-border)' }}>
@@ -1453,8 +1456,8 @@ export default function PageView() {
                 </div>
               </div>
               {page.cover_emoji && (
-                <button onClick={() => updateCoverEmoji(null)} className="w-full py-2 text-xs rounded-lg transition-colors" style={{ color: '#dc2626', border: '1px solid #fecaca' }}
-                  onMouseEnter={e => { e.currentTarget.style.background = '#fef2f2'; }}
+                <button onClick={() => updateCoverEmoji(null)} className="w-full py-2 text-xs rounded-lg transition-colors" style={{ color: 'var(--sb-danger)', border: '1px solid rgba(181,112,112,0.32)' }}
+                  onMouseEnter={e => { e.currentTarget.style.background = 'var(--sb-danger-subtle)'; }}
                   onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; }}
                 >
                   {tWorkspace('removeCover')}
@@ -1467,7 +1470,7 @@ export default function PageView() {
 
       {/* ── Icon picker modal ── */}
       {showIconPicker && (
-        <div className="fixed inset-0 z-[200] flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.5)' }}
+        <div className="fixed inset-0 z-[200] flex items-center justify-center" style={{ background: 'var(--sb-overlay)' }}
           onClick={e => { if (e.target === e.currentTarget) setShowIconPicker(false); }}
         >
           <div className="rounded-2xl shadow-2xl p-5" style={{ width: 380, background: 'var(--notion-card, white)', border: '1px solid var(--notion-border)' }}>
@@ -1501,13 +1504,13 @@ export default function PageView() {
 
       {/* ── Save as Template modal ── */}
       {showTemplateSave && (
-        <div className="fixed inset-0 z-[200] flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.5)' }}
+        <div className="fixed inset-0 z-[200] flex items-center justify-center" style={{ background: 'var(--sb-overlay)' }}
           onClick={e => { if (e.target === e.currentTarget) setShowTemplateSave(false); }}
         >
           <div className="rounded-2xl shadow-2xl p-6" style={{ width: 420, background: 'var(--notion-card, white)', border: '1px solid var(--notion-border)' }}>
             {/* Header */}
             <div className="flex items-center gap-3 mb-5">
-              <div className="w-9 h-9 rounded-xl flex items-center justify-center" style={{ background: '#ede9fe' }}><HandIcon name="package" size={22} /></div>
+              <div className="w-9 h-9 rounded-xl flex items-center justify-center" style={{ background: 'var(--sb-accent-subtle)' }}><HandIcon name="package" size={22} /></div>
               <div>
                 <h3 className="text-base font-semibold" style={{ color: 'var(--notion-text)' }}>{tWorkspace('saveAsTemplate')}</h3>
                 <p className="text-xs" style={{ color: 'var(--notion-text-muted)' }}>{tWorkspace('makeTemplateDesc')}</p>
@@ -1543,9 +1546,9 @@ export default function PageView() {
                     <button key={cat} onClick={() => setTemplateCategory(cat)}
                       className="px-2 py-1.5 rounded-lg text-xs text-center transition-colors font-medium"
                       style={{
-                        background: templateCategory === cat ? '#7c3aed' : 'var(--notion-sidebar)',
+                        background: templateCategory === cat ? 'var(--sb-accent)' : 'var(--notion-sidebar)',
                         color: templateCategory === cat ? 'white' : 'var(--notion-text)',
-                        border: `1px solid ${templateCategory === cat ? '#7c3aed' : 'var(--notion-border)'}`,
+                        border: `1px solid ${templateCategory === cat ? 'var(--sb-accent)' : 'var(--notion-border)'}`,
                       }}
                     >
                       {cat}
@@ -1563,7 +1566,7 @@ export default function PageView() {
                 {tWorkspace('cancel')}
               </button>
               <button onClick={handleSaveAsTemplate} disabled={savingTemplate} className="flex-1 py-2 text-sm rounded-lg font-medium text-white transition-opacity disabled:opacity-60 shadow-md"
-                style={{ background: '#7c3aed' }}
+                style={{ background: 'var(--sb-accent)' }}
               >
                 {savingTemplate ? tWorkspace('savingText') : tWorkspace('saveTemplate')}
               </button>
@@ -1605,7 +1608,7 @@ export default function PageView() {
               <button
                 onClick={submitRenameTemplateButton}
                 className="flex-1 py-2 text-sm rounded-lg text-white font-medium"
-                style={{ background: '#7c3aed' }}
+                style={{ background: 'var(--sb-accent)' }}
               >
                 {isZh ? '保存' : 'Save'}
               </button>
@@ -1627,17 +1630,17 @@ export default function PageView() {
               width: 560,
               maxWidth: 'calc(100vw - 40px)',
               background: 'var(--notion-card-elevated, #1e293b)',
-              border: '2px solid #f59e0b',
+              border: '2px solid rgb(var(--nexus-warning))',
               borderRadius: 16,
-              boxShadow: '0 24px 64px rgba(0,0,0,0.5), 0 0 0 1px rgba(245,158,11,0.3)',
+              boxShadow: '0 24px 64px rgba(0,0,0,0.5), 0 0 0 1px rgba(174,147,99,0.3)',
               overflow: 'hidden',
             }}
           >
             {/* Header */}
-            <div className="flex items-center gap-3 px-4 py-3" style={{ borderBottom: '1px solid rgba(245,158,11,0.25)' }}>
+            <div className="flex items-center gap-3 px-4 py-3" style={{ borderBottom: '1px solid rgba(174,147,99,0.25)' }}>
               <div style={{
                 width: 28, height: 28, borderRadius: 8,
-                background: 'linear-gradient(135deg,#f59e0b,#d97706)',
+                background: 'linear-gradient(135deg,rgb(var(--nexus-warning)),rgba(152,126,83,0.95))',
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
                 color: '#fff', fontSize: 12, fontWeight: 800, flexShrink: 0,
               }}>@</div>
@@ -1659,7 +1662,7 @@ export default function PageView() {
             </div>
 
             {/* Input row */}
-            <div className="flex items-center gap-2 px-4 py-3" style={{ borderBottom: mentionResult ? '1px solid rgba(245,158,11,0.20)' : 'none' }}>
+            <div className="flex items-center gap-2 px-4 py-3" style={{ borderBottom: mentionResult ? '1px solid rgba(174,147,99,0.2)' : 'none' }}>
               <input
                 autoFocus
                 value={mentionInput}
@@ -1677,7 +1680,7 @@ export default function PageView() {
                 onClick={handleMentionSubmit}
                 disabled={mentionStreaming || !mentionInput.trim()}
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-white disabled:opacity-40 transition-opacity"
-                style={{ background: mentionStreaming ? '#92400e' : '#f59e0b', flexShrink: 0 }}
+                style={{ background: 'rgb(var(--nexus-warning))', flexShrink: 0 }}
               >
                 {mentionStreaming ? (
                   <>
@@ -1693,15 +1696,15 @@ export default function PageView() {
 
             {/* Quick prompts */}
             {!mentionResult && !mentionStreaming && (
-              <div className="flex flex-wrap gap-1.5 px-4 py-2.5" style={{ borderBottom: '1px solid rgba(245,158,11,0.15)' }}>
-                {['总结这个页面', '帮我写一段介绍', '列出行动项', '续写内容', '改进这段文字'].map(p => (
+              <div className="flex flex-wrap gap-1.5 px-4 py-2.5" style={{ borderBottom: '1px solid rgba(174,147,99,0.15)' }}>
+                {mentionQuickPrompts.map(p => (
                   <button
                     key={p}
                     onClick={() => setMentionInput(p)}
                     className="text-xs px-2.5 py-1 rounded-full transition-colors"
-                    style={{ background: 'rgba(245,158,11,0.15)', color: '#f59e0b', border: '1px solid rgba(245,158,11,0.25)' }}
-                    onMouseEnter={e => { e.currentTarget.style.background = 'rgba(245,158,11,0.25)'; }}
-                    onMouseLeave={e => { e.currentTarget.style.background = 'rgba(245,158,11,0.15)'; }}
+                    style={{ background: 'rgba(174,147,99,0.15)', color: 'rgb(var(--nexus-warning))', border: '1px solid rgba(174,147,99,0.25)' }}
+                    onMouseEnter={e => { e.currentTarget.style.background = 'rgba(174,147,99,0.25)'; }}
+                    onMouseLeave={e => { e.currentTarget.style.background = 'rgba(174,147,99,0.15)'; }}
                   >
                     {p}
                   </button>
@@ -1720,18 +1723,18 @@ export default function PageView() {
                   maxHeight: 340,
                   overflowY: 'auto',
                   color: 'var(--notion-text)',
-                  background: 'rgba(245,158,11,0.06)',
+                  background: 'rgba(174,147,99,0.08)',
                 }}
               >
                 {mentionResult || (mentionStreaming ? <span style={{ color: 'var(--notion-text-muted)' }}>AI 正在思考…</span> : null)}
                 {mentionStreaming && (
-                  <span style={{ display: 'inline-block', width: 2, height: 16, background: '#f59e0b', marginLeft: 2, verticalAlign: 'middle', animation: 'pulse 1s step-end infinite' }} />
+                  <span style={{ display: 'inline-block', width: 2, height: 16, background: 'rgb(var(--nexus-warning))', marginLeft: 2, verticalAlign: 'middle', animation: 'pulse 1s step-end infinite' }} />
                 )}
               </div>
             )}
 
             {/* Footer: status */}
-            <div className="flex items-center justify-between px-4 py-2.5" style={{ borderTop: '1px solid rgba(245,158,11,0.15)' }}>
+            <div className="flex items-center justify-between px-4 py-2.5" style={{ borderTop: '1px solid rgba(174,147,99,0.15)' }}>
               <span className="text-xs" style={{ color: 'var(--notion-text-muted)' }}>
                 {mentionStreaming
                   ? <><HandIcon name="refresh-arrows" size={12} style={{ display: 'inline', marginRight: 4 }} />生成完成后将自动插入到光标位置</>

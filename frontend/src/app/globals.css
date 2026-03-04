@@ -9,56 +9,52 @@
    ══════════════════════════════════════════════════════════════════════════════ */
 
 :root {
-  /* Brand palette */
-  --nexus-primary: 99 102 241;       /* indigo-500 */
-  --nexus-primary-dark: 79 70 229;   /* indigo-600 */
-  --nexus-accent: 168 85 247;        /* purple-500 */
-  --nexus-surface: 15 23 42;         /* slate-900 */
-  --nexus-surface-light: 30 41 59;   /* slate-800 */
-  --nexus-border: 51 65 85;          /* slate-700 */
-  --nexus-text: 226 232 240;         /* slate-200 */
-  --nexus-text-muted: 148 163 184;   /* slate-400 */
-  --nexus-success: 34 197 94;
-  --nexus-warning: 234 179 8;
-  --nexus-danger: 239 68 68;
+  /* Brand palette (Japanese low-saturation) */
+  --nexus-primary: 116 129 158;
+  --nexus-primary-dark: 101 113 141;
+  --nexus-accent: 136 146 170;
+  --nexus-surface: 43 52 66;
+  --nexus-surface-light: 58 68 85;
+  --nexus-border: 123 132 149;
+  --nexus-text: 51 58 70;
+  --nexus-text-muted: 109 118 134;
+  --nexus-success: 112 149 136;
+  --nexus-warning: 174 147 99;
+  --nexus-danger: 181 112 112;
 
-  /* ── Light Mode (Google/Meta style) ───────────────────────────────────────
-     Main bg: #F0F2F5 (Facebook gray)
-     Cards:   #FFFFFF (white — stand out on gray bg, like Google/Meta)
-     Text:    #111827 (near black)
-     ──────────────────────────────────────────────────────────────────────── */
-  --notion-bg:          #F0F2F5;   /* gray page background */
-  --notion-sidebar:     #FFFFFF;   /* white sidebar */
-  --notion-card:        #FFFFFF;   /* white card surface */
-  --notion-card-elevated: #FFFFFF; /* dialog/modal */
-  --notion-hover:       #E4E6EB;   /* hover state */
-  --notion-active:      #D8DADF;   /* active/pressed */
-  --notion-border:      #CED0D4;   /* border */
-  --notion-text:        #111827;   /* primary text — gray-900 */
-  --notion-text-muted:  #6B7280;   /* secondary text — gray-500 */
-  --notion-text-faint:  #9CA3AF;   /* placeholder/hint — gray-400 */
-  --notion-accent:      #7c3aed;   /* brand purple */
+  /* ── Light Mode (washi paper style) ─────────────────────────────────────── */
+  --notion-bg:          #f6f3ee;
+  --notion-sidebar:     #fbfaf7;
+  --notion-card:        #fffdfa;
+  --notion-card-elevated: #fffdfa;
+  --notion-hover:       #ece8df;
+  --notion-active:      #e2ddcf;
+  --notion-border:      #d8d2c6;
+  --notion-text:        #2f3742;
+  --notion-text-muted:  #6f7686;
+  --notion-text-faint:  #979ead;
+  --notion-accent:      #74819e;
 
   /* Sidebar tokens — light */
-  --sb-bg:              #FFFFFF;
-  --sb-surface:         #F7F7F5;
-  --sb-text:            #111827;
-  --sb-text-secondary:  #374151;
-  --sb-text-muted:      #6B7280;
-  --sb-text-faint:      #9CA3AF;
+  --sb-bg:              #fbfaf7;
+  --sb-surface:         #f2eee7;
+  --sb-text:            #2f3742;
+  --sb-text-secondary:  #4c5566;
+  --sb-text-muted:      #6f7686;
+  --sb-text-faint:      #979ead;
   --sb-hover:           rgba(0,0,0,0.05);
   --sb-hover-strong:    rgba(0,0,0,0.09);
   --sb-active:          rgba(0,0,0,0.07);
-  --sb-selected:        rgba(124,58,237,0.10);
+  --sb-selected:        rgba(116,129,158,0.15);
   --sb-border:          rgba(0,0,0,0.08);
   --sb-divider:         rgba(0,0,0,0.06);
-  --sb-accent:          #7c3aed;
-  --sb-accent-subtle:   rgba(124,58,237,0.10);
-  --sb-danger:          #DC2626;
-  --sb-danger-subtle:   rgba(220,38,38,0.08);
+  --sb-accent:          #74819e;
+  --sb-accent-subtle:   rgba(116,129,158,0.13);
+  --sb-danger:          #b57070;
+  --sb-danger-subtle:   rgba(181,112,112,0.12);
   --sb-guide:           rgba(0,0,0,0.07);
-  --sb-drag:            #7c3aed;
-  --sb-drag-bg:         rgba(124,58,237,0.06);
+  --sb-drag:            #74819e;
+  --sb-drag-bg:         rgba(116,129,158,0.08);
   --sb-shadow:          0 4px 24px rgba(0,0,0,0.10), 0 0 0 1px rgba(0,0,0,0.05);
   --sb-card-shadow:     0 1px 4px rgba(0,0,0,0.08), 0 0 0 1px rgba(0,0,0,0.04);
   --sb-overlay:         rgba(0,0,0,0.35);
@@ -186,6 +182,21 @@ body {
   font-feature-settings: "rlig" 1, "calt" 1;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  font-family: "Hiragino Sans", "Yu Gothic", "Noto Sans JP", "Inter", "Segoe UI", sans-serif;
+  background:
+    radial-gradient(1200px 600px at 0% 0%, rgba(191, 183, 161, 0.12), transparent 55%),
+    radial-gradient(800px 500px at 100% 100%, rgba(142, 154, 170, 0.10), transparent 45%),
+    var(--notion-bg);
+}
+
+/* Hand-drawn icon polish */
+.hand-drawn-icon {
+  color: inherit;
+  filter: drop-shadow(0 0.5px 0 rgba(61, 67, 82, 0.25));
+}
+.hand-drawn-icon * {
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
 /* ── Sidebar hover utilities (replace inline onMouseEnter/Leave) ──────────── */

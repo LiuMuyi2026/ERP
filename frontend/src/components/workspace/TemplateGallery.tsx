@@ -195,9 +195,9 @@ function ViewStructureViz({ views, t, isZh }: { views: Template['default_views']
       <div className="flex flex-wrap gap-1.5">
         {views.map(v => (
           <div key={v.id} className="flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium" style={{
-            background: v.type === 'document' ? '#e8f4fd' : v.type === 'task_tracker' ? '#fdf4ff' : '#f0fdf4',
-            color: v.type === 'document' ? '#1d6fa8' : v.type === 'task_tracker' ? '#7c3aed' : '#15803d',
-            border: `1px solid ${v.type === 'document' ? '#bde0f9' : v.type === 'task_tracker' ? '#e9d5ff' : '#bbf7d0'}`,
+            background: v.type === 'document' ? 'rgba(94,118,136,0.12)' : v.type === 'task_tracker' ? '#fdf4ff' : 'rgba(109,148,135,0.12)',
+            color: v.type === 'document' ? '#5e7688' : v.type === 'task_tracker' ? '#74819e' : '#6d9487',
+            border: `1px solid ${v.type === 'document' ? 'rgba(94,118,136,0.22)' : v.type === 'task_tracker' ? '#e9d5ff' : 'rgba(109,148,135,0.20)'}`,
           }}>
             <span style={{ fontSize: 11 }}>{v.icon}</span>
             {v.title}
@@ -214,23 +214,23 @@ function BlankPageCard({ onBlank, t }: { onBlank: () => void; t: any }) {
   return (
     <button
       onClick={onBlank}
-      className="group flex flex-col rounded-xl overflow-hidden text-left transition-all duration-200 hover:shadow-lg"
-      style={{ border: '2px dashed #cbd5e1', background: 'var(--notion-card-elevated, var(--notion-card, white))', minHeight: 160 }}
-      onMouseEnter={e => { e.currentTarget.style.borderColor = '#7c3aed'; e.currentTarget.style.transform = 'translateY(-2px)'; e.currentTarget.style.background = '#faf5ff'; }}
-      onMouseLeave={e => { e.currentTarget.style.borderColor = '#cbd5e1'; e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.background = 'white'; }}
+      className="group flex flex-col rounded-2xl overflow-hidden text-left transition-all duration-200"
+      style={{ border: '1px dashed var(--notion-border)', background: 'var(--notion-card-elevated, var(--notion-card, white))', minHeight: 172, boxShadow: '0 1px 3px rgba(0,0,0,0.06)' }}
+      onMouseEnter={e => { e.currentTarget.style.borderColor = '#74819e'; e.currentTarget.style.transform = 'translateY(-1px)'; e.currentTarget.style.background = 'var(--notion-card)'; e.currentTarget.style.boxShadow = '0 6px 16px rgba(0,0,0,0.08)'; }}
+      onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--notion-border)'; e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.background = 'var(--notion-card-elevated, var(--notion-card, white))'; e.currentTarget.style.boxShadow = '0 1px 3px rgba(0,0,0,0.06)'; }}
     >
       <div className="flex-1 flex flex-col items-center justify-center gap-3 p-6">
         <div className="w-10 h-10 rounded-xl flex items-center justify-center transition-all"
-          style={{ background: '#f1f5f9', border: '1px solid #e2e8f0' }}>
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          style={{ background: 'rgba(116,129,158,0.10)', border: '1px solid rgba(116,129,158,0.18)' }}>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#74819e" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" />
           </svg>
         </div>
         <div className="text-center">
-          <p className="text-sm font-semibold" style={{ color: '#374151' }}>
+          <p className="text-sm font-semibold" style={{ color: 'var(--notion-text)' }}>
             {t('blankPage')}
           </p>
-          <p className="text-xs mt-0.5" style={{ color: '#9B9A97' }}>
+          <p className="text-xs mt-0.5" style={{ color: 'var(--notion-text-muted)' }}>
             {t('startFromScratch')}
           </p>
         </div>
@@ -247,10 +247,10 @@ function TemplateCard({ template, onSelect, searchQuery }: { template: Template;
   return (
     <button
       onClick={() => onSelect(template)}
-      className="group flex flex-col rounded-xl overflow-hidden text-left transition-all duration-200 hover:shadow-lg"
-      style={{ border: '1px solid var(--notion-border)', background: 'var(--notion-card-elevated, var(--notion-card, white))' }}
-      onMouseEnter={e => { e.currentTarget.style.transform = 'translateY(-2px)'; e.currentTarget.style.borderColor = '#cbd5e1'; }}
-      onMouseLeave={e => { e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.borderColor = 'var(--notion-border)'; }}
+      className="group flex flex-col rounded-2xl overflow-hidden text-left transition-all duration-200"
+      style={{ border: '1px solid var(--notion-border)', background: 'var(--notion-card-elevated, var(--notion-card, white))', boxShadow: '0 1px 3px rgba(0,0,0,0.06)' }}
+      onMouseEnter={e => { e.currentTarget.style.transform = 'translateY(-1px)'; e.currentTarget.style.borderColor = 'rgba(116,129,158,0.35)'; e.currentTarget.style.boxShadow = '0 6px 16px rgba(0,0,0,0.08)'; }}
+      onMouseLeave={e => { e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.borderColor = 'var(--notion-border)'; e.currentTarget.style.boxShadow = '0 1px 3px rgba(0,0,0,0.06)'; }}
     >
       {/* Card header with gradient */}
       <div className="relative overflow-hidden flex-shrink-0" style={{ height: 90, background: bgColor }}>
@@ -273,12 +273,12 @@ function TemplateCard({ template, onSelect, searchQuery }: { template: Template;
       </div>
 
       {/* Card body */}
-      <div className="p-3 flex-1">
-        <div className="font-semibold text-sm mb-1 truncate" style={{ color: 'var(--notion-text)' }}>
+      <div className="p-4 flex-1">
+        <div className="font-semibold text-sm mb-1.5 truncate" style={{ color: 'var(--notion-text)' }}>
           <HighlightText text={template.title} query={searchQuery || ''} />
         </div>
         {template.description && (
-          <p className="text-xs line-clamp-2 leading-relaxed" style={{ color: 'var(--notion-text-muted)' }}>
+          <p className="text-[13px] line-clamp-2 leading-relaxed" style={{ color: 'var(--notion-text-muted)' }}>
             <HighlightText text={template.description} query={searchQuery || ''} />
           </p>
         )}
@@ -304,7 +304,7 @@ function SidebarItem({ icon, label, active, onClick, badge }: {
   return (
     <button
       onClick={onClick}
-      className="w-full flex items-center gap-2 py-[5px] px-4 text-[13px] text-left transition-colors"
+      className="w-full flex items-center gap-2 py-1.5 px-4 text-[13px] text-left transition-colors rounded-lg mx-2"
       style={{
         background: active ? 'var(--notion-active)' : 'transparent',
         color: active ? 'var(--notion-text)' : 'var(--notion-text-muted)',
@@ -528,15 +528,15 @@ export default function TemplateGallery({
   if (!open) return null;
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(2px)' }}
+    <div className="fixed inset-0 z-[100] flex items-center justify-center" style={{ background: 'rgba(37,40,46,0.46)', backdropFilter: 'blur(2px)' }}
       onClick={e => { if (e.target === e.currentTarget) onClose(); }}
     >
       <div
-        className="flex rounded-2xl shadow-2xl overflow-hidden"
-        style={{ width: '96vw', maxWidth: 1280, height: '90vh', background: 'var(--notion-card-elevated, var(--notion-card, white))', border: '1px solid rgba(0,0,0,0.1)' }}
+        className="flex rounded-2xl overflow-hidden"
+        style={{ width: '96vw', maxWidth: 1280, height: '90vh', background: 'var(--notion-card-elevated, var(--notion-card, white))', border: '1px solid var(--notion-border)', boxShadow: '0 16px 32px rgba(0,0,0,0.16)' }}
       >
         {/* ── Left sidebar ── */}
-        <div className="flex-shrink-0 flex flex-col py-5 overflow-y-auto border-r" style={{ width: 220, background: '#f7f7f5', borderColor: 'var(--notion-border)' }}>
+        <div className="flex-shrink-0 flex flex-col py-5 overflow-y-auto border-r" style={{ width: 220, background: 'var(--notion-bg)', borderColor: 'var(--notion-border)' }}>
           <div className="px-5 mb-5">
             <p className="text-[11px] font-bold uppercase tracking-widest" style={{ color: 'var(--notion-text-muted)' }}>
               {tWorkspace('templates')}
@@ -565,10 +565,10 @@ export default function TemplateGallery({
         {/* ── Main content area ── */}
         <div className="flex-1 flex flex-col overflow-hidden">
           {/* Top bar */}
-          <div className="flex items-center gap-4 px-6 py-4 border-b flex-shrink-0" style={{ borderColor: 'var(--notion-border)', background: 'var(--notion-card-elevated, var(--notion-card, white))' }}>
+          <div className="flex items-center gap-4 px-6 py-3.5 border-b flex-shrink-0" style={{ borderColor: 'var(--notion-border)', background: 'var(--notion-card-elevated, var(--notion-card, white))' }}>
             <div className="flex items-center gap-2 flex-shrink-0">
               <HandIcon name="sparkle-star" size={18} />
-              <span className="text-sm font-bold" style={{ color: 'var(--notion-text)' }}>
+              <span className="text-sm font-semibold" style={{ color: 'var(--notion-text)' }}>
                 {tWorkspace('newPage')}
               </span>
             </div>
@@ -604,7 +604,7 @@ export default function TemplateGallery({
               <select
                 value={sortMode}
                 onChange={e => setSortMode(e.target.value as SortMode)}
-                className="text-xs px-2.5 py-1.5 rounded-lg outline-none"
+                className="text-xs px-2.5 py-2 rounded-lg outline-none"
                 style={{ border: '1px solid var(--notion-border)', color: 'var(--notion-text)', background: 'var(--notion-card-elevated, var(--notion-card, white))' }}
                 title={tWorkspace('templateSortLabel')}
               >
@@ -842,8 +842,8 @@ export default function TemplateGallery({
                       <HandIcon name={CATEGORY_ICONS[selected.category] || 'clipboard'} size={12} /> {selected.category}
                     </span>
                     <span className="text-xs px-2 py-0.5 rounded-full font-medium" style={{
-                      background: selected.source === 'builtin' ? '#e8f4fd' : '#f0fdf4',
-                      color: selected.source === 'builtin' ? '#1d6fa8' : '#15803d',
+                      background: selected.source === 'builtin' ? 'rgba(94,118,136,0.12)' : 'rgba(109,148,135,0.12)',
+                      color: selected.source === 'builtin' ? '#5e7688' : '#6d9487',
                     }}>
                       <span className="inline-flex items-center gap-1"><HandIcon name="sparkle-star" size={10} /> {selected.source === 'builtin' ? tWorkspace('builtIn') : tWorkspace('myTemplates')}</span>
                     </span>
@@ -881,10 +881,10 @@ export default function TemplateGallery({
                   <div className="flex gap-2 pt-2">
                     <button
                       onClick={handleUse}
-                      className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-bold text-white transition-all shadow-lg"
-                      style={{ background: 'linear-gradient(135deg, var(--notion-accent), #a855f7)', boxShadow: '0 4px 14px rgba(124,58,237,0.4)' }}
-                      onMouseEnter={e => { e.currentTarget.style.transform = 'translateY(-1px)'; e.currentTarget.style.boxShadow = '0 6px 20px rgba(124,58,237,0.5)'; }}
-                      onMouseLeave={e => { e.currentTarget.style.transform = 'none'; e.currentTarget.style.boxShadow = '0 4px 14px rgba(124,58,237,0.4)'; }}
+                        className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-xs font-semibold text-white transition-all"
+                        style={{ background: '#74819e', boxShadow: '0 1px 3px rgba(116,129,158,0.35)' }}
+                        onMouseEnter={e => { e.currentTarget.style.transform = 'translateY(-1px)'; e.currentTarget.style.boxShadow = '0 6px 16px rgba(116,129,158,0.34)'; }}
+                        onMouseLeave={e => { e.currentTarget.style.transform = 'none'; e.currentTarget.style.boxShadow = '0 1px 3px rgba(116,129,158,0.35)'; }}
                     >
                       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
                         <polyline points="20 6 9 17 4 12" />
@@ -894,7 +894,7 @@ export default function TemplateGallery({
                     {onAppend && (
                       <button
                         onClick={handleAppend}
-                        className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-bold transition-all"
+                        className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-xs font-semibold transition-all"
                         style={{ border: '1px solid var(--notion-border)', color: 'var(--notion-text)', background: 'var(--notion-card-elevated, var(--notion-card, white))' }}
                         onMouseEnter={e => { e.currentTarget.style.background = 'var(--notion-hover)'; }}
                         onMouseLeave={e => { e.currentTarget.style.background = 'var(--notion-card-elevated, var(--notion-card, white))'; }}
@@ -910,9 +910,9 @@ export default function TemplateGallery({
                       <button
                         onClick={() => handleDelete(selected)}
                         disabled={deleting}
-                        className="px-3 py-2.5 rounded-lg text-sm transition-colors"
-                        style={{ color: '#dc2626', border: '1px solid #fecaca', opacity: deleting ? 0.6 : 1 }}
-                        onMouseEnter={e => { e.currentTarget.style.background = '#fef2f2'; }}
+                        className="px-3 py-2.5 rounded-lg text-xs transition-colors"
+                        style={{ color: '#b57070', border: '1px solid rgba(181,112,112,0.24)', opacity: deleting ? 0.6 : 1 }}
+                        onMouseEnter={e => { e.currentTarget.style.background = 'rgba(181,112,112,0.10)'; }}
                         onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; }}
                         title={isZh ? '删除模板' : 'Delete template'}
                       >
@@ -926,7 +926,7 @@ export default function TemplateGallery({
                     <p className="text-[10px] uppercase tracking-widest font-semibold mb-2" style={{ color: 'var(--notion-text-muted)' }}>
                       {tWorkspace('contentPreview')}
                     </p>
-                    <div className="rounded-lg overflow-hidden" style={{ border: '1px solid var(--notion-border)', background: '#fafaf9' }}>
+                    <div className="rounded-xl overflow-hidden" style={{ border: '1px solid var(--notion-border)', background: 'var(--notion-bg)' }}>
                       <div className="px-4 py-4 text-xs">
                         {selected.content?.text ? (
                           <MarkdownPreview text={selected.content.text} />

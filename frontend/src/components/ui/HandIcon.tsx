@@ -16,11 +16,12 @@ interface HandIconProps {
  */
 export function HandIcon({ name, size = 16, className, style }: HandIconProps) {
   const Icon = ICON_REGISTRY[name];
+  const mergedClassName = className ? `hand-drawn-icon ${className}` : 'hand-drawn-icon';
   if (!Icon) {
     // Fallback: render as text (for emojis or unknown names)
-    return <span style={{ fontSize: size, lineHeight: 1, ...style }} className={className}>{name}</span>;
+    return <span style={{ fontSize: size, lineHeight: 1, ...style }} className={mergedClassName}>{name}</span>;
   }
-  return <Icon size={size} className={className} style={style} />;
+  return <Icon size={size} className={mergedClassName} style={style} />;
 }
 
 export default HandIcon;

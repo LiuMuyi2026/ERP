@@ -60,10 +60,10 @@ function PermissionSelect({ value, onChange, t }: { value: Permission; onChange:
     <div className="relative">
       <button
         onClick={() => setOpen(v => !v)}
-        className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors"
+        className="flex items-center gap-1.5 px-2.5 py-2 rounded-lg text-xs font-medium transition-colors"
         style={{ border: '1px solid var(--notion-border)', color: 'var(--notion-text)', background: 'var(--notion-card-elevated, var(--notion-card, white))' }}
         onMouseEnter={e => e.currentTarget.style.background = 'var(--notion-hover)'}
-        onMouseLeave={e => e.currentTarget.style.background = 'white'}
+        onMouseLeave={e => e.currentTarget.style.background = 'var(--notion-card-elevated, var(--notion-card, white))'}
       >
         <HandIcon name={icon} size={16} />
         <span>{currentLabel.label}</span>
@@ -75,8 +75,8 @@ function PermissionSelect({ value, onChange, t }: { value: Permission; onChange:
       {open && (
         <>
           <div className="fixed inset-0 z-[149]" onClick={() => setOpen(false)} />
-          <div className="absolute right-0 top-full mt-1 z-[150] rounded-xl shadow-xl overflow-hidden"
-            style={{ width: 220, background: 'var(--notion-card-elevated, var(--notion-card, white))', border: '1px solid var(--notion-border)' }}>
+          <div className="absolute right-0 top-full mt-1 z-[150] rounded-xl overflow-hidden"
+            style={{ width: 220, background: 'var(--notion-card-elevated, var(--notion-card, white))', border: '1px solid var(--notion-border)', boxShadow: '0 6px 16px rgba(0,0,0,0.10)' }}>
             {(Object.keys(permLabels) as Permission[]).map(p => {
               const c = permLabels[p];
               const ic = PERMISSION_ICONS[p];
@@ -91,10 +91,10 @@ function PermissionSelect({ value, onChange, t }: { value: Permission; onChange:
                   <span className="flex-shrink-0 mt-0.5"><HandIcon name={ic} size={16} /></span>
                   <div>
                     <p className="text-xs font-medium" style={{ color: 'var(--notion-text)' }}>{c.label}</p>
-                    <p className="text-[10px]" style={{ color: '#9B9A97' }}>{c.desc}</p>
+                    <p className="text-[11px]" style={{ color: 'var(--notion-text-muted)' }}>{c.desc}</p>
                   </div>
                   {value === p && (
-                    <span className="ml-auto mt-1 text-xs" style={{ color: '#7c3aed' }}>✓</span>
+                    <span className="ml-auto mt-1 text-xs" style={{ color: '#74819e' }}>✓</span>
                   )}
                 </button>
               );
@@ -238,8 +238,8 @@ export default function SharePanel({ pageId, pageTitle, onClose }: SharePanelPro
       <div className="flex-1" onClick={onClose} />
 
       {/* Panel */}
-      <div className="h-full flex flex-col shadow-2xl animate-slide-in"
-        style={{ width: 480, background: 'var(--notion-card-elevated, var(--notion-card, white))', borderLeft: '1px solid var(--notion-border)' }}>
+      <div className="h-full flex flex-col animate-slide-in"
+        style={{ width: 480, background: 'var(--notion-card-elevated, var(--notion-card, white))', borderLeft: '1px solid var(--notion-border)', boxShadow: '0 12px 24px rgba(0,0,0,0.12)' }}>
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 flex-shrink-0"
           style={{ borderBottom: '1px solid var(--notion-border)' }}>
@@ -250,11 +250,11 @@ export default function SharePanel({ pageId, pageTitle, onClose }: SharePanelPro
             </h2>
           </div>
           <div className="flex items-center gap-2">
-            {saving && <span className="text-xs" style={{ color: '#9B9A97' }}>{t('savingText')}</span>}
+            {saving && <span className="text-xs" style={{ color: 'var(--notion-text-muted)' }}>{t('savingText')}</span>}
             {!saving && saveStatus === 'saved' && (
               <span
                 className="text-xs px-2 py-0.5 rounded-full"
-                style={{ color: '#0f766e', background: '#ecfdf5', border: '1px solid #a7f3d0' }}
+                style={{ color: '#6d9487', background: 'rgba(109,148,135,0.12)', border: '1px solid rgba(109,148,135,0.22)' }}
               >
                 {t('shareSavedStatus')}
               </span>
@@ -262,7 +262,7 @@ export default function SharePanel({ pageId, pageTitle, onClose }: SharePanelPro
             {!saving && saveStatus === 'error' && (
               <span
                 className="text-xs px-2 py-0.5 rounded-full"
-                style={{ color: '#b91c1c', background: '#fef2f2', border: '1px solid #fecaca' }}
+                style={{ color: '#b57070', background: 'rgba(181,112,112,0.10)', border: '1px solid rgba(181,112,112,0.24)' }}
               >
                 {t('shareSaveFailedStatus')}
               </span>
@@ -285,7 +285,7 @@ export default function SharePanel({ pageId, pageTitle, onClose }: SharePanelPro
           <div className="px-6 py-4" style={{ borderBottom: '1px solid var(--notion-border)' }}>
             <p className="text-xs font-medium mb-2" style={{ color: '#9B9A97' }}>{t('pageLink')}</p>
             <div className="flex items-center gap-2 p-2 rounded-xl"
-              style={{ border: '1px solid var(--notion-border)', background: '#FAFAF9' }}>
+              style={{ border: '1px solid var(--notion-border)', background: 'var(--notion-bg)' }}>
               <span className="text-xs flex-1 truncate" style={{ color: 'var(--notion-text-muted)', fontFamily: 'monospace' }}>
                 {pageUrl}
               </span>
@@ -293,8 +293,8 @@ export default function SharePanel({ pageId, pageTitle, onClose }: SharePanelPro
                 onClick={copyLink}
                 className="flex-shrink-0 px-3 py-1.5 rounded-lg text-xs font-medium transition-all"
                 style={{
-                  background: copied ? '#E6F4EA' : '#ede9fe',
-                  color: copied ? '#0F9D58' : '#7c3aed',
+                  background: copied ? 'rgba(124,164,147,0.2)' : 'rgba(116,129,158,0.12)',
+                  color: copied ? '#6d9487' : '#74819e',
                 }}
               >
                 {copied ? t('copied') : t('copyBtn')}
@@ -304,7 +304,7 @@ export default function SharePanel({ pageId, pageTitle, onClose }: SharePanelPro
 
           {/* Workspace selection + default permission */}
           <div className="px-6 py-4" style={{ borderBottom: '1px solid var(--notion-border)' }}>
-            <p className="text-xs font-medium mb-3" style={{ color: '#9B9A97' }}>{t('shareToWorkspace')}</p>
+            <p className="text-xs font-medium mb-3" style={{ color: 'var(--notion-text-muted)' }}>{t('shareToWorkspace')}</p>
             <div className="flex items-center gap-3">
               <div className="flex-1">
                 {workspaces.length > 0 ? (
@@ -322,13 +322,13 @@ export default function SharePanel({ pageId, pageTitle, onClose }: SharePanelPro
                   </select>
                 ) : (
                   <div className="text-xs px-3 py-2 rounded-lg"
-                    style={{ border: '1px solid var(--notion-border)', color: '#9B9A97', background: '#FAFAF9' }}>
+                    style={{ border: '1px solid var(--notion-border)', color: 'var(--notion-text-muted)', background: 'var(--notion-bg)' }}>
                     {t('personalSpace')}
                   </div>
                 )}
               </div>
               <div className="flex-shrink-0">
-                <p className="text-[10px] mb-1" style={{ color: '#9B9A97' }}>{t('defaultPermission')}</p>
+                <p className="text-[11px] mb-1" style={{ color: 'var(--notion-text-muted)' }}>{t('defaultPermission')}</p>
                 <PermissionSelect
                   value={permissions.default_permission}
                   onChange={setDefault}
@@ -341,18 +341,18 @@ export default function SharePanel({ pageId, pageTitle, onClose }: SharePanelPro
           {/* Members list */}
           <div className="px-6 py-4">
             <div className="flex items-center justify-between mb-3">
-              <p className="text-xs font-medium" style={{ color: '#9B9A97' }}>
+              <p className="text-xs font-medium" style={{ color: 'var(--notion-text-muted)' }}>
                 {t('memberPermissions', { n: members.length })}
               </p>
               {loading && (
-                <span className="text-xs" style={{ color: '#9B9A97' }}>{t('loadingMembers')}</span>
+                <span className="text-xs" style={{ color: 'var(--notion-text-muted)' }}>{t('loadingMembers')}</span>
               )}
             </div>
 
             {!loading && members.length === 0 && (
               <div className="py-8 text-center">
-                <p className="text-sm" style={{ color: '#9B9A97' }}>{t('noMembers')}</p>
-                <p className="text-xs mt-1" style={{ color: '#9B9A97' }}>
+                <p className="text-sm" style={{ color: 'var(--notion-text-muted)' }}>{t('noMembers')}</p>
+                <p className="text-xs mt-1" style={{ color: 'var(--notion-text-muted)' }}>
                   {t('inviteHint')}
                 </p>
               </div>
@@ -362,8 +362,8 @@ export default function SharePanel({ pageId, pageTitle, onClose }: SharePanelPro
               {members.map(member => {
                 const perm = permissions.overrides[member.id] ?? permissions.default_permission;
                 return (
-                  <div key={member.id} className="flex items-center gap-3 py-2 rounded-xl px-2"
-                    onMouseEnter={e => e.currentTarget.style.background = '#FAFAF9'}
+                  <div key={member.id} className="flex items-center gap-3 py-2.5 rounded-xl px-2.5"
+                    onMouseEnter={e => e.currentTarget.style.background = 'var(--notion-hover)'}
                     onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
                   >
                     <MemberAvatar member={member} />
@@ -371,11 +371,11 @@ export default function SharePanel({ pageId, pageTitle, onClose }: SharePanelPro
                       <p className="text-sm font-medium truncate" style={{ color: 'var(--notion-text)' }}>
                         {member.full_name || member.email}
                       </p>
-                      <p className="text-[10px] truncate" style={{ color: '#9B9A97' }}>
+                      <p className="text-[11px] truncate" style={{ color: 'var(--notion-text-muted)' }}>
                         {member.email}
                         {member.role === 'admin' && (
-                          <span className="ml-1.5 px-1.5 py-0.5 rounded text-[9px] font-medium"
-                            style={{ background: '#ede9fe', color: '#7c3aed' }}>{t('admin')}</span>
+                          <span className="ml-1.5 px-1.5 py-0.5 rounded text-[10px] font-medium"
+                            style={{ background: 'rgba(116,129,158,0.14)', color: '#74819e' }}>{t('admin')}</span>
                         )}
                       </p>
                     </div>
@@ -394,8 +394,8 @@ export default function SharePanel({ pageId, pageTitle, onClose }: SharePanelPro
         </div>
 
         {/* Footer */}
-        <div className="px-6 py-3 flex-shrink-0 text-xs"
-          style={{ borderTop: '1px solid var(--notion-border)', color: '#9B9A97', background: '#FAFAF9' }}>
+        <div className="px-6 py-3.5 flex-shrink-0 text-xs"
+          style={{ borderTop: '1px solid var(--notion-border)', color: 'var(--notion-text-muted)', background: 'var(--notion-bg)' }}>
           {t('permSaveHint')}
         </div>
       </div>

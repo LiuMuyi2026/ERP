@@ -17,11 +17,12 @@ interface IconOrEmojiProps {
  * Falls back to emoji text if no matching icon found.
  */
 export function IconOrEmoji({ value, size = 16, className, style }: IconOrEmojiProps) {
+  const mergedClassName = className ? `hand-drawn-icon ${className}` : 'hand-drawn-icon';
   // 1. Check if value is already an icon name
   const directIcon = ICON_REGISTRY[value];
   if (directIcon) {
     const Icon = directIcon;
-    return <Icon size={size} className={className} style={style} />;
+    return <Icon size={size} className={mergedClassName} style={style} />;
   }
 
   // 2. Check if value is an emoji with a mapping
@@ -29,7 +30,7 @@ export function IconOrEmoji({ value, size = 16, className, style }: IconOrEmojiP
   if (iconName) {
     const Icon = ICON_REGISTRY[iconName];
     if (Icon) {
-      return <Icon size={size} className={className} style={style} />;
+      return <Icon size={size} className={mergedClassName} style={style} />;
     }
   }
 
@@ -37,7 +38,7 @@ export function IconOrEmoji({ value, size = 16, className, style }: IconOrEmojiP
   return (
     <span
       style={{ fontSize: size, lineHeight: 1, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', ...style }}
-      className={className}
+      className={mergedClassName}
     >
       {value}
     </span>

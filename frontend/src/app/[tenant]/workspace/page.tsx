@@ -84,8 +84,8 @@ function relativeTime(iso: string, tw: (key: any, params?: any) => string): stri
 }
 
 function contentTypeBadge(ct: string | null, tw: (key: any) => string) {
-  if (ct === 'task_tracker') return { label: tw('taskTracker'), color: '#7c3aed', bg: 'rgba(124,58,237,0.1)' };
-  if (ct === 'voice_memo')   return { label: tw('voiceMemoType'), color: '#dc2626', bg: 'rgba(220,38,38,0.09)' };
+  if (ct === 'task_tracker') return { label: tw('taskTracker'), color: '#74819e', bg: 'rgba(116,129,158,0.1)' };
+  if (ct === 'voice_memo')   return { label: tw('voiceMemoType'), color: '#b57070', bg: 'rgba(181,112,112,0.09)' };
   return { label: tw('document'), color: '#0284c7', bg: 'rgba(2,132,199,0.09)' };
 }
 
@@ -642,7 +642,7 @@ export default function WorkspacePage() {
 
       {/* ── Workspace Tab Bar ──────────────────────────────────────────── */}
       <div
-        className="flex items-center flex-shrink-0 px-4 pt-3 gap-0.5"
+        className="flex items-center flex-shrink-0 px-5 pt-2.5 gap-1"
         style={{ borderBottom: '1px solid var(--notion-border)', background: 'var(--notion-card, white)' }}
       >
         {workspaces.map(ws => {
@@ -651,12 +651,12 @@ export default function WorkspacePage() {
             <button
               key={ws.id}
               onClick={() => setActiveWsId(ws.id)}
-              className="flex items-center gap-1.5 px-3 py-2 text-sm transition-all rounded-t-md"
+              className="flex items-center gap-1.5 px-3.5 py-2 text-[13px] transition-all rounded-t-lg"
               style={{
                 fontWeight: active ? 600 : 400,
                 color: active ? 'var(--notion-text)' : 'var(--notion-text-muted)',
-                borderBottom: `2px solid ${active ? '#7c3aed' : 'transparent'}`,
-                background: active ? 'rgba(124,58,237,0.06)' : 'transparent',
+                borderBottom: `2px solid ${active ? '#74819e' : 'transparent'}`,
+                background: active ? 'rgba(116,129,158,0.06)' : 'transparent',
                 marginBottom: -1,
               }}
               onMouseEnter={e => { if (!active) e.currentTarget.style.background = 'var(--notion-hover)'; }}
@@ -665,15 +665,15 @@ export default function WorkspacePage() {
               <IconOrEmoji value={ws.icon || (ws.visibility === 'private' ? 'lock' : 'building')} size={16} />
               <span className="truncate max-w-[120px]">{ws.name}</span>
               {ws.visibility === 'private' && (
-                <span className="text-[9px] px-1.5 py-0.5 rounded-full font-semibold flex-shrink-0"
-                  style={{ background: 'rgba(124,58,237,0.1)', color: '#7c3aed' }}>{tWorkspace('private')}</span>
+                <span className="text-[10px] px-2 py-0.5 rounded-full font-semibold flex-shrink-0"
+                  style={{ background: 'rgba(116,129,158,0.1)', color: '#74819e' }}>{tWorkspace('private')}</span>
               )}
             </button>
           );
         })}
         <button
           onClick={() => setShowNewTeamWs(true)}
-          className="ml-auto flex items-center gap-1 px-2.5 py-1.5 mb-1 rounded-lg text-xs transition-colors"
+          className="ml-auto flex items-center gap-1 px-3 py-1.5 mb-1 rounded-lg text-[11px] transition-colors"
           style={{ color: 'var(--notion-text-muted)', flexShrink: 0 }}
           onMouseEnter={e => e.currentTarget.style.background = 'var(--notion-hover)'}
           onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
@@ -695,14 +695,14 @@ export default function WorkspacePage() {
         <div className="flex flex-col flex-1 min-h-0">
 
           {/* ── Workspace header ── */}
-          <div className="flex items-center gap-4 px-8 py-5 flex-shrink-0"
+          <div className="flex items-center gap-4 px-6 py-4 flex-shrink-0"
             style={{ borderBottom: '1px solid var(--notion-border)', background: 'var(--notion-card, white)' }}>
             <div
               className="w-12 h-12 rounded-xl flex items-center justify-center text-2xl flex-shrink-0"
               style={{
                 background: isPrivateWs
-                  ? 'linear-gradient(135deg,#f5f3ff,#ede9fe)'
-                  : 'linear-gradient(135deg,#eff6ff,#dbeafe)',
+                  ? 'linear-gradient(135deg,#f5f3ff,#ece8df)'
+                  : 'linear-gradient(135deg,#f2f4f0,#e5ebea)',
                 border: '1px solid rgba(0,0,0,0.06)',
               }}
             >
@@ -710,11 +710,11 @@ export default function WorkspacePage() {
             </div>
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2">
-                <h1 className="text-lg font-bold truncate" style={{ color: 'var(--notion-text)' }}>
+                <h1 className="text-lg font-semibold truncate" style={{ color: 'var(--notion-text)' }}>
                   {activeWorkspace.name}
                 </h1>
                 <span className="text-[10px] px-2 py-0.5 rounded-full font-semibold flex-shrink-0"
-                  style={{ background: isPrivateWs ? 'rgba(124,58,237,0.1)' : 'rgba(59,130,246,0.1)', color: isPrivateWs ? '#7c3aed' : '#2563eb' }}>
+                  style={{ background: isPrivateWs ? 'rgba(116,129,158,0.1)' : 'rgba(109,148,135,0.12)', color: isPrivateWs ? '#74819e' : '#6d9487' }}>
                   {isPrivateWs ? <><HandIcon name="lock" size={10} style={{ display: 'inline', marginRight: 2 }} /> {tWorkspace('private')}</> : <><HandIcon name="people-group" size={10} style={{ display: 'inline', marginRight: 2 }} /> {tWorkspace('team')}</>}
                 </span>
               </div>
@@ -754,15 +754,15 @@ export default function WorkspacePage() {
           </div>
 
           {/* ── Workspace Home ── */}
-          <div className="px-6 py-4 flex-shrink-0" style={{ borderBottom: '1px solid var(--notion-border)', background: 'var(--notion-bg)' }}>
+          <div className="px-6 py-5 flex-shrink-0" style={{ borderBottom: '1px solid var(--notion-border)', background: 'var(--notion-bg)' }}>
             <div className="flex items-center justify-between mb-3">
               <h2 className="text-sm font-semibold" style={{ color: 'var(--notion-text)' }}>{homeLabels.home}</h2>
               <span className="text-xs" style={{ color: 'var(--notion-text-muted)' }}>{homeLabels.today}: {new Date().toLocaleDateString()}</span>
             </div>
-            <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))' }}>
-              <div className="rounded-xl p-3" style={{ background: 'var(--notion-card, white)', border: '1px solid var(--notion-border)' }}>
+            <div className="grid gap-4" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))' }}>
+              <div className="rounded-2xl p-4" style={{ background: 'var(--notion-card, white)', border: '1px solid var(--notion-border)' }}>
                 <div className="flex items-center justify-between mb-2">
-                  <p className="text-xs font-semibold" style={{ color: 'var(--notion-text)' }}>{homeLabels.recent}</p>
+                  <p className="text-sm font-semibold" style={{ color: 'var(--notion-text)' }}>{homeLabels.recent}</p>
                 </div>
                 {homeLoading ? (
                   <p className="text-xs" style={{ color: 'var(--notion-text-muted)' }}>{homeLabels.loading}</p>
@@ -785,21 +785,21 @@ export default function WorkspacePage() {
                 )}
               </div>
 
-              <div className="rounded-xl p-3" style={{ background: 'var(--notion-card, white)', border: '1px solid var(--notion-border)' }}>
+              <div className="rounded-2xl p-4" style={{ background: 'var(--notion-card, white)', border: '1px solid var(--notion-border)' }}>
                 <div className="flex items-center justify-between mb-2">
-                  <p className="text-xs font-semibold" style={{ color: 'var(--notion-text)' }}>{homeLabels.calendar}</p>
-                  <button onClick={createCalendarPage} className="text-[11px] px-2 py-1 rounded-md"
-                    style={{ color: '#2563eb', background: 'rgba(37,99,235,0.08)' }}>{homeLabels.createCalendar}</button>
+                  <p className="text-sm font-semibold" style={{ color: 'var(--notion-text)' }}>{homeLabels.calendar}</p>
+                  <button onClick={createCalendarPage} className="text-xs px-2.5 py-1 rounded-md"
+                    style={{ color: '#5e7688', background: 'rgba(37,99,235,0.08)' }}>{homeLabels.createCalendar}</button>
                 </div>
                 <div className="grid grid-cols-7 gap-1 mb-2">
                   {['S', 'M', 'T', 'W', 'T', 'F', 'S'].map(d => (
-                    <div key={d} className="text-[10px] text-center" style={{ color: 'var(--notion-text-muted)' }}>{d}</div>
+                    <div key={d} className="text-[11px] text-center" style={{ color: 'var(--notion-text-muted)' }}>{d}</div>
                   ))}
                   {monthCells.map((d, i) => (
-                    <div key={`${d}-${i}`} className="text-[10px] text-center py-0.5 rounded"
+                    <div key={`${d}-${i}`} className="text-[11px] text-center py-1 rounded"
                       style={{
                         color: d ? 'var(--notion-text)' : 'transparent',
-                        background: d === new Date().getDate() ? 'rgba(124,58,237,0.12)' : 'transparent',
+                        background: d === new Date().getDate() ? 'rgba(116,129,158,0.12)' : 'transparent',
                         fontWeight: d === new Date().getDate() ? 700 : 400,
                       }}>
                       {d || '-'}
@@ -827,11 +827,11 @@ export default function WorkspacePage() {
                 )}
               </div>
 
-              <div className="rounded-xl p-3" style={{ background: 'var(--notion-card, white)', border: '1px solid var(--notion-border)' }}>
+              <div className="rounded-2xl p-4" style={{ background: 'var(--notion-card, white)', border: '1px solid var(--notion-border)' }}>
                 <div className="flex items-center justify-between mb-2">
-                  <p className="text-xs font-semibold" style={{ color: 'var(--notion-text)' }}>{homeLabels.todos}</p>
-                  <button onClick={createWorkspaceTodoPage} className="text-[11px] px-2 py-1 rounded-md"
-                    style={{ color: '#059669', background: 'rgba(5,150,105,0.09)' }}>{homeLabels.createTodo}</button>
+                  <p className="text-sm font-semibold" style={{ color: 'var(--notion-text)' }}>{homeLabels.todos}</p>
+                  <button onClick={createWorkspaceTodoPage} className="text-xs px-2.5 py-1 rounded-md"
+                    style={{ color: '#6d9487', background: 'rgba(5,150,105,0.09)' }}>{homeLabels.createTodo}</button>
                 </div>
                 {homeLoading ? (
                   <p className="text-xs" style={{ color: 'var(--notion-text-muted)' }}>{homeLabels.loading}</p>
@@ -852,7 +852,7 @@ export default function WorkspacePage() {
                             <span className="text-[10px]" style={{ color: 'var(--notion-text-muted)' }}>{item.done}/{item.total}</span>
                           </div>
                           <div style={{ height: 5, borderRadius: 999, background: 'var(--notion-hover)' }}>
-                            <div style={{ width: `${pct}%`, height: '100%', borderRadius: 999, background: '#10b981' }} />
+                            <div style={{ width: `${pct}%`, height: '100%', borderRadius: 999, background: '#7ca493' }} />
                           </div>
                         </button>
                       );
@@ -864,7 +864,7 @@ export default function WorkspacePage() {
           </div>
 
           {/* ── File browser toolbar ── */}
-          <div className="flex items-center gap-2 px-6 py-3 flex-shrink-0 flex-wrap"
+          <div className="flex items-center gap-2 px-6 py-2.5 flex-shrink-0 flex-wrap"
             style={{ borderBottom: '1px solid var(--notion-border)', background: 'var(--notion-card, white)' }}>
 
             {/* Search */}
@@ -888,10 +888,10 @@ export default function WorkspacePage() {
             {/* New page */}
             <button
               onClick={() => setShowTemplateGallery(true)}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-semibold text-white transition-all flex-shrink-0"
-              style={{ background: '#7c3aed', boxShadow: '0 1px 4px rgba(124,58,237,0.35)' }}
-              onMouseEnter={e => e.currentTarget.style.background = '#6d28d9'}
-              onMouseLeave={e => e.currentTarget.style.background = '#7c3aed'}
+              className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold text-white transition-all flex-shrink-0"
+              style={{ background: '#74819e', boxShadow: '0 1px 3px rgba(116,129,158,0.3)' }}
+              onMouseEnter={e => e.currentTarget.style.background = '#64708b'}
+              onMouseLeave={e => e.currentTarget.style.background = '#74819e'}
             >
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                 <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
@@ -903,7 +903,7 @@ export default function WorkspacePage() {
             <div className="relative flex-shrink-0">
               <button
                 onClick={() => { setShowSortMenu(v => !v); setShowFilterMenu(false); }}
-                className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs transition-colors"
+                className="flex items-center gap-1.5 px-2.5 py-2 rounded-lg text-xs transition-colors"
                 style={{ border: '1px solid var(--notion-border)', color: 'var(--notion-text-muted)', background: showSortMenu ? 'var(--notion-hover)' : 'transparent' }}
                 onMouseEnter={e => e.currentTarget.style.background = 'var(--notion-hover)'}
                 onMouseLeave={e => { if (!showSortMenu) e.currentTarget.style.background = 'transparent'; }}
@@ -917,16 +917,16 @@ export default function WorkspacePage() {
                 <>
                   <div className="fixed inset-0 z-40" onClick={() => setShowSortMenu(false)} />
                   <div className="absolute left-0 top-full mt-1 z-50 rounded-xl overflow-hidden py-1"
-                    style={{ minWidth: 140, background: 'var(--notion-card-elevated, white)', border: '1px solid var(--notion-border)', boxShadow: '0 8px 24px rgba(0,0,0,0.12)' }}>
+                    style={{ minWidth: 150, background: 'var(--notion-card-elevated, white)', border: '1px solid var(--notion-border)', boxShadow: '0 6px 16px rgba(0,0,0,0.10)' }}>
                     {SORT_OPTIONS.map(o => (
                       <button key={`${o.field}-${o.dir}`}
                         onClick={() => { setSortField(o.field); setSortDir(o.dir); setShowSortMenu(false); }}
                         className="w-full flex items-center gap-2 px-3 py-2 text-xs text-left transition-colors"
-                        style={{ color: (sortField === o.field && sortDir === o.dir) ? '#7c3aed' : 'var(--notion-text)', fontWeight: (sortField === o.field && sortDir === o.dir) ? 600 : 400 }}
+                        style={{ color: (sortField === o.field && sortDir === o.dir) ? '#74819e' : 'var(--notion-text)', fontWeight: (sortField === o.field && sortDir === o.dir) ? 600 : 400 }}
                         onMouseEnter={e => e.currentTarget.style.background = 'var(--notion-hover)'}
                         onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
                       >
-                        {sortField === o.field && sortDir === o.dir && <span style={{ color: '#7c3aed' }}>✓</span>}
+                        {sortField === o.field && sortDir === o.dir && <span style={{ color: '#74819e' }}>✓</span>}
                         {o.label}
                       </button>
                     ))}
@@ -939,11 +939,11 @@ export default function WorkspacePage() {
             <div className="relative flex-shrink-0">
               <button
                 onClick={() => { setShowFilterMenu(v => !v); setShowSortMenu(false); }}
-                className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs transition-colors"
+                className="flex items-center gap-1.5 px-2.5 py-2 rounded-lg text-xs transition-colors"
                 style={{
-                  border: `1px solid ${contentFilter ? '#7c3aed' : 'var(--notion-border)'}`,
-                  color: contentFilter ? '#7c3aed' : 'var(--notion-text-muted)',
-                  background: contentFilter ? 'rgba(124,58,237,0.07)' : (showFilterMenu ? 'var(--notion-hover)' : 'transparent'),
+                  border: `1px solid ${contentFilter ? '#74819e' : 'var(--notion-border)'}`,
+                  color: contentFilter ? '#74819e' : 'var(--notion-text-muted)',
+                  background: contentFilter ? 'rgba(116,129,158,0.07)' : (showFilterMenu ? 'var(--notion-hover)' : 'transparent'),
                 }}
                 onMouseEnter={e => { if (!contentFilter) e.currentTarget.style.background = 'var(--notion-hover)'; }}
                 onMouseLeave={e => { if (!contentFilter) e.currentTarget.style.background = showFilterMenu ? 'var(--notion-hover)' : 'transparent'; }}
@@ -957,16 +957,16 @@ export default function WorkspacePage() {
                 <>
                   <div className="fixed inset-0 z-40" onClick={() => setShowFilterMenu(false)} />
                   <div className="absolute left-0 top-full mt-1 z-50 rounded-xl overflow-hidden py-1"
-                    style={{ minWidth: 130, background: 'var(--notion-card-elevated, white)', border: '1px solid var(--notion-border)', boxShadow: '0 8px 24px rgba(0,0,0,0.12)' }}>
+                    style={{ minWidth: 140, background: 'var(--notion-card-elevated, white)', border: '1px solid var(--notion-border)', boxShadow: '0 6px 16px rgba(0,0,0,0.10)' }}>
                     {FILTER_OPTIONS.map(o => (
                       <button key={o.value}
                         onClick={() => { setContentFilter(o.value); setShowFilterMenu(false); }}
                         className="w-full flex items-center gap-2 px-3 py-2 text-xs text-left transition-colors"
-                        style={{ color: contentFilter === o.value ? '#7c3aed' : 'var(--notion-text)', fontWeight: contentFilter === o.value ? 600 : 400 }}
+                        style={{ color: contentFilter === o.value ? '#74819e' : 'var(--notion-text)', fontWeight: contentFilter === o.value ? 600 : 400 }}
                         onMouseEnter={e => e.currentTarget.style.background = 'var(--notion-hover)'}
                         onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
                       >
-                        {contentFilter === o.value && <span style={{ color: '#7c3aed' }}>✓</span>}
+                        {contentFilter === o.value && <span style={{ color: '#74819e' }}>✓</span>}
                         {o.label}
                       </button>
                     ))}
@@ -980,7 +980,7 @@ export default function WorkspacePage() {
               style={{ border: '1px solid var(--notion-border)' }}>
               {(['list', 'grid'] as ViewMode[]).map(mode => (
                 <button key={mode} onClick={() => setViewMode(mode)}
-                  className="p-1.5 transition-colors"
+                  className="p-2 transition-colors"
                   style={{ background: viewMode === mode ? 'var(--notion-hover)' : 'transparent', color: viewMode === mode ? 'var(--notion-text)' : 'var(--notion-text-muted)' }}
                   title={mode === 'list' ? tWorkspace('listView') : tWorkspace('gridView')}
                 >
@@ -1010,9 +1010,9 @@ export default function WorkspacePage() {
                   {tWorkspace('copyBtn')}
                 </button>
                 <button onClick={deleteSelected} className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs transition-colors"
-                  style={{ background: 'rgba(220,38,38,0.08)', color: '#dc2626' }}
-                  onMouseEnter={e => e.currentTarget.style.background = 'rgba(220,38,38,0.15)'}
-                  onMouseLeave={e => e.currentTarget.style.background = 'rgba(220,38,38,0.08)'}>
+                  style={{ background: 'rgba(181,112,112,0.08)', color: '#b57070' }}
+                  onMouseEnter={e => e.currentTarget.style.background = 'rgba(181,112,112,0.15)'}
+                  onMouseLeave={e => e.currentTarget.style.background = 'rgba(181,112,112,0.08)'}>
                   {tWorkspace('deleteBtn')}
                 </button>
               </div>
@@ -1021,9 +1021,9 @@ export default function WorkspacePage() {
             {/* Paste button when clipboard has items */}
             {clipboard.length > 0 && selectedIds.size === 0 && (
               <button onClick={pasteClipboard} className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs transition-colors ml-auto"
-                style={{ background: 'rgba(124,58,237,0.1)', color: '#7c3aed', border: '1px solid rgba(124,58,237,0.2)' }}
-                onMouseEnter={e => e.currentTarget.style.background = 'rgba(124,58,237,0.18)'}
-                onMouseLeave={e => e.currentTarget.style.background = 'rgba(124,58,237,0.1)'}>
+                style={{ background: 'rgba(116,129,158,0.1)', color: '#74819e', border: '1px solid rgba(116,129,158,0.2)' }}
+                onMouseEnter={e => e.currentTarget.style.background = 'rgba(116,129,158,0.18)'}
+                onMouseLeave={e => e.currentTarget.style.background = 'rgba(116,129,158,0.1)'}>
                 {tWorkspace('pasteFiles', { n: clipboard.length })}
                 <span onClick={e => { e.stopPropagation(); setClipboard([]); }}
                   style={{ marginLeft: 4, opacity: 0.6, cursor: 'pointer' }}>✕</span>
@@ -1038,8 +1038,8 @@ export default function WorkspacePage() {
 
           {/* ── Breadcrumb navigation ── */}
           {currentParentId && (
-            <div className="flex items-center gap-1 px-6 py-2 flex-shrink-0"
-              style={{ borderBottom: '1px solid var(--notion-border)', background: 'var(--notion-card, white)' }}>
+              <div className="flex items-center gap-1.5 px-6 py-2.5 flex-shrink-0"
+                style={{ borderBottom: '1px solid var(--notion-border)', background: 'var(--notion-card, white)' }}>
               {breadcrumbs.map((crumb, idx) => (
                 <span key={crumb.id ?? 'root'} className="flex items-center gap-1">
                   {idx > 0 && (
@@ -1049,9 +1049,9 @@ export default function WorkspacePage() {
                   )}
                   <button
                     onClick={() => navigateToBreadcrumb(idx)}
-                    className="text-xs px-1.5 py-0.5 rounded transition-colors truncate max-w-[140px]"
+                    className="text-xs px-2 py-1 rounded transition-colors truncate max-w-[160px]"
                     style={{
-                      color: idx === breadcrumbs.length - 1 ? 'var(--notion-text)' : '#7c3aed',
+                      color: idx === breadcrumbs.length - 1 ? 'var(--notion-text)' : '#74819e',
                       fontWeight: idx === breadcrumbs.length - 1 ? 600 : 400,
                       cursor: idx === breadcrumbs.length - 1 ? 'default' : 'pointer',
                     }}
@@ -1083,7 +1083,7 @@ export default function WorkspacePage() {
                   <input type="checkbox"
                     checked={selectedIds.size > 0 && selectedIds.size === pages.length}
                     onChange={e => setSelectedIds(e.target.checked ? new Set(pages.map(p => p.id)) : new Set())}
-                    style={{ accentColor: '#7c3aed', cursor: 'pointer' }}
+                    style={{ accentColor: '#74819e', cursor: 'pointer' }}
                   />
                 </div>
                 <div style={{ flex: 1, fontSize: 11, fontWeight: 600, color: 'var(--notion-text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{tWorkspace('colTitle')}</div>
@@ -1107,7 +1107,7 @@ export default function WorkspacePage() {
                 {!search && (
                   <button onClick={() => setShowTemplateGallery(true)}
                     className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium text-white mt-1"
-                    style={{ background: '#7c3aed' }}>
+                    style={{ background: '#74819e' }}>
                     {tWorkspace('newPageBtn')}
                   </button>
                 )}
@@ -1123,10 +1123,10 @@ export default function WorkspacePage() {
                   return (
                     <div
                       key={page.id}
-                      className="group flex items-center gap-3 px-6 py-2.5 cursor-pointer transition-colors"
+                      className="group flex items-center gap-3 px-6 py-3 cursor-pointer transition-colors"
                       style={{
                         borderBottom: '1px solid var(--notion-border)',
-                        background: isSelected ? 'rgba(124,58,237,0.05)' : 'transparent',
+                        background: isSelected ? 'rgba(116,129,158,0.05)' : 'transparent',
                       }}
                       onMouseEnter={e => { if (!isSelected) e.currentTarget.style.background = 'var(--notion-hover)'; }}
                       onMouseLeave={e => { if (!isSelected) e.currentTarget.style.background = 'transparent'; }}
@@ -1141,7 +1141,7 @@ export default function WorkspacePage() {
                             e.target.checked ? n.add(page.id) : n.delete(page.id);
                             return n;
                           })}
-                          style={{ accentColor: '#7c3aed', cursor: 'pointer' }}
+                          style={{ accentColor: '#74819e', cursor: 'pointer' }}
                         />
                       </div>
                       {/* Icon + title */}
@@ -1155,7 +1155,7 @@ export default function WorkspacePage() {
                             className="flex items-center gap-1 text-[11px] px-1.5 py-0.5 rounded-md transition-colors flex-shrink-0"
                             style={{ color: 'var(--notion-text-muted)', background: 'var(--notion-hover)' }}
                             onClick={e => { e.stopPropagation(); navigateToFolder(page); }}
-                            onMouseEnter={e => { e.currentTarget.style.background = 'rgba(124,58,237,0.1)'; e.currentTarget.style.color = '#7c3aed'; }}
+                            onMouseEnter={e => { e.currentTarget.style.background = 'rgba(116,129,158,0.1)'; e.currentTarget.style.color = '#74819e'; }}
                             onMouseLeave={e => { e.currentTarget.style.background = 'var(--notion-hover)'; e.currentTarget.style.color = 'var(--notion-text-muted)'; }}
                           >
                             <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -1223,15 +1223,15 @@ export default function WorkspacePage() {
                   return (
                     <div
                       key={page.id}
-                      className="group relative rounded-xl cursor-pointer transition-all"
+                      className="group relative rounded-2xl cursor-pointer transition-all"
                       style={{
-                        background: isSelected ? 'rgba(124,58,237,0.08)' : 'var(--notion-card, white)',
-                        border: `1px solid ${isSelected ? 'rgba(124,58,237,0.3)' : 'var(--notion-border)'}`,
-                        boxShadow: '0 1px 4px rgba(0,0,0,0.05)',
+                        background: isSelected ? 'rgba(116,129,158,0.08)' : 'var(--notion-card, white)',
+                        border: `1px solid ${isSelected ? 'rgba(116,129,158,0.3)' : 'var(--notion-border)'}`,
+                        boxShadow: '0 1px 3px rgba(0,0,0,0.06)',
                         overflow: 'hidden',
                       }}
-                      onMouseEnter={e => { if (!isSelected) { e.currentTarget.style.boxShadow = '0 4px 16px rgba(0,0,0,0.1)'; e.currentTarget.style.transform = 'translateY(-1px)'; } }}
-                      onMouseLeave={e => { e.currentTarget.style.boxShadow = '0 1px 4px rgba(0,0,0,0.05)'; e.currentTarget.style.transform = 'none'; }}
+                      onMouseEnter={e => { if (!isSelected) { e.currentTarget.style.boxShadow = '0 6px 16px rgba(0,0,0,0.08)'; e.currentTarget.style.transform = 'translateY(-1px)'; } }}
+                      onMouseLeave={e => { e.currentTarget.style.boxShadow = '0 1px 3px rgba(0,0,0,0.06)'; e.currentTarget.style.transform = 'none'; }}
                       onClick={() => router.push(`/${tenant}/workspace/${page.id}`)}
                     >
                       {/* Color accent top bar */}
@@ -1246,7 +1246,7 @@ export default function WorkspacePage() {
                               e.target.checked ? n.add(page.id) : n.delete(page.id);
                               return n;
                             })}
-                            style={{ accentColor: '#7c3aed', cursor: 'pointer' }}
+                            style={{ accentColor: '#74819e', cursor: 'pointer' }}
                           />
                           <div style={{ position: 'relative' }}>
                             <button
@@ -1294,7 +1294,7 @@ export default function WorkspacePage() {
                                 className="flex items-center gap-0.5 text-[10px] px-1.5 py-0.5 rounded-md transition-colors"
                                 style={{ color: 'var(--notion-text-muted)', background: 'var(--notion-hover)' }}
                                 onClick={e => { e.stopPropagation(); navigateToFolder(page); }}
-                                onMouseEnter={e => { e.currentTarget.style.background = 'rgba(124,58,237,0.1)'; e.currentTarget.style.color = '#7c3aed'; }}
+                                onMouseEnter={e => { e.currentTarget.style.background = 'rgba(116,129,158,0.1)'; e.currentTarget.style.color = '#74819e'; }}
                                 onMouseLeave={e => { e.currentTarget.style.background = 'var(--notion-hover)'; e.currentTarget.style.color = 'var(--notion-text-muted)'; }}
                               >
                                 <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -1366,7 +1366,7 @@ export default function WorkspacePage() {
                 {WS_ICON_LIST_LOCAL.map(iconName => (
                   <button key={iconName} onClick={() => setNewWsIcon(iconName)}
                     className="w-8 h-8 rounded-lg flex items-center justify-center transition-colors"
-                    style={{ background: newWsIcon === iconName ? '#ede9fe' : 'var(--notion-hover)', outline: newWsIcon === iconName ? '2px solid #7c3aed' : 'none' }}
+                    style={{ background: newWsIcon === iconName ? '#ece8df' : 'var(--notion-hover)', outline: newWsIcon === iconName ? '2px solid #74819e' : 'none' }}
                   ><HandIcon name={iconName} size={20} /></button>
                 ))}
               </div>
@@ -1388,7 +1388,7 @@ export default function WorkspacePage() {
                 style={{ color: 'var(--notion-text-muted)', border: '1px solid var(--notion-border)' }}>{tCommon('cancel')}</button>
               <button onClick={createTeamWorkspace} disabled={!newWsName.trim()}
                 className="flex-1 py-2 text-sm rounded-lg font-medium text-white disabled:opacity-50"
-                style={{ background: '#7c3aed' }}>{tCommon('create')}</button>
+                style={{ background: '#74819e' }}>{tCommon('create')}</button>
             </div>
           </div>
         </Modal>
@@ -1404,7 +1404,7 @@ export default function WorkspacePage() {
                 {WS_ICON_LIST_LOCAL.map(iconName => (
                   <button key={iconName} onClick={() => setEditWsIcon(iconName)}
                     className="w-8 h-8 rounded-lg flex items-center justify-center transition-colors"
-                    style={{ background: editWsIcon === iconName ? '#ede9fe' : 'var(--notion-hover)', outline: editWsIcon === iconName ? '2px solid #7c3aed' : 'none' }}
+                    style={{ background: editWsIcon === iconName ? '#ece8df' : 'var(--notion-hover)', outline: editWsIcon === iconName ? '2px solid #74819e' : 'none' }}
                   ><HandIcon name={iconName} size={20} /></button>
                 ))}
               </div>
@@ -1425,7 +1425,7 @@ export default function WorkspacePage() {
               <button onClick={() => setEditWs(null)} className="flex-1 py-2 text-sm rounded-lg"
                 style={{ color: 'var(--notion-text-muted)', border: '1px solid var(--notion-border)' }}>{tCommon('cancel')}</button>
               <button onClick={saveEdit} className="flex-1 py-2 text-sm rounded-lg font-medium text-white"
-                style={{ background: '#7c3aed' }}>{tCommon('save')}</button>
+                style={{ background: '#74819e' }}>{tCommon('save')}</button>
             </div>
           </div>
         </Modal>
@@ -1441,7 +1441,7 @@ export default function WorkspacePage() {
             <button onClick={() => setDeleteWs(null)} className="flex-1 py-2 text-sm rounded-lg"
               style={{ color: 'var(--notion-text-muted)', border: '1px solid var(--notion-border)' }}>{tCommon('cancel')}</button>
             <button onClick={confirmDeleteWs} className="flex-1 py-2 text-sm rounded-lg font-medium text-white"
-              style={{ background: '#dc2626' }}>{tCommon('delete')}</button>
+              style={{ background: '#b57070' }}>{tCommon('delete')}</button>
           </div>
         </Modal>
       )}
@@ -1463,7 +1463,7 @@ export default function WorkspacePage() {
             <button
               onClick={confirmDeletePagesAction}
               className="flex-1 py-2 text-sm rounded-lg font-medium text-white"
-              style={{ background: '#dc2626' }}
+              style={{ background: '#b57070' }}
             >
               {tCommon('delete')}
             </button>
@@ -1483,7 +1483,7 @@ export default function WorkspacePage() {
               ) : members.map(m => (
                 <div key={m.user_id} className="flex items-center gap-3 py-2.5 border-b" style={{ borderColor: 'var(--notion-border)' }}>
                   <div className="w-7 h-7 rounded-full flex items-center justify-center text-sm font-bold flex-shrink-0"
-                    style={{ background: 'linear-gradient(135deg,#6366f1,#8b5cf6)', color: 'white' }}>
+                    style={{ background: 'linear-gradient(135deg,#8a95b2,#9ca6bf)', color: 'white' }}>
                     {m.full_name?.[0]?.toUpperCase() || '?'}
                   </div>
                   <div className="flex-1 min-w-0">
@@ -1498,8 +1498,8 @@ export default function WorkspacePage() {
                     <option value="viewer">{tWorkspace('viewer')}</option>
                   </select>
                   <button onClick={() => removeMember(m.user_id)} className="text-xs px-2 py-1 rounded-lg transition-colors"
-                    style={{ color: '#dc2626' }}
-                    onMouseEnter={e => e.currentTarget.style.background = 'rgba(220,38,38,0.08)'}
+                    style={{ color: '#b57070' }}
+                    onMouseEnter={e => e.currentTarget.style.background = 'rgba(181,112,112,0.08)'}
                     onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>{tWorkspace('removeMember')}</button>
                 </div>
               ))}
@@ -1519,14 +1519,14 @@ export default function WorkspacePage() {
                       onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
                       onClick={() => !addingMember && addMember(uid, emp)}>
                       <div className="w-7 h-7 rounded-full flex items-center justify-center text-sm font-bold flex-shrink-0"
-                        style={{ background: 'linear-gradient(135deg,#3b82f6,#6366f1)', color: 'white' }}>
+                        style={{ background: 'linear-gradient(135deg,#6f8696,#6366f1)', color: 'white' }}>
                         {emp.full_name?.[0]?.toUpperCase() || '?'}
                       </div>
                       <div className="flex-1 min-w-0">
                         <p className="text-sm truncate" style={{ color: 'var(--notion-text)' }}>{emp.full_name}</p>
                         <p className="text-xs truncate" style={{ color: 'var(--notion-text-muted)' }}>{emp.email}</p>
                       </div>
-                      <span className="text-xs" style={{ color: '#7c3aed' }}>{tWorkspace('addBtn')}</span>
+                      <span className="text-xs" style={{ color: '#74819e' }}>{tWorkspace('addBtn')}</span>
                     </div>
                   );
                 })}
@@ -1550,14 +1550,14 @@ function HdrBtn({ onClick, title, danger, children }: {
   return (
     <button onClick={onClick} title={title}
       className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs transition-colors"
-      style={{ color: danger ? '#dc2626' : 'var(--notion-text-muted)', border: '1px solid var(--notion-border)' }}
+      style={{ color: danger ? '#b57070' : 'var(--notion-text-muted)', border: '1px solid var(--notion-border)' }}
       onMouseEnter={e => {
-        e.currentTarget.style.background = danger ? 'rgba(220,38,38,0.08)' : 'var(--notion-hover)';
-        e.currentTarget.style.color = danger ? '#dc2626' : 'var(--notion-text)';
+        e.currentTarget.style.background = danger ? 'rgba(181,112,112,0.08)' : 'var(--notion-hover)';
+        e.currentTarget.style.color = danger ? '#b57070' : 'var(--notion-text)';
       }}
       onMouseLeave={e => {
         e.currentTarget.style.background = 'transparent';
-        e.currentTarget.style.color = danger ? '#dc2626' : 'var(--notion-text-muted)';
+        e.currentTarget.style.color = danger ? '#b57070' : 'var(--notion-text-muted)';
       }}
     >
       {children}
@@ -1588,13 +1588,13 @@ function PageActionMenu({ page, onOpen, onDuplicate, onShare, onDelete, onClose,
     <>
       <div className="fixed inset-0 z-40" onClick={onClose} />
       <div className="absolute right-0 top-full mt-1 z-50 rounded-xl overflow-hidden py-1"
-        style={{ minWidth: 140, background: 'var(--notion-card-elevated, white)', border: '1px solid var(--notion-border)', boxShadow: '0 8px 24px rgba(0,0,0,0.14)' }}>
+        style={{ minWidth: 150, background: 'var(--notion-card-elevated, white)', border: '1px solid var(--notion-border)', boxShadow: '0 6px 16px rgba(0,0,0,0.12)' }}>
         {items.map(item => (
           <button key={item.label}
             onClick={e => { e.stopPropagation(); item.onClick(); }}
-            className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-left transition-colors"
-            style={{ color: item.danger ? '#dc2626' : 'var(--notion-text)' }}
-            onMouseEnter={e => e.currentTarget.style.background = item.danger ? 'rgba(220,38,38,0.07)' : 'var(--notion-hover)'}
+            className="w-full flex items-center gap-2.5 px-3 py-2 text-xs text-left transition-colors"
+            style={{ color: item.danger ? '#b57070' : 'var(--notion-text)' }}
+            onMouseEnter={e => e.currentTarget.style.background = item.danger ? 'rgba(181,112,112,0.07)' : 'var(--notion-hover)'}
             onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
           >
             <span style={{ fontSize: 13 }}>{item.icon}</span>
@@ -1614,8 +1614,8 @@ function Modal({ title, onClose, children, wide }: {
       onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
       <div className="rounded-2xl shadow-2xl overflow-hidden"
         style={{ width: wide ? 560 : 440, maxHeight: '80vh', display: 'flex', flexDirection: 'column', background: 'var(--notion-card, white)', border: '1px solid var(--notion-border)' }}>
-        <div className="flex items-center justify-between px-5 py-4 flex-shrink-0" style={{ borderBottom: '1px solid var(--notion-border)' }}>
-          <h3 className="text-sm font-semibold" style={{ color: 'var(--notion-text)' }}>{title}</h3>
+      <div className="flex items-center justify-between px-5 py-4 flex-shrink-0" style={{ borderBottom: '1px solid var(--notion-border)' }}>
+          <h3 className="text-base font-semibold" style={{ color: 'var(--notion-text)' }}>{title}</h3>
           <button onClick={onClose} style={{ color: 'var(--notion-text-muted)' }}>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
