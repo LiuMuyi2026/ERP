@@ -306,7 +306,7 @@ def normalize_jid(jid: str, alt_jid: str = "") -> str:
 
 async def _verify_contact_ownership(db, contact_id: str, uid: str, role: str = ""):
     """Verify user owns this contact via account ownership. Admins/managers bypass ownership check."""
-    is_admin = role in ("platform_admin", "tenant_admin", "manager")
+    is_admin = await _is_admin_scope(db, uid, role)
     if is_admin:
         own = await db.execute(text("""
             SELECT c.*, a.owner_user_id FROM whatsapp_contacts c
@@ -323,6 +323,17 @@ async def _verify_contact_ownership(db, contact_id: str, uid: str, role: str = "
     if not contact:
         raise HTTPException(status_code=404, detail="Conversation not found")
     return contact
+
+
+async def _is_admin_scope(db, uid: str, role: str = "") -> bool:
+    """Resolve admin scope consistently across WhatsApp endpoints."""
+    if role in ("platform_admin", "tenant_admin", "manager"):
+        return True
+    row = await db.execute(text(
+        "SELECT COALESCE(is_admin, FALSE) AS is_admin FROM users WHERE id = CAST(:uid AS uuid) LIMIT 1"
+    ), {"uid": uid})
+    user = row.fetchone()
+    return bool(user and user.is_admin)
 
 
 async def _get_message_with_key(db, message_id: str, contact_id: str):
@@ -379,10 +390,20 @@ async def _ws_emit_for_account(db: AsyncSession, tenant_slug: str, account_id: s
 @router.get("/accounts")
 async def list_accounts(ctx: dict = Depends(get_current_user_with_tenant)):
     db = ctx["db"]
-    rows = await db.execute(
-        text("SELECT * FROM whatsapp_accounts WHERE owner_user_id = :uid AND is_active = TRUE ORDER BY created_at DESC"),
-        {"uid": ctx["sub"]},
-    )
+    is_admin_scope = await _is_admin_scope(db, ctx["sub"], ctx.get("role", ""))
+    if is_admin_scope:
+        rows = await db.execute(text("""
+            SELECT a.*, u.full_name AS owner_name
+            FROM whatsapp_accounts a
+            LEFT JOIN users u ON u.id = a.owner_user_id
+            WHERE a.is_active = TRUE
+            ORDER BY a.created_at DESC
+        """))
+    else:
+        rows = await db.execute(
+            text("SELECT * FROM whatsapp_accounts WHERE owner_user_id = :uid AND is_active = TRUE ORDER BY created_at DESC"),
+            {"uid": ctx["sub"]},
+        )
     return [dict(r._mapping) for r in rows.fetchall()]
 
 
@@ -562,6 +583,7 @@ async def list_conversations(
     ctx: dict = Depends(get_current_user_with_tenant),
 ):
     db = ctx["db"]
+    is_admin_scope = await _is_admin_scope(db, ctx["sub"], ctx.get("role", ""))
     q = """
         SELECT c.*, a.display_name AS account_name, a.phone_number AS account_phone,
                l.full_name AS lead_name, l.status AS lead_status,
@@ -570,9 +592,12 @@ async def list_conversations(
         JOIN whatsapp_accounts a ON a.id = c.wa_account_id AND a.is_active = TRUE
         LEFT JOIN leads l ON l.id = c.lead_id
         LEFT JOIN crm_accounts ca ON ca.id = c.account_id
-        WHERE a.owner_user_id = :uid
+        WHERE 1=1
     """
-    params: dict = {"uid": ctx["sub"]}
+    params: dict = {}
+    if not is_admin_scope:
+        q += " AND a.owner_user_id = :uid"
+        params["uid"] = ctx["sub"]
     if not include_archived:
         q += " AND COALESCE(c.is_archived, FALSE) = FALSE"
     if search:
@@ -979,8 +1004,7 @@ async def remove_participants(contact_id: str, body: GroupParticipantsBody, ctx:
 @router.get("/labels")
 async def list_labels(account_id: Optional[str] = None, ctx: dict = Depends(get_current_user_with_tenant)):
     db = ctx["db"]
-    role = ctx.get("role", "")
-    is_admin_scope = role in ("platform_admin", "tenant_admin", "manager")
+    is_admin_scope = await _is_admin_scope(db, ctx["sub"], ctx.get("role", ""))
     if account_id:
         if is_admin_scope:
             acc = await db.execute(text("SELECT id FROM whatsapp_accounts WHERE id = :aid AND is_active = TRUE"), {"aid": account_id})
@@ -1042,8 +1066,7 @@ async def dashboard(
     ctx: dict = Depends(get_current_user_with_tenant),
 ):
     db = ctx["db"]
-    role = ctx.get("role", "")
-    is_admin = role in ("platform_admin", "tenant_admin", "manager")
+    is_admin = await _is_admin_scope(db, ctx["sub"], ctx.get("role", ""))
 
     # Build WHERE filters for the base query
     where_clauses = ["COALESCE(c.is_deleted, FALSE) = FALSE"]
