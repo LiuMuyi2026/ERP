@@ -119,6 +119,18 @@ async def init_db():
         await conn.execute(text("ALTER TABLE platform.tenants ADD COLUMN IF NOT EXISTS smtp_use_ssl BOOLEAN DEFAULT FALSE"))
         await conn.execute(text("ALTER TABLE platform.tenants ADD COLUMN IF NOT EXISTS smtp_timeout_seconds INTEGER DEFAULT 20"))
 
+        # ── IMAP columns ──────────────────────────────────────────────────
+        await conn.execute(text("ALTER TABLE platform.tenants ADD COLUMN IF NOT EXISTS imap_enabled BOOLEAN DEFAULT FALSE"))
+        await conn.execute(text("ALTER TABLE platform.tenants ADD COLUMN IF NOT EXISTS imap_host VARCHAR(255)"))
+        await conn.execute(text("ALTER TABLE platform.tenants ADD COLUMN IF NOT EXISTS imap_port INTEGER DEFAULT 993"))
+        await conn.execute(text("ALTER TABLE platform.tenants ADD COLUMN IF NOT EXISTS imap_username VARCHAR(255)"))
+        await conn.execute(text("ALTER TABLE platform.tenants ADD COLUMN IF NOT EXISTS imap_password TEXT"))
+        await conn.execute(text("ALTER TABLE platform.tenants ADD COLUMN IF NOT EXISTS imap_password_encrypted TEXT"))
+        await conn.execute(text("ALTER TABLE platform.tenants ADD COLUMN IF NOT EXISTS imap_use_ssl BOOLEAN DEFAULT TRUE"))
+        await conn.execute(text("ALTER TABLE platform.tenants ADD COLUMN IF NOT EXISTS imap_mailbox VARCHAR(255) DEFAULT 'INBOX'"))
+        await conn.execute(text("ALTER TABLE platform.tenants ADD COLUMN IF NOT EXISTS imap_timeout_seconds INTEGER DEFAULT 30"))
+        await conn.execute(text("ALTER TABLE platform.tenants ADD COLUMN IF NOT EXISTS imap_last_sync_at TIMESTAMPTZ"))
+
         # ── Per-tenant AI provider configs (encrypted keys) ─────────────
         await conn.execute(text("""
             CREATE TABLE IF NOT EXISTS platform.tenant_ai_configs (

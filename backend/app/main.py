@@ -7,55 +7,19 @@ from contextlib import asynccontextmanager
 import logging
 import os
 
-import asyncio
-
 from app.config import settings
-from app.database import init_db, engine, AsyncSessionLocal
+from app.database import init_db, engine
 from app.routers import auth, platform, workspace, crm, hr, accounting, inventory, ai, integrations, admin, notifications, messages, orders, ai_providers, automation, ai_finder, whisper_ws, workflow_templates, whatsapp, ws_whatsapp, ws_messages, email
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
-async def _imap_sync_loop():
-    """Background loop: sync IMAP-enabled tenants every 5 minutes."""
-    from app.services.imap_sync import sync_tenant_imap
-    while True:
-        await asyncio.sleep(300)  # 5 minutes
-        try:
-            async with AsyncSessionLocal() as db:
-                result = await db.execute(text(
-                    "SELECT slug, imap_host, imap_port, imap_username, imap_password, "
-                    "imap_use_ssl, imap_mailbox, imap_last_sync_at "
-                    "FROM platform.tenants WHERE imap_enabled = TRUE AND is_active = TRUE"
-                ))
-                tenants = result.fetchall()
-            for t in tenants:
-                try:
-                    imap_config = {
-                        "imap_host": t.imap_host,
-                        "imap_port": t.imap_port,
-                        "imap_username": t.imap_username,
-                        "imap_password": t.imap_password,
-                        "imap_use_ssl": t.imap_use_ssl,
-                        "imap_mailbox": t.imap_mailbox,
-                        "imap_last_sync_at": t.imap_last_sync_at,
-                    }
-                    async with AsyncSessionLocal() as db:
-                        await sync_tenant_imap(t.slug, imap_config, db)
-                except Exception as e:
-                    logger.warning("IMAP sync error for %s: %s", t.slug, e)
-        except Exception as e:
-            logger.warning("IMAP sync loop error: %s", e)
-
-
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("Starting Nexus ERP API...")
     await init_db()
-    imap_task = asyncio.create_task(_imap_sync_loop())
     yield
-    imap_task.cancel()
     logger.info("Shutting down...")
 
 

@@ -8,11 +8,13 @@ import re
 import logging
 from datetime import datetime, timezone
 
-from app.deps import get_current_user_with_tenant
+from app.deps import get_current_user_with_tenant, require_admin_with_tenant
 from app.config import settings
 from app.database import AsyncSessionLocal
 from app.services.mailer import build_smtp_config, send_email, email_delivery_enabled
+from app.services.imap_sync import sync_tenant_imap
 from app.utils.sql import safe_set_search_path
+from app.utils.crypto import decrypt_api_key
 
 logger = logging.getLogger(__name__)
 
@@ -443,3 +445,62 @@ async def delete_email(email_id: str, ctx: dict = Depends(get_current_user_with_
     await db.execute(text("UPDATE emails SET is_deleted = TRUE WHERE id = CAST(:eid AS uuid)"), {"eid": email_id})
     await db.commit()
     return {"ok": True}
+
+
+# ── IMAP Sync ─────────────────────────────────────────────────────────────────
+
+@router.post("/imap/sync")
+async def imap_sync_now(ctx: dict = Depends(require_admin_with_tenant)):
+    """Manually trigger IMAP sync for this tenant."""
+    db = ctx["db"]
+    tenant_slug = ctx["tenant_slug"]
+    result = await db.execute(text("""
+        SELECT imap_enabled, imap_host, imap_port, imap_username,
+               imap_password, imap_password_encrypted, imap_use_ssl,
+               imap_mailbox, imap_timeout_seconds, imap_last_sync_at
+        FROM platform.tenants WHERE slug = :slug
+    """), {"slug": tenant_slug})
+    row = result.fetchone()
+    if not row or not row.imap_enabled:
+        raise HTTPException(status_code=400, detail="IMAP is not enabled")
+
+    imap_password = ""
+    if row.imap_password_encrypted:
+        try:
+            imap_password = decrypt_api_key(row.imap_password_encrypted)
+        except Exception:
+            raise HTTPException(status_code=500, detail="Failed to decrypt IMAP password")
+    elif row.imap_password:
+        # Backward compatibility for legacy plaintext rows.
+        imap_password = row.imap_password
+
+    imap_config = {
+        "imap_host": row.imap_host,
+        "imap_port": row.imap_port,
+        "imap_username": row.imap_username,
+        "imap_password": imap_password,
+        "imap_use_ssl": row.imap_use_ssl,
+        "imap_mailbox": row.imap_mailbox,
+        "imap_timeout_seconds": row.imap_timeout_seconds,
+        "imap_last_sync_at": row.imap_last_sync_at,
+    }
+    sync_result = await sync_tenant_imap(tenant_slug, imap_config, db)
+    return sync_result
+
+
+@router.get("/imap/status")
+async def imap_status(ctx: dict = Depends(require_admin_with_tenant)):
+    """Return IMAP sync status for the current tenant."""
+    db = ctx["db"]
+    result = await db.execute(text("""
+        SELECT imap_enabled, imap_last_sync_at, imap_timeout_seconds
+        FROM platform.tenants WHERE slug = :slug
+    """), {"slug": ctx["tenant_slug"]})
+    row = result.fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Tenant not found")
+    return {
+        "imap_enabled": bool(row.imap_enabled),
+        "imap_timeout_seconds": row.imap_timeout_seconds or 30,
+        "last_sync_at": row.imap_last_sync_at.isoformat() if row.imap_last_sync_at else None,
+    }

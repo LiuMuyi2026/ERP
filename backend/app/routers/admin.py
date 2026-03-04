@@ -4,12 +4,13 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, Field, field_validator
 from typing import Optional, List
 
 from app.deps import get_current_user_with_tenant, require_admin_with_tenant
 from app.services.auth import get_password_hash
 from app.utils.sql import build_update_clause
+from app.utils.crypto import encrypt_api_key
 
 _PASSWORD_RE = re.compile(r"^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{8,}$")
 DEFAULT_PASSWORD = "Happy2026"
@@ -49,6 +50,25 @@ class NotificationSmtpConfig(BaseModel):
     smtp_use_tls: Optional[bool] = None
     smtp_use_ssl: Optional[bool] = None
     smtp_timeout_seconds: Optional[int] = None
+
+class ImapConfig(BaseModel):
+    imap_enabled: Optional[bool] = None
+    imap_host: Optional[str] = Field(default=None, max_length=255)
+    imap_port: Optional[int] = Field(default=None, ge=1, le=65535)
+    imap_username: Optional[str] = Field(default=None, max_length=255)
+    imap_password: Optional[str] = None
+    imap_use_ssl: Optional[bool] = None
+    imap_mailbox: Optional[str] = Field(default=None, max_length=255)
+    imap_timeout_seconds: Optional[int] = Field(default=None, ge=5, le=120)
+
+    @field_validator("imap_host", "imap_username", "imap_mailbox", mode="before")
+    @classmethod
+    def _strip_text(cls, value):
+        if isinstance(value, str):
+            value = value.strip()
+            return value or None
+        return value
+
 
 class PositionCreate(BaseModel):
     name: str
@@ -485,6 +505,78 @@ async def update_notifications_smtp(body: NotificationSmtpConfig, ctx: dict = De
     allowed_fields = {
         "email_enabled", "smtp_host", "smtp_port", "smtp_username", "smtp_password",
         "smtp_from_email", "smtp_from_name", "smtp_use_tls", "smtp_use_ssl", "smtp_timeout_seconds",
+    }
+    set_clause, params = build_update_clause(updates, allowed_fields)
+    if not set_clause:
+        return {"status": "no changes"}
+    params["slug"] = ctx["tenant_slug"]
+    await ctx["db"].execute(text(f"UPDATE platform.tenants SET {set_clause}, updated_at = NOW() WHERE slug = :slug"), params)
+    await ctx["db"].commit()
+    return {"status": "updated"}
+
+
+@router.get("/notifications/imap")
+async def get_notifications_imap(ctx: dict = Depends(require_admin_with_tenant)):
+    result = await ctx["db"].execute(
+        text("""
+            SELECT imap_enabled, imap_host, imap_port, imap_username,
+                   imap_use_ssl, imap_mailbox, imap_timeout_seconds, imap_last_sync_at,
+                   imap_password, imap_password_encrypted
+            FROM platform.tenants
+            WHERE slug = :slug
+        """),
+        {"slug": ctx["tenant_slug"]},
+    )
+    row = result.fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Tenant not found")
+    return {
+        "imap_enabled": bool(row.imap_enabled),
+        "imap_host": row.imap_host or "",
+        "imap_port": row.imap_port or 993,
+        "imap_username": row.imap_username or "",
+        "imap_use_ssl": bool(row.imap_use_ssl) if row.imap_use_ssl is not None else True,
+        "imap_mailbox": row.imap_mailbox or "INBOX",
+        "imap_timeout_seconds": row.imap_timeout_seconds or 30,
+        "imap_has_password": bool(row.imap_password_encrypted or row.imap_password),
+        "imap_last_sync_at": row.imap_last_sync_at.isoformat() if row.imap_last_sync_at else None,
+    }
+
+
+@router.patch("/notifications/imap")
+async def update_notifications_imap(body: ImapConfig, ctx: dict = Depends(require_admin_with_tenant)):
+    updates = {k: v for k, v in body.model_dump(exclude_unset=True).items()}
+    if not updates:
+        return {"status": "no changes"}
+
+    current_row = await ctx["db"].execute(text("""
+        SELECT imap_host, imap_username
+        FROM platform.tenants
+        WHERE slug = :slug
+    """), {"slug": ctx["tenant_slug"]})
+    current = current_row.fetchone()
+
+    if updates.get("imap_enabled"):
+        merged_host = updates.get("imap_host", current.imap_host if current else None)
+        merged_user = updates.get("imap_username", current.imap_username if current else None)
+        missing_required = []
+        if not merged_host:
+            missing_required.append("imap_host")
+        if not merged_user:
+            missing_required.append("imap_username")
+        if missing_required:
+            raise HTTPException(status_code=422, detail=f"Missing IMAP fields: {', '.join(missing_required)}")
+
+    # Password is write-only: empty means keep current, non-empty means store encrypted.
+    password_plain = updates.pop("imap_password", None)
+    if password_plain is not None:
+        password_plain = password_plain.strip()
+        if password_plain:
+            updates["imap_password_encrypted"] = encrypt_api_key(password_plain)
+
+    allowed_fields = {
+        "imap_enabled", "imap_host", "imap_port", "imap_username", "imap_password_encrypted",
+        "imap_use_ssl", "imap_mailbox", "imap_timeout_seconds",
     }
     set_clause, params = build_update_clause(updates, allowed_fields)
     if not set_clause:

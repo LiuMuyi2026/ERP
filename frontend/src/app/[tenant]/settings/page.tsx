@@ -1432,6 +1432,20 @@ function EmailSettingsSection() {
   const [savingAdminSmtp, setSavingAdminSmtp] = useState(false);
   const [adminSmtpSaved, setAdminSmtpSaved] = useState<string | null>(null);
 
+  // IMAP state
+  const [imapConfig, setImapConfig] = useState({
+    imap_enabled: false, imap_host: '', imap_port: 993,
+    imap_username: '', imap_use_ssl: true, imap_mailbox: 'INBOX',
+    imap_timeout_seconds: 30, imap_has_password: false,
+    imap_last_sync_at: null as string | null,
+  });
+  const [imapPassword, setImapPassword] = useState('');
+  const [loadingImap, setLoadingImap] = useState(true);
+  const [savingImap, setSavingImap] = useState(false);
+  const [imapSaved, setImapSaved] = useState<string | null>(null);
+  const [syncing, setSyncing] = useState(false);
+  const [syncResult, setSyncResult] = useState<string | null>(null);
+
   const [userSmtpConfig, setUserSmtpConfig] = useState<NotificationSmtpForm>({ ...DEFAULT_NOTIFICATION_SMTP });
   const [userSmtpPassword, setUserSmtpPassword] = useState('');
   const [loadingUserSmtp, setLoadingUserSmtp] = useState(true);
@@ -1455,6 +1469,20 @@ function EmailSettingsSection() {
       .finally(() => {
         if (alive) setLoadingAdminSmtp(false);
       });
+    return () => { alive = false; };
+  }, [canManageAdminSMTP]);
+
+  // Load IMAP config
+  useEffect(() => {
+    if (!canManageAdminSMTP) { setLoadingImap(false); return; }
+    let alive = true;
+    api.get('/api/admin/notifications/imap')
+      .then((remote: any) => {
+        if (!alive) return;
+        if (remote) setImapConfig(prev => ({ ...prev, ...remote }));
+      })
+      .catch(() => {})
+      .finally(() => { if (alive) setLoadingImap(false); });
     return () => { alive = false; };
   }, [canManageAdminSMTP]);
 
@@ -1496,6 +1524,51 @@ function EmailSettingsSection() {
       alert(err.message || tSettings('notifSmtpSaveFailed'));
     } finally {
       setSavingAdminSmtp(false);
+    }
+  }
+
+  // IMAP helpers
+  function updateImap(field: string, value: any) {
+    setImapConfig(prev => ({ ...prev, [field]: value }));
+  }
+
+  async function saveImapConfig() {
+    if (!canManageAdminSMTP) return;
+    setSavingImap(true);
+    setImapSaved(null);
+    try {
+      const payload: any = { ...imapConfig };
+      delete payload.imap_last_sync_at;
+      if (!imapPassword) {
+        delete payload.imap_password;
+      } else {
+        payload.imap_password = imapPassword;
+      }
+      await api.patch('/api/admin/notifications/imap', payload);
+      setImapPassword('');
+      setImapSaved(tSettings('imapSaved'));
+    } catch (err: any) {
+      alert(err.message || tSettings('imapSaveFailed'));
+    } finally {
+      setSavingImap(false);
+    }
+  }
+
+  async function triggerImapSync() {
+    setSyncing(true);
+    setSyncResult(null);
+    try {
+      const res = await api.post('/api/email/imap/sync', {});
+      setSyncResult(tSettings('imapSyncResult', { count: res.synced ?? 0 }));
+      // Refresh last sync time
+      const status = await api.get('/api/email/imap/status');
+      if (status?.last_sync_at) {
+        setImapConfig(prev => ({ ...prev, imap_last_sync_at: status.last_sync_at }));
+      }
+    } catch (err: any) {
+      alert(err.message || 'Sync failed');
+    } finally {
+      setSyncing(false);
     }
   }
 
@@ -1655,6 +1728,141 @@ function EmailSettingsSection() {
             </div>
             <p className="text-xs mt-2" style={{ color: 'var(--notion-text-muted)' }}>{tSettings('notifSmtpAdminOnly')}</p>
           </SettingsCard>
+
+          {/* ── IMAP Config Card ── */}
+          <div className="mt-6">
+            <p className="text-sm font-semibold uppercase tracking-wider mb-2" style={{ color: 'var(--notion-text-muted)' }}>
+              {tSettings('imapTitle')}
+            </p>
+            <SettingsCard>
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-medium" style={{ color: 'var(--notion-text)' }}>{tSettings('imapEnable')}</p>
+                  <p className="text-xs" style={{ color: 'var(--notion-text-muted)' }}>{tSettings('imapDesc')}</p>
+                </div>
+                <Toggle
+                  value={imapConfig.imap_enabled}
+                  onChange={() => updateImap('imap_enabled', !imapConfig.imap_enabled)}
+                  disabled={loadingImap}
+                />
+              </div>
+              <div className="grid gap-3 mt-4 md:grid-cols-2">
+                <div className="space-y-1">
+                  <label className="text-xs font-semibold" style={{ color: 'var(--notion-text-muted)' }}>{tSettings('imapHost')}</label>
+                  <input
+                    value={imapConfig.imap_host}
+                    onChange={e => updateImap('imap_host', e.target.value)}
+                    placeholder="imap.example.com"
+                    className="w-full px-3 py-2.5 rounded-xl text-sm outline-none"
+                    style={{ border: '1px solid var(--notion-border)', color: 'var(--notion-text)' }}
+                    disabled={loadingImap}
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs font-semibold" style={{ color: 'var(--notion-text-muted)' }}>{tSettings('imapPort')}</label>
+                  <input
+                    type="number"
+                    value={imapConfig.imap_port}
+                    onChange={e => updateImap('imap_port', Number(e.target.value) || 0)}
+                    className="w-full px-3 py-2.5 rounded-xl text-sm outline-none"
+                    style={{ border: '1px solid var(--notion-border)', color: 'var(--notion-text)' }}
+                    disabled={loadingImap}
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs font-semibold" style={{ color: 'var(--notion-text-muted)' }}>{tSettings('imapUsername')}</label>
+                  <input
+                    value={imapConfig.imap_username}
+                    onChange={e => updateImap('imap_username', e.target.value)}
+                    className="w-full px-3 py-2.5 rounded-xl text-sm outline-none"
+                    style={{ border: '1px solid var(--notion-border)', color: 'var(--notion-text)' }}
+                    disabled={loadingImap}
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs font-semibold" style={{ color: 'var(--notion-text-muted)' }}>{tSettings('imapPassword')}</label>
+                  <input
+                    type="password"
+                    value={imapPassword}
+                    onChange={e => setImapPassword(e.target.value)}
+                    placeholder={tSettings('imapPasswordPlaceholder')}
+                    className="w-full px-3 py-2.5 rounded-xl text-sm outline-none"
+                    style={{ border: '1px solid var(--notion-border)', color: 'var(--notion-text)' }}
+                    disabled={loadingImap}
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs font-semibold" style={{ color: 'var(--notion-text-muted)' }}>{tSettings('imapMailbox')}</label>
+                  <input
+                    value={imapConfig.imap_mailbox}
+                    onChange={e => updateImap('imap_mailbox', e.target.value)}
+                    placeholder="INBOX"
+                    className="w-full px-3 py-2.5 rounded-xl text-sm outline-none"
+                    style={{ border: '1px solid var(--notion-border)', color: 'var(--notion-text)' }}
+                    disabled={loadingImap}
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs font-semibold" style={{ color: 'var(--notion-text-muted)' }}>{tSettings('imapTimeout')}</label>
+                  <input
+                    type="number"
+                    value={imapConfig.imap_timeout_seconds}
+                    onChange={e => updateImap('imap_timeout_seconds', Number(e.target.value) || 0)}
+                    className="w-full px-3 py-2.5 rounded-xl text-sm outline-none"
+                    style={{ border: '1px solid var(--notion-border)', color: 'var(--notion-text)' }}
+                    disabled={loadingImap}
+                  />
+                </div>
+                <div className="flex items-center gap-3">
+                  <Toggle
+                    value={imapConfig.imap_use_ssl}
+                    onChange={() => updateImap('imap_use_ssl', !imapConfig.imap_use_ssl)}
+                    disabled={loadingImap}
+                  />
+                  <p className="text-xs text-[var(--notion-text-muted)]">{tSettings('imapSsl')}</p>
+                </div>
+              </div>
+              <div className="flex items-center gap-3 mt-4">
+                <button
+                  type="button"
+                  onClick={saveImapConfig}
+                  disabled={savingImap || loadingImap}
+                  className="px-4 py-2 text-sm font-semibold rounded-xl"
+                  style={{
+                    background: savingImap ? '#c4b5fd' : 'var(--notion-accent)',
+                    color: 'white',
+                    opacity: savingImap || loadingImap ? 0.7 : 1,
+                  }}
+                >
+                  {tSettings('imapSave')}
+                </button>
+                {imapConfig.imap_enabled && (
+                  <button
+                    type="button"
+                    onClick={triggerImapSync}
+                    disabled={syncing}
+                    className="px-4 py-2 text-sm font-semibold rounded-xl"
+                    style={{
+                      background: 'var(--notion-bg-secondary)',
+                      border: '1px solid var(--notion-border)',
+                      color: 'var(--notion-text)',
+                      opacity: syncing ? 0.7 : 1,
+                    }}
+                  >
+                    {syncing ? tSettings('imapSyncing') : tSettings('imapSyncNow')}
+                  </button>
+                )}
+                {imapSaved && <span className="text-xs" style={{ color: 'var(--notion-text-muted)' }}>{imapSaved}</span>}
+                {syncResult && <span className="text-xs" style={{ color: 'var(--notion-text-muted)' }}>{syncResult}</span>}
+              </div>
+              {imapConfig.imap_has_password && !imapPassword && (
+                <p className="text-xs mt-2" style={{ color: 'var(--notion-text-muted)' }}>{tSettings('imapPasswordStored')}</p>
+              )}
+              <p className="text-xs mt-2" style={{ color: 'var(--notion-text-muted)' }}>
+                {tSettings('imapLastSync')}: {imapConfig.imap_last_sync_at ? new Date(imapConfig.imap_last_sync_at).toLocaleString() : tSettings('imapNeverSynced')}
+              </p>
+            </SettingsCard>
+          </div>
         </div>
       )}
 
