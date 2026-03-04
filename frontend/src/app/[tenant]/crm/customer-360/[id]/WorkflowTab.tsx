@@ -1549,13 +1549,10 @@ export function WorkflowTab({ leadId, isCold, onMarkCold }: {
                             <div className="text-xs" style={{ color: stage.color }}>✓ {tw('classifyDone')}{cd.saved_at ? ` · ${new Date(cd.saved_at).toLocaleDateString()}` : ''}</div>
                           ) : (
                             <>
-                              {level && files.length === 0 && (
-                                <p className="text-[10px]" style={{ color: '#ef4444' }}>请上传询盘背景文件后再完成此步骤</p>
-                              )}
-                              <button disabled={!level || files.length === 0} onClick={() => actionClassifySave(activeStage)}
+                              <button disabled={!level} onClick={() => actionClassifySave(activeStage)}
                                 className="w-full text-xs py-2 rounded-lg font-semibold text-white disabled:opacity-40 transition-all"
-                                style={{ background: level && files.length > 0 ? stage.color : '#9ca3af' }}>
-                                {!level ? tw('selectInquiryLevel') : files.length === 0 ? '请先上传文件' : `${tw('saveAndComplete')} ✓`}
+                                style={{ background: level ? stage.color : '#9ca3af' }}>
+                                {!level ? tw('selectInquiryLevel') : `${tw('saveAndComplete')} ✓`}
                               </button>
                             </>
                           )}
