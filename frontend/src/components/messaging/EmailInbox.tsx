@@ -1,8 +1,9 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
+import { useParams } from 'next/navigation';
 import { api } from '@/lib/api';
-import { useTranslations } from 'next-intl';
+import { useLocale, useTranslations } from 'next-intl';
 import toast from 'react-hot-toast';
 import { relTime } from './wa-helpers';
 import EmailComposer from './EmailComposer';
@@ -36,6 +37,10 @@ type ViewMode = 'list' | 'read' | 'compose' | 'reply';
 
 export default function EmailInbox() {
   const t = useTranslations('msgCenter');
+  const locale = useLocale();
+  const params = useParams();
+  const tenantSlug = params?.tenant as string || '';
+  const translatePrefKey = `wa_auto_translate_${tenantSlug || 'default'}`;
   const [folder, setFolder] = useState<Folder>('inbox');
   const [emails, setEmails] = useState<EmailItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -50,6 +55,25 @@ export default function EmailInbox() {
   const [linkingEmail, setLinkingEmail] = useState<string | null>(null);
   const [leadSearch, setLeadSearch] = useState('');
   const [leadResults, setLeadResults] = useState<any[]>([]);
+  const [autoTranslateEnabled, setAutoTranslateEnabled] = useState(false);
+
+  useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem(translatePrefKey);
+      if (raw === '1') setAutoTranslateEnabled(true);
+      if (raw === '0') setAutoTranslateEnabled(false);
+    } catch {
+      // ignore localStorage errors
+    }
+  }, [translatePrefKey]);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(translatePrefKey, autoTranslateEnabled ? '1' : '0');
+    } catch {
+      // ignore localStorage errors
+    }
+  }, [autoTranslateEnabled, translatePrefKey]);
 
   const loadEmails = useCallback(async () => {
     setLoading(true);
@@ -141,6 +165,18 @@ export default function EmailInbox() {
             </button>
           ))}
           <div className="flex-1" />
+          <button
+            onClick={() => setAutoTranslateEnabled(v => !v)}
+            className="text-[11px] px-2 py-1 rounded-lg border"
+            style={{
+              borderColor: autoTranslateEnabled ? '#86efac' : '#e5e7eb',
+              color: autoTranslateEnabled ? '#166534' : '#667781',
+              background: autoTranslateEnabled ? '#f0fdf4' : 'white',
+            }}
+            title={`Auto Translate (${locale})`}
+          >
+            {autoTranslateEnabled ? 'Auto Translate On' : 'Auto Translate Off'}
+          </button>
           <button onClick={handleCompose}
             className="px-3 py-1.5 rounded-lg text-xs font-medium text-white"
             style={{ background: '#3b82f6' }}>
@@ -241,6 +277,8 @@ export default function EmailInbox() {
         {viewMode === 'read' && selectedEmail && (
           <EmailReader
             email={selectedEmail}
+            autoTranslateEnabled={autoTranslateEnabled}
+            userTargetLanguage={locale}
             onReply={handleReply}
             onForward={handleForward}
             onLinkCustomer={() => setLinkingEmail(selectedEmail.id)}
@@ -252,6 +290,8 @@ export default function EmailInbox() {
           <EmailComposer
             defaultTo={selectedEmail?.to_email}
             defaultSubject={selectedEmail?.subject}
+            autoTranslateEnabled={autoTranslateEnabled}
+            userTargetLanguage={locale}
             onSent={handleSent}
             onCancel={() => { setViewMode('list'); setSelectedEmail(null); }}
           />
@@ -260,6 +300,8 @@ export default function EmailInbox() {
         {viewMode === 'reply' && selectedEmail && (
           <EmailComposer
             replyTo={selectedEmail}
+            autoTranslateEnabled={autoTranslateEnabled}
+            userTargetLanguage={locale}
             onSent={handleSent}
             onCancel={() => setViewMode('read')}
           />

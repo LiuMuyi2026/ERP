@@ -609,6 +609,9 @@ export default function WhatsAppInbox() {
   const [filterAssigned, setFilterAssigned] = useState('');
   const [allUsers, setAllUsers] = useState<{ id: string; full_name?: string; email?: string }[]>([]);
   const [batchLinking, setBatchLinking] = useState(false);
+  const unreadSyncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const typingTimersRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+  const [typingByKey, setTypingByKey] = useState<Record<string, boolean>>({});
 
   async function handleBatchAutoLink() {
     setBatchLinking(true);
@@ -673,7 +676,13 @@ export default function WhatsAppInbox() {
           const isOpen = selectedContact && (selectedContact.id === ev.contact_id ||
             (selectedContact.merge_key && ev.contact_jid && selectedContact.merge_key === ev.contact_jid.split('@')[0]));
           if (!isOpen) {
-            updated.unread_count = ev.unread_count ?? (updated.unread_count + 1);
+            // For merged conversations, ev.unread_count is per-contact and can be lower than total.
+            // Keep UI monotonic (+1) and then reconcile from server shortly after.
+            updated.unread_count = (updated.unread_count || 0) + 1;
+            if (unreadSyncTimerRef.current) clearTimeout(unreadSyncTimerRef.current);
+            unreadSyncTimerRef.current = setTimeout(() => {
+              loadData();
+            }, 600);
           }
           const rest = [...prev];
           rest.splice(idx, 1);
@@ -690,6 +699,39 @@ export default function WhatsAppInbox() {
       setAccounts((prev) =>
         prev.map((a) => a.id === ev.account_id ? { ...a, status: ev.status } : a)
       );
+    }));
+
+    // Typing presence
+    unsubs.push(onWsEvent('typing', (ev) => {
+      const participant = String(ev?.participant || '');
+      const phone = participant.includes('@') ? participant.split('@')[0] : participant;
+      const targetKey = phone || String(ev?.contact_id || '');
+      if (!targetKey) return;
+
+      if (ev?.state === 'composing') {
+        setTypingByKey((prev) => ({ ...prev, [targetKey]: true }));
+        if (typingTimersRef.current[targetKey]) {
+          clearTimeout(typingTimersRef.current[targetKey]);
+        }
+        typingTimersRef.current[targetKey] = setTimeout(() => {
+          setTypingByKey((prev) => {
+            const next = { ...prev };
+            delete next[targetKey];
+            return next;
+          });
+          delete typingTimersRef.current[targetKey];
+        }, 5000);
+      } else if (ev?.state === 'paused' || ev?.state === 'available' || ev?.state === 'unavailable') {
+        if (typingTimersRef.current[targetKey]) {
+          clearTimeout(typingTimersRef.current[targetKey]);
+          delete typingTimersRef.current[targetKey];
+        }
+        setTypingByKey((prev) => {
+          const next = { ...prev };
+          delete next[targetKey];
+          return next;
+        });
+      }
     }));
 
     return () => unsubs.forEach((u) => u());
@@ -796,6 +838,9 @@ export default function WhatsAppInbox() {
     setSelectedContact(conv);
     if (conv.unread_count > 0) {
       setConversations(prev => prev.map(c => c.id === conv.id ? { ...c, unread_count: 0 } : c));
+      api.post(`/api/whatsapp/conversations/${conv.id}/read`, {})
+        .then(() => loadData())
+        .catch(() => loadData());
     }
   }
 
@@ -999,6 +1044,8 @@ export default function WhatsAppInbox() {
               const labelNames = (conv.wa_labels || []).map(lid => labels.find(l => l.wa_label_id === lid)?.name).filter(Boolean);
               const hasUnread = conv.unread_count > 0;
               const preview = parsePreview(conv.last_message_preview);
+              const typingKey = conv.merge_key || conv.id;
+              const isTyping = !!typingByKey[typingKey];
 
               return (
                 <div key={conv.id}
@@ -1056,8 +1103,14 @@ export default function WhatsAppInbox() {
                     )}
                     <div className="flex items-center justify-between gap-2 mt-0.5">
                       <p className="text-[13px] truncate flex-1" style={{ color: '#667781', fontWeight: hasUnread ? 500 : 400 }}>
-                        {preview.isMe && <span style={{ color: '#667781' }}>You: </span>}
-                        {preview.text}
+                        {isTyping ? (
+                          <span style={{ color: '#00a884', fontWeight: 600 }}>typing...</span>
+                        ) : (
+                          <>
+                            {preview.isMe && <span style={{ color: '#667781' }}>You: </span>}
+                            {preview.text}
+                          </>
+                        )}
                       </p>
                       <div className="flex items-center gap-1.5 flex-shrink-0">
                         {conv.is_pinned && (

@@ -18,12 +18,41 @@ interface EmailComposerProps {
   defaultSubject?: string;
   leadId?: string;
   accountId?: string;
+  autoTranslateEnabled?: boolean;
+  userTargetLanguage?: string;
   onSent?: () => void;
   onCancel?: () => void;
 }
 
+function normalizeLanguageCode(value?: string) {
+  const v = (value || '').trim().toLowerCase().replace('_', '-');
+  if (!v) return 'en';
+  if (v.startsWith('zh')) return 'zh-CN';
+  if (v.startsWith('ja')) return 'ja';
+  if (v.startsWith('es')) return 'es';
+  if (v.startsWith('de')) return 'de';
+  if (v.startsWith('fr')) return 'fr';
+  if (v.startsWith('pt')) return 'pt';
+  return v.split('-')[0];
+}
+
+function guessLanguageFromEmail(email: string) {
+  const lower = (email || '').toLowerCase();
+  if (lower.endsWith('.cn') || lower.endsWith('.com.cn')) return 'zh-CN';
+  if (lower.endsWith('.tw') || lower.endsWith('.hk')) return 'zh-TW';
+  if (lower.endsWith('.jp')) return 'ja';
+  if (lower.endsWith('.es') || lower.endsWith('.mx') || lower.endsWith('.ar')) return 'es';
+  if (lower.endsWith('.de')) return 'de';
+  if (lower.endsWith('.fr')) return 'fr';
+  if (lower.endsWith('.br') || lower.endsWith('.pt')) return 'pt';
+  return 'en';
+}
+
 export default function EmailComposer({
-  replyTo, defaultTo, defaultSubject, leadId, accountId, onSent, onCancel,
+  replyTo, defaultTo, defaultSubject, leadId, accountId,
+  autoTranslateEnabled = false,
+  userTargetLanguage = 'en',
+  onSent, onCancel,
 }: EmailComposerProps) {
   const t = useTranslations('msgCenter');
   const [to, setTo] = useState(replyTo?.from_email || defaultTo || '');
@@ -45,12 +74,31 @@ export default function EmailComposer({
     }
     setSending(true);
     try {
+      let outgoingBody = bodyText;
+      if (autoTranslateEnabled && bodyText.trim()) {
+        const targetLanguage = normalizeLanguageCode(guessLanguageFromEmail(to.trim()));
+        const sourceLanguage = normalizeLanguageCode(userTargetLanguage);
+        try {
+          const translated: any = await api.post('/api/whatsapp/ai/translate', {
+            text: bodyText,
+            target_language: targetLanguage,
+            source_language: sourceLanguage,
+            mode: 'outgoing',
+          });
+          if (translated?.is_translated && translated?.translated_text) {
+            outgoingBody = String(translated.translated_text);
+          }
+        } catch {
+          // fallback to original text when translation fails
+        }
+      }
+
       await api.post('/api/email/send', {
         to_email: to.trim(),
         cc: cc.trim() || undefined,
         bcc: bcc.trim() || undefined,
         subject: subject.trim(),
-        body_text: bodyText,
+        body_text: outgoingBody,
         body_html: undefined,
         in_reply_to_id: replyTo?.id || undefined,
         lead_id: leadId || undefined,
@@ -145,6 +193,11 @@ export default function EmailComposer({
       {/* Footer */}
       <div className="flex items-center justify-end gap-2 px-4 py-3 flex-shrink-0"
         style={{ borderTop: '1px solid #e5e7eb' }}>
+        {autoTranslateEnabled && (
+          <span className="mr-auto text-[11px]" style={{ color: '#64748b' }}>
+            Auto translate: {normalizeLanguageCode(userTargetLanguage)} → {normalizeLanguageCode(guessLanguageFromEmail(to))}
+          </span>
+        )}
         {onCancel && (
           <button onClick={onCancel}
             className="px-4 py-2 rounded-lg text-sm border"

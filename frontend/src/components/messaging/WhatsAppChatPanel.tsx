@@ -1436,6 +1436,7 @@ export default function WhatsAppChatPanel({
     : presence?.status === 'available' ? L.online
     : presence?.lastSeen ? `${L.lastSeen} ${new Date(presence.lastSeen * 1000).toLocaleString()}`
     : '';
+  const isTypingNow = wsTyping || presence?.status === 'composing';
 
   return (
     <div className="flex flex-col h-full" style={{ minHeight: 400 }}>
@@ -1455,7 +1456,7 @@ export default function WhatsAppChatPanel({
           style={{ cursor: isGroup ? 'pointer' : 'default' }}>
           <p className="text-sm font-medium truncate text-white">{contactName || 'WhatsApp Chat'}</p>
           <div className="flex items-center gap-2 truncate">
-            <span className="text-xs truncate" style={{ color: presenceText === 'typing...' ? '#a8f0d6' : 'rgba(255,255,255,0.7)' }}>
+            <span className="text-xs truncate" style={{ color: isTypingNow ? '#a8f0d6' : 'rgba(255,255,255,0.7)' }}>
               {presenceText || (isGroup ? L.tapGroupInfo : `${messages.length} ${L.msgCount}`)}
             </span>
             {(conversation?.lead_name || conversation?.crm_account_name) ? (
@@ -2236,10 +2237,29 @@ export default function WhatsAppChatPanel({
                     </div>
 
                     {/* Hover action menu */}
-                    <div className="absolute top-0 opacity-0 group-hover:opacity-100 transition-opacity flex gap-0.5 z-10"
-                      style={{ [isOut ? 'left' : 'right']: '-8px', transform: 'translateX(-100%)' }}>
-                      <button onClick={() => setReplyTo(msg)} className="p-1 rounded hover:bg-gray-200" title="Reply">↩</button>
-                      <button onClick={(e) => { e.stopPropagation(); setMenuMsg(menuMsg === msg.id ? null : msg.id); }} className="p-1 rounded hover:bg-gray-200" title="More">⋯</button>
+                    <div
+                      className="absolute top-1 opacity-0 group-hover:opacity-100 transition-all duration-150 flex items-center gap-1 z-10"
+                      style={{
+                        [isOut ? 'left' : 'right']: '-12px',
+                        transform: isOut ? 'translateX(-100%)' : 'translateX(100%)',
+                      }}
+                    >
+                      <button
+                        onClick={() => setReplyTo(msg)}
+                        className="h-7 px-2 rounded-md text-[11px] font-semibold border shadow-sm hover:bg-gray-100 transition-colors"
+                        style={{ background: '#ffffff', borderColor: '#d1d5db', color: '#3b4a54' }}
+                        title="Reply"
+                      >
+                        ↩ Reply
+                      </button>
+                      <button
+                        onClick={(e) => { e.stopPropagation(); setMenuMsg(menuMsg === msg.id ? null : msg.id); }}
+                        className="h-7 w-7 rounded-md text-sm font-semibold border shadow-sm hover:bg-gray-100 transition-colors"
+                        style={{ background: '#ffffff', borderColor: '#d1d5db', color: '#3b4a54' }}
+                        title="More"
+                      >
+                        ⋯
+                      </button>
                     </div>
 
                     {/* Dropdown menu */}
@@ -2359,26 +2379,6 @@ export default function WhatsAppChatPanel({
       {/* ── Send bar ── */}
       {effectiveContactId && (
         <>
-          <div className="px-3 pt-2 pb-1 flex items-center justify-between" style={{ background: '#f0f2f5' }}>
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => setAutoTranslateEnabled(v => !v)}
-                className="relative inline-flex h-6 w-11 items-center rounded-full transition-colors"
-                style={{ background: autoTranslateEnabled ? '#10b981' : '#cbd5e1' }}
-                title={L.autoTranslate}
-              >
-                <span
-                  className="inline-block h-5 w-5 transform rounded-full bg-white transition-transform"
-                  style={{ transform: autoTranslateEnabled ? 'translateX(22px)' : 'translateX(2px)' }}
-                />
-              </button>
-              <span className="text-xs font-medium" style={{ color: '#3b4a54' }}>{L.autoTranslate}</span>
-            </div>
-            <span className="text-[11px]" style={{ color: '#64748b' }}>
-              {L.targetLanguage}: {userTargetLanguage} | {L.recipientLanguage}: {normalizeLanguageCode(recipientLanguageHint)}
-            </span>
-          </div>
           <form onSubmit={sendMessage}
             className="px-3 py-2 flex items-center gap-2"
             style={{ background: '#f0f2f5' }}>
@@ -2468,12 +2468,24 @@ export default function WhatsAppChatPanel({
               </div>
 
               {/* Input */}
-              <div className="flex-1 flex items-center rounded-full px-3" style={{ background: 'white' }}>
+              <div className="flex-1 flex items-center rounded-full px-2.5 gap-2" style={{ background: 'white' }}>
                 <input type="text" value={input}
                   onChange={e => handleInputChange(e.target.value)}
                   placeholder={L.typeMessageTitle}
                   className="flex-1 py-2.5 text-[15px] outline-none bg-transparent"
                   style={{ color: '#3b4a54' }} />
+                <button
+                  type="button"
+                  onClick={() => setAutoTranslateEnabled(v => !v)}
+                  className="relative inline-flex h-5 w-9 items-center rounded-full transition-colors flex-shrink-0"
+                  style={{ background: autoTranslateEnabled ? '#10b981' : '#cbd5e1' }}
+                  title={`${L.autoTranslate} · ${L.targetLanguage}: ${userTargetLanguage} · ${L.recipientLanguage}: ${normalizeLanguageCode(recipientLanguageHint)}`}
+                >
+                  <span
+                    className="inline-block h-4 w-4 transform rounded-full bg-white transition-transform"
+                    style={{ transform: autoTranslateEnabled ? 'translateX(18px)' : 'translateX(2px)' }}
+                  />
+                </button>
               </div>
 
               {/* Mic or Send */}

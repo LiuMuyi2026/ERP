@@ -1,8 +1,10 @@
 'use client';
 
+import { useEffect, useState } from 'react';
+import { api } from '@/lib/api';
 import { useTranslations } from 'next-intl';
 import DOMPurify from 'dompurify';
-import { relTime, absTime } from './wa-helpers';
+import { absTime } from './wa-helpers';
 
 interface Email {
   id: string;
@@ -27,15 +29,73 @@ interface Email {
 
 interface EmailReaderProps {
   email: Email;
+  autoTranslateEnabled?: boolean;
+  userTargetLanguage?: string;
   onReply?: () => void;
   onForward?: () => void;
   onLinkCustomer?: () => void;
   onBack?: () => void;
 }
 
-export default function EmailReader({ email, onReply, onForward, onLinkCustomer, onBack }: EmailReaderProps) {
+function normalizeLanguageCode(value?: string) {
+  const v = (value || '').trim().toLowerCase().replace('_', '-');
+  if (!v) return 'en';
+  if (v.startsWith('zh')) return 'zh-CN';
+  return v.split('-')[0];
+}
+
+function stripHtml(html?: string) {
+  if (!html) return '';
+  return html.replace(/<style[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+export default function EmailReader({
+  email,
+  autoTranslateEnabled = false,
+  userTargetLanguage = 'en',
+  onReply,
+  onForward,
+  onLinkCustomer,
+  onBack,
+}: EmailReaderProps) {
   const t = useTranslations('msgCenter');
   const timestamp = email.sent_at || email.received_at || email.created_at || '';
+  const [translatedText, setTranslatedText] = useState('');
+  const [sourceLanguage, setSourceLanguage] = useState('');
+  const [translating, setTranslating] = useState(false);
+
+  const bodyPlain = email.body_text || stripHtml(email.body_html);
+
+  useEffect(() => {
+    if (!autoTranslateEnabled || !bodyPlain.trim()) {
+      setTranslatedText('');
+      setSourceLanguage('');
+      return;
+    }
+    let cancelled = false;
+    setTranslating(true);
+    api.post('/api/whatsapp/ai/translate', {
+      text: bodyPlain,
+      target_language: normalizeLanguageCode(userTargetLanguage),
+      mode: 'incoming',
+    }).then((resp: any) => {
+      if (cancelled) return;
+      const translated = String(resp?.translated_text || '').trim();
+      setTranslatedText(translated);
+      setSourceLanguage(String(resp?.source_language || ''));
+    }).catch(() => {
+      if (cancelled) return;
+      setTranslatedText('');
+      setSourceLanguage('');
+    }).finally(() => {
+      if (!cancelled) setTranslating(false);
+    });
+    return () => { cancelled = true; };
+  }, [email.id, autoTranslateEnabled, bodyPlain, userTargetLanguage]);
 
   return (
     <div className="flex flex-col h-full">
@@ -79,6 +139,21 @@ export default function EmailReader({ email, onReply, onForward, onLinkCustomer,
 
       {/* Body */}
       <div className="flex-1 overflow-auto p-5">
+        {autoTranslateEnabled && (
+          <div className="mb-3 rounded-lg px-3 py-2 text-xs" style={{ background: '#f3f4f6', color: '#6b7280' }}>
+            {translating
+              ? 'Translating...'
+              : translatedText
+              ? `Auto translated (${sourceLanguage || 'auto'} → ${normalizeLanguageCode(userTargetLanguage)})`
+              : 'Auto translate enabled'}
+          </div>
+        )}
+        {autoTranslateEnabled && translatedText && (
+          <div className="mb-3 rounded-lg p-3" style={{ background: '#f5f3ff', border: '1px solid #ddd6fe' }}>
+            <p className="text-[11px] font-semibold mb-1" style={{ color: '#6d28d9' }}>Auto translated</p>
+            <pre className="text-sm whitespace-pre-wrap font-sans" style={{ color: '#3b4a54' }}>{translatedText}</pre>
+          </div>
+        )}
         {email.body_html ? (
           <div
             className="text-sm prose prose-sm max-w-none"
