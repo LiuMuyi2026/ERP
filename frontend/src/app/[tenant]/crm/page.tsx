@@ -9,7 +9,6 @@ import SlideOver from '@/components/ui/SlideOver';
 import { HandIcon } from '@/components/ui/HandIcon';
 import { useTranslations } from 'next-intl';
 import LeadFilesTab from './components/LeadFilesTab';
-import MessageManagement from './components/MessageManagement';
 import WhatsAppAnalytics from '@/components/messaging/WhatsAppAnalytics';
 import LeadModal from './components/LeadModal';
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -2159,7 +2158,6 @@ export default function CRMPage() {
   const router = useRouter();
   const params = useParams<{ tenant: string }>();
   const [tab, setTab] = useState<TabKey>('dashboard');
-  const [msgSubTab, setMsgSubTab] = useState<'commlog' | 'analytics'>('commlog');
   const [overview, setOverview] = useState<Overview | null>(null);
   const [loading, setLoading] = useState(true);
   const [leads, setLeads] = useState<Lead[]>([]);
@@ -2404,7 +2402,7 @@ export default function CRMPage() {
     ['receivables', tCrm('tabReceivables')],
     ['files', tCrm('tabFiles')],
     ['risks', tCrm('tabRisks')],
-    ['messages', tCrm('tabMessages')],
+    ['messages', tCrm('tabAnalytics') || tCrm('tabMessages')],
   ];
 
   if (loading) {
@@ -2570,36 +2568,8 @@ export default function CRMPage() {
             ) : undefined} />
         )}
         {tab === 'messages' && (
-          <div className="flex flex-col h-full">
-            {/* Sub-tab switcher — Communication Log + Analytics */}
-            <div className="flex items-center gap-1 px-3 py-1.5 flex-shrink-0" style={{ background: '#f0f2f5', borderBottom: '1px solid #d1d7db' }}>
-              {([['commlog', tCrm('subTabCommLog'), '#667781'], ['analytics', tCrm('subTabAnalytics') || 'Analytics', '#3b82f6']] as const).map(([key, label, color]) => (
-                <button key={key} onClick={() => setMsgSubTab(key as any)}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[13px] font-medium transition-all"
-                  style={{
-                    background: msgSubTab === key ? 'white' : 'transparent',
-                    color: msgSubTab === key ? color : '#8696a0',
-                    boxShadow: msgSubTab === key ? '0 1px 3px rgba(0,0,0,0.08)' : 'none',
-                  }}>
-                  {key === 'commlog' && (
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={msgSubTab === key ? '#667781' : '#8696a0'} strokeWidth="2" strokeLinecap="round">
-                      <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
-                    </svg>
-                  )}
-                  {key === 'analytics' && (
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={msgSubTab === key ? '#3b82f6' : '#8696a0'} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/>
-                    </svg>
-                  )}
-                  {label}
-                </button>
-              ))}
-            </div>
-            {/* Content fills remaining space */}
-            <div className="flex-1 min-h-0">
-              {msgSubTab === 'commlog' && <div className="px-8 py-4 overflow-auto h-full"><MessageManagement /></div>}
-              {msgSubTab === 'analytics' && <WhatsAppAnalytics />}
-            </div>
+          <div className="flex-1 min-h-0">
+            <WhatsAppAnalytics />
           </div>
         )}
 
