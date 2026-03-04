@@ -465,6 +465,8 @@ export default function WhatsAppChatPanel({
   // WhatsApp Web style menus
   const [showMoreMenu, setShowMoreMenu] = useState(false);
   const [showAttachMenu, setShowAttachMenu] = useState(false);
+  const [isMobile, setIsMobile] = useState(false);
+  const [viewportHeight, setViewportHeight] = useState<number | null>(null);
 
   const effectiveContactId = contactId || resolvedContactId;
   const params = useParams();
@@ -493,6 +495,32 @@ export default function WhatsAppChatPanel({
   // ── WebSocket for real-time updates ──
   const { on: onWsEvent } = useWhatsAppSocket();
   const [wsTyping, setWsTyping] = useState(false);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const mq = window.matchMedia('(max-width: 768px)');
+    const update = () => setIsMobile(mq.matches);
+    update();
+    mq.addEventListener('change', update);
+    return () => mq.removeEventListener('change', update);
+  }, []);
+
+  useEffect(() => {
+    if (!isMobile || typeof window === 'undefined') {
+      setViewportHeight(null);
+      return;
+    }
+    const vv = window.visualViewport;
+    if (!vv) return;
+    const update = () => setViewportHeight(Math.round(vv.height));
+    update();
+    vv.addEventListener('resize', update);
+    vv.addEventListener('scroll', update);
+    return () => {
+      vv.removeEventListener('resize', update);
+      vv.removeEventListener('scroll', update);
+    };
+  }, [isMobile]);
 
   // ── Load messages ──
   async function loadMessages(olderPage = false) {
@@ -1441,7 +1469,7 @@ export default function WhatsAppChatPanel({
   const isTypingNow = wsTyping || presence?.status === 'composing';
 
   return (
-    <div className="flex flex-col h-full min-h-0">
+    <div className="flex flex-col h-full min-h-0" style={{ height: isMobile && viewportHeight ? `${viewportHeight}px` : undefined }}>
       {/* ── Header ── */}
       <div className="px-4 py-2.5 flex items-center gap-3" style={{ background: '#008069' }}>
         {onBack && (
@@ -1955,7 +1983,7 @@ export default function WhatsAppChatPanel({
       {/* ── Group invite modal ── */}
       {showGroupInviteModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={() => setShowGroupInviteModal(false)}>
-          <div className="bg-white rounded-xl shadow-xl w-80 max-h-96 overflow-hidden" onClick={e => e.stopPropagation()}>
+          <div className={`bg-white shadow-xl overflow-hidden ${isMobile ? 'w-full h-[100dvh] rounded-none max-h-none' : 'rounded-xl w-80 max-h-96'}`} onClick={e => e.stopPropagation()}>
             <div className="px-4 py-3 border-b font-semibold text-sm">Send Group Invite To...</div>
             <div className="px-4 py-2">
               <input value={groupInviteSearch} onChange={e => setGroupInviteSearch(e.target.value)}
@@ -2047,7 +2075,7 @@ export default function WhatsAppChatPanel({
       )}
 
       {/* ── Messages ── */}
-      <div ref={scrollContainerRef} className="flex-1 min-h-0 overflow-y-auto px-3 py-3 md:px-12 md:py-4" style={{
+      <div ref={scrollContainerRef} className={`flex-1 min-h-0 overflow-y-auto py-3 md:py-4 ${isMobile ? 'px-3' : 'px-3 md:px-12'}`} style={{
         background: `#e5ddd5`,
         backgroundImage: `url("data:image/svg+xml,%3Csvg width='400' height='400' viewBox='0 0 400 400' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='%23c6ccd1' fill-opacity='0.15'%3E%3Cpath d='M20 20h8v2h-8zm30 0h6v3h-6zm25 5h4v4h-4zm-60 10h5v5h-5zm40 0h3v6h-3zm30 5h7v3h-7zM15 50h4v4h-4zm35-5h6v4h-6zm30 10h5v3h-5zm-50 15h3v5h-3zm25-5h8v2h-8zm35 0h4v6h-4zM10 80h6v3h-6zm45-5h5v5h-5zm25 10h7v2h-7zm-55 15h4v4h-4zm30-5h6v3h-6zm40 5h3v5h-3zM20 110h5v4h-5zm25 5h8v3h-8zm30-5h4v6h-4zm-65 20h7v2h-7zm35-5h5v5h-5zm30 10h6v3h-6zM10 150h4v4h-4zm40-5h3v6h-3zm25 5h8v2h-8zm-50 20h6v3h-6zm30 0h5v5h-5zm35-5h4v4h-4zM25 185h7v3h-7zm25 5h4v4h-4zm30-5h6v5h-6zm-70 20h5v3h-5zm40 0h3v6h-3zm30 5h8v2h-8zM15 220h4v5h-4zm30-5h6v4h-6zm25 10h5v3h-5zm-40 15h7v2h-7zm25 0h4v6h-4zm35-5h3v5h-3zM10 260h6v3h-6zm45-5h8v4h-8zm20 10h5v3h-5zm-55 15h4v4h-4zm30 0h6v5h-6zm30-5h7v3h-7zM20 295h5v4h-5zm25 5h3v6h-3zm30-5h8v2h-8zm-60 20h4v4h-4zm35 0h6v3h-6zm30 5h5v5h-5zM15 335h7v3h-7zm25-5h4v6h-4zm30 5h6v2h-6zm-50 15h5v4h-5zm30 5h3v5h-3zm25-5h8v3h-8zM10 370h6v4h-6zm40-5h5v5h-5zm25 10h4v3h-4zm-55 15h7v2h-7zm35 0h4v6h-4zm30-5h6v4h-6z'/%3E%3Ccircle cx='200' cy='50' r='2'/%3E%3Ccircle cx='350' cy='100' r='1.5'/%3E%3Ccircle cx='100' cy='200' r='2'/%3E%3Ccircle cx='300' cy='250' r='1.5'/%3E%3Ccircle cx='50' cy='350' r='2'/%3E%3Ccircle cx='250' cy='370' r='1.5'/%3E%3C/g%3E%3C/svg%3E")`,
       }}
@@ -2396,7 +2424,7 @@ export default function WhatsAppChatPanel({
         <>
           <form onSubmit={sendMessage}
             className="px-3 py-2 flex items-center gap-2"
-            style={{ background: '#f0f2f5' }}>
+            style={{ background: '#f0f2f5', paddingBottom: isMobile ? 'calc(8px + env(safe-area-inset-bottom))' : undefined }}>
           <input ref={fileInputRef} type="file" className="hidden"
             onChange={e => { if (e.target.files?.[0]) { setAttachFile(e.target.files[0]); setShowAttachMenu(false); } }} />
 
@@ -2529,7 +2557,7 @@ export default function WhatsAppChatPanel({
       {/* ── Forward dialog ── */}
       {forwardMsg && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={() => setForwardMsg(null)}>
-          <div className="bg-white rounded-xl shadow-xl w-80 max-h-96 overflow-hidden" onClick={e => e.stopPropagation()}>
+          <div className={`bg-white shadow-xl overflow-hidden ${isMobile ? 'w-full h-[100dvh] rounded-none max-h-none' : 'rounded-xl w-80 max-h-96'}`} onClick={e => e.stopPropagation()}>
             <div className="px-4 py-3 border-b font-semibold text-sm">Forward to...</div>
             <div className="px-4 py-2">
               <input value={forwardSearch} onChange={e => setForwardSearch(e.target.value)}
@@ -2551,7 +2579,7 @@ export default function WhatsAppChatPanel({
       {/* ── Poll creation modal ── */}
       {showPollModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={() => setShowPollModal(false)}>
-          <div className="bg-white rounded-xl shadow-xl w-80 p-4" onClick={e => e.stopPropagation()}>
+          <div className={`bg-white shadow-xl ${isMobile ? 'w-full h-[100dvh] rounded-none p-4 overflow-y-auto' : 'rounded-xl w-80 p-4'}`} onClick={e => e.stopPropagation()}>
             <h3 className="text-sm font-semibold mb-3">Create Poll</h3>
             <input value={pollQuestion} onChange={e => setPollQuestion(e.target.value)}
               placeholder="Question" className="w-full text-xs border rounded px-2 py-1.5 mb-2" />
@@ -2579,7 +2607,7 @@ export default function WhatsAppChatPanel({
       {/* ── Buttons message modal ── */}
       {showButtonsModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={() => setShowButtonsModal(false)}>
-          <div className="bg-white rounded-xl shadow-xl w-96 p-4" onClick={e => e.stopPropagation()}>
+          <div className={`bg-white shadow-xl ${isMobile ? 'w-full h-[100dvh] rounded-none p-4 overflow-y-auto' : 'rounded-xl w-96 p-4'}`} onClick={e => e.stopPropagation()}>
             <h3 className="text-sm font-semibold mb-3">Send Button Message</h3>
             <input value={btnTitle} onChange={e => setBtnTitle(e.target.value)}
               placeholder="Title" className="w-full text-xs border rounded px-2 py-1.5 mb-2" />
@@ -2608,7 +2636,7 @@ export default function WhatsAppChatPanel({
       {/* ── List message modal ── */}
       {showListModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={() => setShowListModal(false)}>
-          <div className="bg-white rounded-xl shadow-xl w-[440px] p-4 max-h-[80vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+          <div className={`bg-white shadow-xl overflow-y-auto ${isMobile ? 'w-full h-[100dvh] rounded-none p-4 max-h-none' : 'rounded-xl w-[440px] p-4 max-h-[80vh]'}`} onClick={e => e.stopPropagation()}>
             <h3 className="text-sm font-semibold mb-3">Send List Message</h3>
             <input value={listTitle} onChange={e => setListTitle(e.target.value)}
               placeholder="Title" className="w-full text-xs border rounded px-2 py-1.5 mb-2" />
@@ -2659,7 +2687,7 @@ export default function WhatsAppChatPanel({
       {/* ── Template selector modal ── */}
       {showTemplateModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={() => setShowTemplateModal(false)}>
-          <div className="bg-white rounded-xl shadow-xl w-80 max-h-96 overflow-hidden" onClick={e => e.stopPropagation()}>
+          <div className={`bg-white shadow-xl overflow-hidden ${isMobile ? 'w-full h-[100dvh] rounded-none max-h-none' : 'rounded-xl w-80 max-h-96'}`} onClick={e => e.stopPropagation()}>
             <div className="px-4 py-3 border-b font-semibold text-sm">Quick Reply Templates</div>
             <div className="px-4 py-2">
               <input value={templateSearch} onChange={e => setTemplateSearch(e.target.value)}
@@ -2689,7 +2717,7 @@ export default function WhatsAppChatPanel({
       {/* ── Contact card modal ── */}
       {showContactModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={() => setShowContactModal(false)}>
-          <div className="bg-white rounded-xl shadow-xl w-80 p-4" onClick={e => e.stopPropagation()}>
+          <div className={`bg-white shadow-xl ${isMobile ? 'w-full h-[100dvh] rounded-none p-4 overflow-y-auto' : 'rounded-xl w-80 p-4'}`} onClick={e => e.stopPropagation()}>
             <h3 className="text-sm font-semibold mb-3">Send Contact Card</h3>
             <input value={contactCardName} onChange={e => setContactCardName(e.target.value)}
               placeholder="Contact name" className="w-full text-xs border rounded px-2 py-1.5 mb-2" autoFocus />
@@ -2706,7 +2734,7 @@ export default function WhatsAppChatPanel({
       {/* ── Location modal ── */}
       {showLocationModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={() => setShowLocationModal(false)}>
-          <div className="bg-white rounded-xl shadow-xl w-80 p-4" onClick={e => e.stopPropagation()}>
+          <div className={`bg-white shadow-xl ${isMobile ? 'w-full h-[100dvh] rounded-none p-4 overflow-y-auto' : 'rounded-xl w-80 p-4'}`} onClick={e => e.stopPropagation()}>
             <h3 className="text-sm font-semibold mb-3">Send Location</h3>
             <div className="flex gap-2 mb-2">
               <input value={locLat} onChange={e => setLocLat(e.target.value)}

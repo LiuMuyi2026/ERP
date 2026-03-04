@@ -68,7 +68,7 @@ export default function MessagesCenter() {
     <div className="h-full min-h-0 flex flex-col" style={{ background: '#f0f2f5' }}>
       {/* Tab bar */}
       <div
-        className="flex items-center gap-1 px-3 sm:px-6 py-2 flex-shrink-0 sticky top-0 z-20"
+        className="flex items-center gap-1 px-3 sm:px-6 py-2 flex-shrink-0 sticky top-0 z-30"
         style={{ background: 'white', borderBottom: '1px solid #e5e7eb' }}
       >
         <h1 className="text-sm sm:text-base font-semibold mr-2 sm:mr-4 flex-shrink-0" style={{ color: '#3b4a54' }}>
