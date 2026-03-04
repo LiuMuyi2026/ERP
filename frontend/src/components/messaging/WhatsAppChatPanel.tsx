@@ -722,6 +722,7 @@ export default function WhatsAppChatPanel({
         contact_id: effectiveContactId || null,
         lead_id: leadId || null,
         action,
+        language: locale,
       });
       if (action === 'suggest_reply') {
         // Parse numbered suggestions: "1. xxx\n2. yyy\n3. zzz"

@@ -2408,16 +2408,58 @@ class AiAnalysisBody(BaseModel):
     contact_id: Optional[str] = None
     lead_id: Optional[str] = None
     action: str
+    language: Optional[str] = None
 
 
 @router.post("/ai/analyze")
 async def ai_analyze(body: AiAnalysisBody, ctx: dict = Depends(get_current_user_with_tenant)):
     db = ctx["db"]
     tenant_slug = ctx.get("tenant_slug")
+    requested_lang = (body.language or "").strip().lower()
+
+    def _lang_instruction(lang: str) -> str:
+        if lang.startswith("zh-tw") or lang.startswith("zh-hk") or lang.startswith("zh-hant"):
+            return "Output language requirement: Use Traditional Chinese (繁體中文) for the entire response."
+        if lang.startswith("zh"):
+            return "Output language requirement: Use Simplified Chinese (简体中文) for the entire response."
+        if lang.startswith("es"):
+            return "Output language requirement: Use Spanish for the entire response."
+        if lang.startswith("pt"):
+            return "Output language requirement: Use Portuguese for the entire response."
+        if lang.startswith("it"):
+            return "Output language requirement: Use Italian for the entire response."
+        if lang.startswith("ja"):
+            return "Output language requirement: Use Japanese for the entire response."
+        return "Output language requirement: Use English for the entire response."
+
+    lang_rule = _lang_instruction(requested_lang)
 
     chat_text = await _fetch_messages_text(db, body.contact_id, body.lead_id, ctx["sub"])
     if not chat_text:
-        return {"result": "No messages found to analyze."}
+        empty_msg = {
+            "zh-hant": "暫無可分析的訊息。",
+            "zh-hans": "暂无可分析的消息。",
+            "es": "No se encontraron mensajes para analizar.",
+            "pt": "Nenhuma mensagem encontrada para analisar.",
+            "it": "Nessun messaggio trovato da analizzare.",
+            "ja": "分析できるメッセージが見つかりません。",
+            "en": "No messages found to analyze.",
+        }
+        if requested_lang.startswith("zh-tw") or requested_lang.startswith("zh-hk") or requested_lang.startswith("zh-hant"):
+            result_text = empty_msg["zh-hant"]
+        elif requested_lang.startswith("zh"):
+            result_text = empty_msg["zh-hans"]
+        elif requested_lang.startswith("es"):
+            result_text = empty_msg["es"]
+        elif requested_lang.startswith("pt"):
+            result_text = empty_msg["pt"]
+        elif requested_lang.startswith("it"):
+            result_text = empty_msg["it"]
+        elif requested_lang.startswith("ja"):
+            result_text = empty_msg["ja"]
+        else:
+            result_text = empty_msg["en"]
+        return {"result": result_text}
 
     lead_context = ""
     lid = body.lead_id
@@ -2447,7 +2489,8 @@ async def ai_analyze(body: AiAnalysisBody, ctx: dict = Depends(get_current_user_
 {chat_text}
 </conversation_data>
 
-Write the summary in the same language as the conversation. Be concise but thorough.""",
+{lang_rule}
+Be concise but thorough.""",
 
         "enrich_profile": f"""Based on the following WhatsApp conversation, extract any customer profile information that can be inferred. Return structured data including:
 - Customer name (if mentioned)
@@ -2467,7 +2510,8 @@ Write the summary in the same language as the conversation. Be concise but thoro
 {chat_text}
 </conversation_data>
 
-Return as a structured list. Only include information that can be clearly inferred from the conversation. Write in the same language as the conversation.""",
+{lang_rule}
+Return as a structured list. Only include information that can be clearly inferred from the conversation.""",
 
         "sales_strategy": f"""Analyze this WhatsApp sales conversation and generate a tailored sales strategy. Include:
 - Current stage assessment (awareness/interest/consideration/decision)
@@ -2484,7 +2528,8 @@ Return as a structured list. Only include information that can be clearly inferr
 {chat_text}
 </conversation_data>
 
-Provide actionable, specific recommendations. Write in the same language as the conversation.""",
+{lang_rule}
+Provide actionable, specific recommendations.""",
 
         "suggest_reply": f"""Based on this WhatsApp sales conversation, generate exactly 3 suggested reply messages that the salesperson could send next.
 
@@ -2493,7 +2538,7 @@ Rules:
 - Vary the tone: one professional, one friendly, one action-oriented
 - Keep each reply concise (1-3 sentences)
 - Consider the conversation context and lead stage
-- Write in the SAME LANGUAGE as the conversation
+- {lang_rule}
 {lead_context}
 
 {_anti_inject}
@@ -2518,7 +2563,8 @@ Return ONLY the 3 replies, one per line, prefixed with numbers (1. 2. 3.). No ex
 {chat_text}
 </conversation_data>
 
-Be specific and actionable. Reference actual messages where relevant. Write in the same language as the conversation.""",
+{lang_rule}
+Be specific and actionable. Reference actual messages where relevant.""",
     }
 
     prompt = prompts.get(body.action)
