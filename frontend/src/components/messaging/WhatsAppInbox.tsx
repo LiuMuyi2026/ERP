@@ -44,8 +44,8 @@ type Conversation = {
   assigned_user_name?: string;
 };
 
-function parsePreview(raw?: string): { text: string; isMe: boolean } {
-  if (!raw) return { text: 'No messages', isMe: false };
+function parsePreview(raw?: unknown): { text: string; isMe: boolean } {
+  if (typeof raw !== 'string' || !raw) return { text: 'No messages', isMe: false };
   const parts = raw.split(':');
   if (parts.length < 3) return { text: raw, isMe: false };
   const direction = parts[0];
@@ -72,8 +72,8 @@ type WaAccount = {
 type WaLabel = { id: string; wa_label_id: string; name?: string; color?: string };
 
 // relTime and WA_STATUS_COLORS imported from wa-helpers
-function isSafeImageSrc(src?: string): boolean {
-  if (!src) return false;
+function isSafeImageSrc(src?: unknown): boolean {
+  if (typeof src !== 'string' || !src) return false;
   return (
     src.startsWith('http://') ||
     src.startsWith('https://') ||
@@ -1095,7 +1095,8 @@ export default function WhatsAppInbox() {
               const isLinked = !!(conv.crm_account_name || conv.lead_name);
               const sc = conv.lead_status ? statusColors[conv.lead_status] : null;
               const isSelected = selectedContact?.id === conv.id;
-              const labelNames = (conv.wa_labels || []).map(lid => labels.find(l => l.wa_label_id === lid)?.name).filter(Boolean);
+              const labelIds = Array.isArray(conv.wa_labels) ? conv.wa_labels : [];
+              const labelNames = labelIds.map(lid => labels.find(l => l.wa_label_id === lid)?.name).filter(Boolean);
               const hasUnread = conv.unread_count > 0;
               const preview = parsePreview(conv.last_message_preview);
               const typingKey = conv.merge_key || conv.id;
@@ -1262,7 +1263,7 @@ export default function WhatsAppInbox() {
               key={selectedContact.id}
               contactId={selectedContact.id}
               contactName={selectedContact.display_name || selectedContact.push_name || selectedContact.phone_number}
-              profilePicUrl={selectedContact.profile_pic_url}
+              profilePicUrl={typeof selectedContact.profile_pic_url === 'string' ? selectedContact.profile_pic_url : undefined}
               isGroup={selectedContact.is_group}
               disappearingDuration={selectedContact.disappearing_duration}
               onBack={isMobile ? () => setSelectedContact(null) : undefined}
