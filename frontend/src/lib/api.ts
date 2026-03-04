@@ -1,8 +1,8 @@
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
-const DEFAULT_TIMEOUT = 10_000;   // 10s for normal requests
-const UPLOAD_TIMEOUT = 30_000;    // 30s for uploads
-const STREAM_TIMEOUT = 60_000;    // 60s for streaming
+const DEFAULT_TIMEOUT = 30_000;   // 30s for normal requests (covers external API calls)
+const UPLOAD_TIMEOUT = 60_000;    // 60s for uploads
+const STREAM_TIMEOUT = 120_000;   // 120s for streaming
 const MAX_RETRIES = 2;            // retry up to 2 times (GET only)
 
 export function getApiUrl(): string {
