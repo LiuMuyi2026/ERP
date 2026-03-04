@@ -2,6 +2,7 @@ from datetime import date as date_type, datetime, timedelta, timezone
 from decimal import Decimal
 import json
 import logging
+import re
 import uuid
 from typing import Literal, Optional
 
@@ -76,6 +77,78 @@ DEFAULT_OPERATION_TASKS = [
     ("docs_tracking", "交单跟踪登记《TRACKING》", "单证员", True),
         ("payment_followup", "回款/LC到款跟进", "业务员/单证员/出纳员", True),
 ]
+
+
+def _normalize_email(value: Optional[str]) -> Optional[str]:
+    if not value:
+        return None
+    v = value.strip().lower()
+    return v or None
+
+
+def _normalize_phone_token(value: Optional[str]) -> Optional[str]:
+    if not value:
+        return None
+    digits = re.sub(r"[^0-9]", "", value)
+    return digits or None
+
+
+def _build_whatsapp_tokens(value: Optional[str]) -> list[str]:
+    if not value:
+        return []
+    raw = value.strip()
+    candidates: set[str] = set()
+    digit_only = _normalize_phone_token(raw)
+    if digit_only:
+        candidates.add(digit_only)
+    if "@" in raw:
+        jid_prefix = raw.split("@", 1)[0]
+        jid_digits = _normalize_phone_token(jid_prefix)
+        if jid_digits:
+            candidates.add(jid_digits)
+    return list(candidates)
+
+
+async def _auto_link_communications_for_lead(
+    db,
+    lead_id: str,
+    email: Optional[str],
+    whatsapp: Optional[str],
+) -> None:
+    email_norm = _normalize_email(email)
+    wa_tokens = _build_whatsapp_tokens(whatsapp)
+
+    if wa_tokens:
+        await db.execute(
+            text(
+                """
+                UPDATE whatsapp_contacts
+                SET lead_id = CAST(:lid AS uuid), updated_at = NOW()
+                WHERE (lead_id IS NULL OR lead_id = CAST(:lid AS uuid))
+                  AND (
+                    regexp_replace(COALESCE(phone_number, ''), '[^0-9]', '', 'g') = ANY(:wa_tokens)
+                    OR regexp_replace(split_part(COALESCE(wa_jid, ''), '@', 1), '[^0-9]', '', 'g') = ANY(:wa_tokens)
+                  )
+                """
+            ),
+            {"lid": lead_id, "wa_tokens": wa_tokens},
+        )
+
+    if email_norm:
+        await db.execute(
+            text(
+                """
+                UPDATE emails
+                SET lead_id = CAST(:lid AS uuid), updated_at = NOW()
+                WHERE (lead_id IS NULL OR lead_id = CAST(:lid AS uuid))
+                  AND (
+                    LOWER(COALESCE(from_email, '')) = :email
+                    OR LOWER(COALESCE(to_email, '')) = :email
+                  )
+                """
+            ),
+            {"lid": lead_id, "email": email_norm},
+        )
 
 
 @router.get("/workflow-template")
@@ -768,12 +841,14 @@ async def create_lead(body: LeadCreate, ctx: dict = Depends(get_current_user_wit
             "cf": cf,
         },
     )
+    await _auto_link_communications_for_lead(db, lead_id, body.email, body.whatsapp)
     await db.commit()
     return {"id": lead_id, **body.model_dump(), "duplicate_check": dup_check}
 
 
 @router.patch("/leads/{lead_id}")
 async def update_lead(lead_id: str, body: LeadUpdate, ctx: dict = Depends(get_current_user_with_tenant)):
+    db = ctx["db"]
     updates = {k: v for k, v in body.model_dump().items() if v is not None}
     if not updates:
         raise HTTPException(status_code=400, detail="No fields to update")
@@ -781,8 +856,20 @@ async def update_lead(lead_id: str, body: LeadUpdate, ctx: dict = Depends(get_cu
     if not set_clause:
         return {"status": "no changes"}
     params["id"] = lead_id
-    await ctx["db"].execute(text(f"UPDATE leads SET {set_clause}, updated_at = NOW() WHERE id = :id"), params)
-    await ctx["db"].commit()
+    await db.execute(text(f"UPDATE leads SET {set_clause}, updated_at = NOW() WHERE id = :id"), params)
+
+    if "email" in updates or "whatsapp" in updates:
+        row = await db.execute(text("SELECT email, whatsapp FROM leads WHERE id = :id"), {"id": lead_id})
+        lead_row = row.fetchone()
+        if lead_row:
+            await _auto_link_communications_for_lead(
+                db,
+                lead_id,
+                getattr(lead_row, "email", None),
+                getattr(lead_row, "whatsapp", None),
+            )
+
+    await db.commit()
     return {"status": "updated"}
 
 
