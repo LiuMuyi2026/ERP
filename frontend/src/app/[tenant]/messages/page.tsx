@@ -1,6 +1,7 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { useTranslations } from 'next-intl';
 import WhatsAppInbox from '@/components/messaging/WhatsAppInbox';
 import WhatsAppBroadcast from '@/components/messaging/WhatsAppBroadcast';
@@ -8,6 +9,7 @@ import EmailInbox from '@/components/messaging/EmailInbox';
 import InternalMessages from '@/components/messaging/InternalMessages';
 
 type MsgTab = 'whatsapp' | 'email' | 'internal' | 'broadcast';
+const VALID_TABS: MsgTab[] = ['whatsapp', 'email', 'internal', 'broadcast'];
 
 const TAB_CONFIG: { key: MsgTab; icon: string; color: string }[] = [
   { key: 'whatsapp',  icon: 'wa',       color: '#00a884' },
@@ -45,7 +47,16 @@ function TabIcon({ type, active, color }: { type: string; active: boolean; color
 
 export default function MessagesCenter() {
   const t = useTranslations('msgCenter');
+  const searchParams = useSearchParams();
   const [activeTab, setActiveTab] = useState<MsgTab>('whatsapp');
+
+  // Read ?tab= from URL on mount
+  useEffect(() => {
+    const tab = searchParams.get('tab') as MsgTab | null;
+    if (tab && VALID_TABS.includes(tab)) {
+      setActiveTab(tab);
+    }
+  }, [searchParams]);
 
   const tabLabels: Record<MsgTab, string> = {
     whatsapp:  t('tabWhatsApp')  || 'WhatsApp',
