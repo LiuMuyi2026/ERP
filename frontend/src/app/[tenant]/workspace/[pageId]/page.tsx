@@ -6,6 +6,7 @@ import { api, getApiUrl, getAuthHeaders } from '@/lib/api';
 import { getToken } from '@/lib/auth';
 import { useTranslations, useLocale } from 'next-intl';
 import dynamic from 'next/dynamic';
+import toast from 'react-hot-toast';
 import type { VoiceMemoHandle } from '@/components/workspace/VoiceMemoView';
 import { HandIcon } from '@/components/ui/HandIcon';
 import { IconOrEmoji } from '@/components/ui/IconOrEmoji';
@@ -60,6 +61,7 @@ export default function PageView() {
   const tAutomation = useTranslations('automation');
   const tCommon = useTranslations('common');
   const tWorkspace = useTranslations('workspace');
+  const isZh = String(lang || '').toLowerCase().startsWith('zh');
   const [page, setPage] = useState<any>(null);
   const [title, setTitle] = useState('');
   const [loading, setLoading] = useState(true);
@@ -98,6 +100,8 @@ export default function PageView() {
   const [galleryMode, setGalleryMode] = useState<'apply' | 'add_button'>('apply');
   const [templateButtons, setTemplateButtons] = useState<PageTemplateButton[]>([]);
   const [runningTemplateButtonId, setRunningTemplateButtonId] = useState<string | null>(null);
+  const [renameTemplateButton, setRenameTemplateButton] = useState<PageTemplateButton | null>(null);
+  const [renameTemplateButtonValue, setRenameTemplateButtonValue] = useState('');
 
   // Share
   const [showShare, setShowShare] = useState(false);
@@ -149,9 +153,9 @@ export default function PageView() {
         setTemplateSaved(!!p.is_template);
         if (p.template_category) setTemplateCategory(p.template_category);
       })
-      .catch((err: any) => { setLoadError(err.message || '页面加载失败'); })
+      .catch((err: any) => { setLoadError(err.message || (isZh ? '页面加载失败' : 'Failed to load page')); })
       .finally(() => setLoading(false));
-  }, [pageId]);
+  }, [pageId, isZh]);
 
   useEffect(() => {
     api.get(`/api/workspace/pages/${pageId}/template-buttons`)
@@ -219,7 +223,7 @@ export default function PageView() {
       setAiInput('');
       setShowAiBar(false);
     } catch (err: any) {
-      alert(err.message || 'AI request failed');
+      toast.error(err.message || (isZh ? 'AI 请求失败' : 'AI request failed'));
     } finally {
       setIsAiProcessing(false);
     }
@@ -486,7 +490,7 @@ export default function PageView() {
       }, 15000);
     } catch (err) {
       console.error('Mic error:', err);
-      alert(`无法访问麦克风: ${err instanceof Error ? err.message : String(err)}`);
+      toast.error(isZh ? `无法访问麦克风: ${err instanceof Error ? err.message : String(err)}` : `Microphone access failed: ${err instanceof Error ? err.message : String(err)}`);
     }
   }
 
@@ -607,7 +611,7 @@ export default function PageView() {
       const p = await api.get(`/api/workspace/pages/${pageId}`);
       setPage(p);
       setTitle(p.title || '');
-    } catch (err: any) { alert(err.message); }
+    } catch (err: any) { toast.error(err.message || (isZh ? '应用模板失败' : 'Failed to apply template')); }
   }
 
   async function appendTemplateToPage(templateId: string) {
@@ -617,7 +621,7 @@ export default function PageView() {
       const p = await api.get(`/api/workspace/pages/${pageId}`);
       setPage(p);
       setTitle(p.title || '');
-    } catch (err: any) { alert(err.message || 'Failed to append template'); }
+    } catch (err: any) { toast.error(err.message || (isZh ? '插入模板失败' : 'Failed to append template')); }
   }
 
   async function createTemplateButton(templateId: string, templateTitle: string) {
@@ -629,8 +633,9 @@ export default function PageView() {
         apply_mode: 'append',
       });
       setTemplateButtons(prev => [...prev, created as PageTemplateButton]);
+      toast.success(isZh ? '模板按钮已创建' : 'Template button created');
     } catch (err: any) {
-      alert(err.message || 'Failed to create template button');
+      toast.error(err.message || (isZh ? '创建模板按钮失败' : 'Failed to create template button'));
     }
   }
 
@@ -642,7 +647,7 @@ export default function PageView() {
       setPage(p);
       setTitle(p.title || '');
     } catch (err: any) {
-      alert(err.message || 'Failed to run template button');
+      toast.error(err.message || (isZh ? '运行模板按钮失败' : 'Failed to run template button'));
     } finally {
       setRunningTemplateButtonId(null);
     }
@@ -652,23 +657,34 @@ export default function PageView() {
     try {
       await api.delete(`/api/workspace/pages/${pageId}/template-buttons/${buttonId}`);
       setTemplateButtons(prev => prev.filter(b => b.id !== buttonId));
+      toast.success(isZh ? '模板按钮已删除' : 'Template button deleted');
     } catch (err: any) {
-      alert(err.message || 'Failed to delete template button');
+      toast.error(err.message || (isZh ? '删除模板按钮失败' : 'Failed to delete template button'));
     }
   }
 
-  async function renameTemplateButton(button: PageTemplateButton) {
-    const next = window.prompt('Template button name', button.label);
-    if (next == null) return;
-    const trimmed = next.trim();
-    if (!trimmed || trimmed === button.label) return;
+  function openRenameTemplateButton(button: PageTemplateButton) {
+    setRenameTemplateButton(button);
+    setRenameTemplateButtonValue(button.label);
+  }
+
+  async function submitRenameTemplateButton() {
+    if (!renameTemplateButton) return;
+    const trimmed = renameTemplateButtonValue.trim();
+    if (!trimmed || trimmed === renameTemplateButton.label) {
+      setRenameTemplateButton(null);
+      return;
+    }
     try {
-      const updated = await api.patch(`/api/workspace/pages/${pageId}/template-buttons/${button.id}`, {
+      const updated = await api.patch(`/api/workspace/pages/${pageId}/template-buttons/${renameTemplateButton.id}`, {
         label: trimmed,
       });
-      setTemplateButtons(prev => prev.map(b => b.id === button.id ? { ...b, label: (updated?.label || trimmed) } : b));
+      setTemplateButtons(prev => prev.map(b => b.id === renameTemplateButton.id ? { ...b, label: (updated?.label || trimmed) } : b));
+      toast.success(isZh ? '模板按钮已重命名' : 'Template button renamed');
     } catch (err: any) {
-      alert(err.message || 'Failed to rename template button');
+      toast.error(err.message || (isZh ? '重命名模板按钮失败' : 'Failed to rename template button'));
+    } finally {
+      setRenameTemplateButton(null);
     }
   }
 
@@ -680,7 +696,7 @@ export default function PageView() {
       });
       setTemplateButtons(prev => prev.map(b => b.id === button.id ? { ...b, apply_mode: (updated?.apply_mode || nextMode) } : b));
     } catch (err: any) {
-      alert(err.message || 'Failed to update template button mode');
+      toast.error(err.message || (isZh ? '更新模板按钮模式失败' : 'Failed to update template button mode'));
     }
   }
 
@@ -700,7 +716,7 @@ export default function PageView() {
       });
     } catch (err: any) {
       setTemplateButtons(current);
-      alert(err.message || 'Failed to reorder template buttons');
+      toast.error(err.message || (isZh ? '模板按钮排序失败' : 'Failed to reorder template buttons'));
     }
   }
 
@@ -760,7 +776,7 @@ export default function PageView() {
           <button onClick={() => router.back()}
             className="px-4 py-2 rounded-md text-sm font-medium border"
             style={{ borderColor: 'var(--notion-border)', color: 'var(--notion-text)' }}>
-            返回工作区
+            {isZh ? '返回工作区' : 'Back to Workspace'}
           </button>
         </div>
       </div>
@@ -801,7 +817,7 @@ export default function PageView() {
             <span style={{ color: 'var(--notion-border)', fontSize: 14 }}>/</span>
             <span className="text-xs truncate max-w-[200px]" style={{ color: 'var(--notion-text-muted)' }}>
               {page.icon && <span className="mr-1"><IconOrEmoji value={page.icon} size={14} /></span>}
-              {title || 'Untitled'}
+              {title || tWorkspace('untitled')}
             </span>
           </div>
 
@@ -874,7 +890,7 @@ export default function PageView() {
               }}
               onMouseEnter={e => { if (!showMentionDialog) { e.currentTarget.style.background = '#fef3c7'; e.currentTarget.style.color = '#b45309'; } }}
               onMouseLeave={e => { if (!showMentionDialog) { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--notion-text-muted)'; } }}
-              title="@AI — 插入 AI 内容到当前光标位置"
+              title={isZh ? '@AI — 插入 AI 内容到当前光标位置' : '@AI - Insert AI content at cursor'}
             >
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <circle cx="12" cy="12" r="4"/><path d="M16 8v5a3 3 0 0 0 6 0v-1a10 10 0 1 0-3.92 7.94"/>
@@ -890,33 +906,33 @@ export default function PageView() {
                   const res = await fetch(`${apiUrl}/api/workspace/pages/${pageId}/export?format=md`, {
                     headers: getAuthHeaders(),
                   });
-                  if (!res.ok) throw new Error('Export failed');
+                  if (!res.ok) throw new Error(isZh ? '导出失败' : 'Export failed');
                   const blob = await res.blob();
                   const url = URL.createObjectURL(blob);
                   const a = document.createElement('a');
                   a.href = url;
-                  a.download = `${title || 'Untitled'}.md`;
+                  a.download = `${title || tWorkspace('untitled')}.md`;
                   a.click();
                   URL.revokeObjectURL(url);
-                } catch { alert('Export failed'); }
+                } catch { toast.error(isZh ? '导出失败' : 'Export failed'); }
               }}
               className="flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-md transition-colors"
               style={{ color: 'var(--notion-text-muted)', border: '1px solid transparent' }}
               onMouseEnter={e => { e.currentTarget.style.background = 'var(--notion-hover)'; e.currentTarget.style.color = 'var(--notion-text)'; }}
               onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--notion-text-muted)'; }}
-              title="Export Markdown"
+              title={isZh ? '导出 Markdown' : 'Export Markdown'}
             >
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
               </svg>
-              Export
+              {isZh ? '导出' : 'Export'}
             </button>
 
             {/* Template save */}
             {templateSaved ? (
               <span className="flex items-center gap-1 text-xs px-2 py-1 rounded-md" style={{ background: '#e8f4fd', color: '#1d6fa8' }}>
                 <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="20 6 9 17 4 12" /></svg>
-                Template
+                {isZh ? '模板' : 'Template'}
               </span>
             ) : (
               <button
@@ -1007,7 +1023,7 @@ export default function PageView() {
             {/* Icon */}
             {page.icon && (
               <div className={page.cover_emoji ? 'pt-4' : 'pt-6'}>
-                <button onClick={() => setShowIconPicker(true)} className="leading-none hover:bg-gray-100 rounded-lg p-1 transition-colors" title="Change icon">
+                <button onClick={() => setShowIconPicker(true)} className="leading-none hover:bg-gray-100 rounded-lg p-1 transition-colors" title={isZh ? '更换图标' : 'Change icon'}>
                   <IconOrEmoji value={page.icon} size={48} />
                 </button>
               </div>
@@ -1028,7 +1044,7 @@ export default function PageView() {
                       <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/>
                       <path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="22"/>
                     </svg>
-                    开始录制
+                    {isZh ? '开始录制' : 'Start recording'}
                   </button>
                 )}
                 {recorderState === 'recording' && (
@@ -1043,30 +1059,30 @@ export default function PageView() {
                     </div>
                     {recInterim && <span className="text-xs truncate" style={{ color: 'var(--notion-text-muted)', maxWidth: 200 }}>{recInterim}</span>}
                     <div style={{ flex: 1 }} />
-                    <button onClick={pauseToolbarRec} className="text-xs px-2 py-1 rounded" style={{ color: '#b45309', background: 'rgba(245,158,11,0.1)' }}>⏸ 暂停</button>
-                    <button onClick={stopToolbarRec} className="text-xs px-2.5 py-1 rounded font-medium text-white" style={{ background: '#dc2626' }}>■ 停止</button>
+                    <button onClick={pauseToolbarRec} className="text-xs px-2 py-1 rounded" style={{ color: '#b45309', background: 'rgba(245,158,11,0.1)' }}>{isZh ? '⏸ 暂停' : '⏸ Pause'}</button>
+                    <button onClick={stopToolbarRec} className="text-xs px-2.5 py-1 rounded font-medium text-white" style={{ background: '#dc2626' }}>{isZh ? '■ 停止' : '■ Stop'}</button>
                   </>
                 )}
                 {recorderState === 'paused' && (
                   <>
                     <span style={{ width: 8, height: 8, borderRadius: '50%', flexShrink: 0, background: '#f59e0b' }} />
                     <span className="font-mono text-xs font-bold" style={{ color: '#b45309' }}>{fmtRecTime(recElapsed)}</span>
-                    <span className="text-xs" style={{ color: '#b45309' }}>已暂停</span>
+                    <span className="text-xs" style={{ color: '#b45309' }}>{isZh ? '已暂停' : 'Paused'}</span>
                     <div style={{ flex: 1 }} />
-                    <button onClick={resumeToolbarRec} className="text-xs px-2.5 py-1 rounded font-medium text-white" style={{ background: '#dc2626' }}>▶ 继续</button>
-                    <button onClick={stopToolbarRec} className="text-xs px-2 py-1 rounded" style={{ color: 'var(--notion-text-muted)', border: '1px solid var(--notion-border)' }}>停止</button>
+                    <button onClick={resumeToolbarRec} className="text-xs px-2.5 py-1 rounded font-medium text-white" style={{ background: '#dc2626' }}>{isZh ? '▶ 继续' : '▶ Resume'}</button>
+                    <button onClick={stopToolbarRec} className="text-xs px-2 py-1 rounded" style={{ color: 'var(--notion-text-muted)', border: '1px solid var(--notion-border)' }}>{isZh ? '停止' : 'Stop'}</button>
                   </>
                 )}
                 {recorderState === 'done' && (
                   <>
-                    <span className="text-xs" style={{ color: 'var(--notion-text-muted)' }}>录制完成 · {fmtRecTime(recElapsed)}</span>
+                    <span className="text-xs" style={{ color: 'var(--notion-text-muted)' }}>{isZh ? '录制完成' : 'Recording complete'} · {fmtRecTime(recElapsed)}</span>
                     {tbAudioBlobRef.current && (
                       <button
                         onClick={() => { const url = URL.createObjectURL(tbAudioBlobRef.current!); const a = new Audio(url); a.play(); a.onended = () => URL.revokeObjectURL(url); }}
                         className="text-xs p-1 rounded" style={{ color: 'var(--notion-text-muted)' }}
                         onMouseEnter={e => { e.currentTarget.style.background = 'var(--notion-hover)'; }}
                         onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; }}
-                        title="播放录音"
+                        title={isZh ? '播放录音' : 'Play recording'}
                       >
                         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                           <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/>
@@ -1077,7 +1093,7 @@ export default function PageView() {
                     <button onClick={closeRecorder} className="text-xs px-2.5 py-1 rounded" style={{ color: 'var(--notion-text-muted)', border: '1px solid var(--notion-border)' }}
                       onMouseEnter={e => { e.currentTarget.style.background = 'var(--notion-hover)'; }}
                       onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; }}
-                    >关闭</button>
+                    >{isZh ? '关闭' : 'Close'}</button>
                   </>
                 )}
               </div>
@@ -1089,7 +1105,7 @@ export default function PageView() {
                 value={title}
                 onChange={e => handleTitleChange(e.target.value)}
                 onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); (e.target as HTMLInputElement).blur(); } }}
-                placeholder="Untitled"
+                placeholder={tWorkspace('untitled')}
                 className="w-full border-none outline-none bg-transparent font-bold leading-tight"
                 style={{ fontSize: '2.5rem', color: 'var(--notion-text)', letterSpacing: '-0.02em' }}
               />
@@ -1098,7 +1114,7 @@ export default function PageView() {
             {/* Template badge */}
             {page.is_template && (
               <div className="flex items-center gap-1.5 mt-2 mb-1">
-                <span className="text-xs px-2 py-0.5 rounded-full font-medium" style={{ background: '#e8f4fd', color: '#1d6fa8' }}>Template</span>
+                <span className="text-xs px-2 py-0.5 rounded-full font-medium" style={{ background: '#e8f4fd', color: '#1d6fa8' }}>{isZh ? '模板' : 'Template'}</span>
                 {page.template_category && (
                   <span className="text-xs px-2 py-0.5 rounded-full" style={{ background: 'var(--notion-active)', color: 'var(--notion-text-muted)' }}>{page.template_category}</span>
                 )}
@@ -1117,7 +1133,7 @@ export default function PageView() {
                   <HandIcon name="package" size={14} style={{ display: 'inline', marginRight: 4 }} /> {tWorkspace('browseTemplates')}
                 </button>
                 <button
-                  onClick={() => { setAiInput('Write a comprehensive outline for this page...'); setShowAiBar(true); }}
+                  onClick={() => { setAiInput(isZh ? '请为本页生成一个完整的大纲...' : 'Write a comprehensive outline for this page...'); setShowAiBar(true); }}
                   className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors"
                   style={{ background: '#ede9fe', color: '#7c3aed' }}
                   onMouseEnter={e => { e.currentTarget.style.background = '#ddd6fe'; }}
@@ -1156,7 +1172,7 @@ export default function PageView() {
                       onMouseEnter={e => { e.currentTarget.style.background = 'var(--notion-hover)'; }}
                       onMouseLeave={e => { e.currentTarget.style.background = 'var(--notion-card-elevated, var(--notion-card, white))'; }}
                     >
-                      {runningTemplateButtonId === btn.id ? 'Running...' : btn.label}
+                      {runningTemplateButtonId === btn.id ? (isZh ? '运行中...' : 'Running...') : btn.label}
                     </button>
                     <button
                       onClick={() => toggleTemplateButtonMode(btn)}
@@ -1164,17 +1180,19 @@ export default function PageView() {
                       style={{ color: btn.apply_mode === 'replace' ? '#7c3aed' : '#0f766e', borderLeft: '1px solid var(--notion-border)' }}
                       onMouseEnter={e => { e.currentTarget.style.background = 'var(--notion-hover)'; }}
                       onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; }}
-                      title={btn.apply_mode === 'replace' ? 'Switch to append mode' : 'Switch to replace mode'}
+                      title={btn.apply_mode === 'replace'
+                        ? (isZh ? '切换为追加模式' : 'Switch to append mode')
+                        : (isZh ? '切换为替换模式' : 'Switch to replace mode')}
                     >
                       {btn.apply_mode === 'replace' ? 'R' : 'A'}
                     </button>
                     <button
-                      onClick={() => renameTemplateButton(btn)}
+                      onClick={() => openRenameTemplateButton(btn)}
                       className="px-1.5 py-1.5 text-xs transition-colors"
                       style={{ color: 'var(--notion-text-muted)', borderLeft: '1px solid var(--notion-border)' }}
                       onMouseEnter={e => { e.currentTarget.style.background = 'var(--notion-hover)'; e.currentTarget.style.color = 'var(--notion-text)'; }}
                       onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--notion-text-muted)'; }}
-                      title="Rename"
+                      title={isZh ? '重命名' : 'Rename'}
                     >
                       ✎
                     </button>
@@ -1184,7 +1202,7 @@ export default function PageView() {
                       style={{ color: 'var(--notion-text-muted)', borderLeft: '1px solid var(--notion-border)' }}
                       onMouseEnter={e => { e.currentTarget.style.background = 'var(--notion-hover)'; e.currentTarget.style.color = 'var(--notion-text)'; }}
                       onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--notion-text-muted)'; }}
-                      title="Move left"
+                      title={isZh ? '左移' : 'Move left'}
                     >
                       ←
                     </button>
@@ -1194,7 +1212,7 @@ export default function PageView() {
                       style={{ color: 'var(--notion-text-muted)', borderLeft: '1px solid var(--notion-border)' }}
                       onMouseEnter={e => { e.currentTarget.style.background = 'var(--notion-hover)'; e.currentTarget.style.color = 'var(--notion-text)'; }}
                       onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--notion-text-muted)'; }}
-                      title="Move right"
+                      title={isZh ? '右移' : 'Move right'}
                     >
                       →
                     </button>
@@ -1204,7 +1222,7 @@ export default function PageView() {
                       style={{ color: 'var(--notion-text-muted)', borderLeft: '1px solid var(--notion-border)' }}
                       onMouseEnter={e => { e.currentTarget.style.background = '#fef2f2'; e.currentTarget.style.color = '#dc2626'; }}
                       onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--notion-text-muted)'; }}
-                      title="Delete template button"
+                      title={isZh ? '删除模板按钮' : 'Delete template button'}
                     >
                       ×
                     </button>
@@ -1217,7 +1235,7 @@ export default function PageView() {
                   onMouseEnter={e => { e.currentTarget.style.background = 'var(--notion-hover)'; e.currentTarget.style.color = 'var(--notion-text)'; }}
                   onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--notion-text-muted)'; }}
                 >
-                  + Template Button
+                  {isZh ? '+ 模板按钮' : '+ Template Button'}
                 </button>
               </div>
             )}
@@ -1269,9 +1287,19 @@ export default function PageView() {
                   />
                   {/* Quick prompts */}
                   <div className="hidden sm:flex items-center gap-1 mr-2">
-                    {['Summarize this page', 'Write an outline', 'Generate action items'].map(p => (
-                      <button key={p} onClick={() => setAiInput(p)} className="text-[10px] px-2 py-0.5 rounded-full whitespace-nowrap" style={{ background: '#ede9fe', color: '#7c3aed' }}>
-                        {p.split(' ').slice(0, 2).join(' ')}
+                    {(isZh
+                      ? [
+                          { full: '请总结这页内容', short: '总结页面' },
+                          { full: '请写一个内容大纲', short: '生成大纲' },
+                          { full: '请提取可执行行动项', short: '提取行动项' },
+                        ]
+                      : [
+                          { full: 'Summarize this page', short: 'Summarize' },
+                          { full: 'Write an outline', short: 'Outline' },
+                          { full: 'Generate action items', short: 'Action items' },
+                        ]).map((p) => (
+                      <button key={p.full} onClick={() => setAiInput(p.full)} className="text-[10px] px-2 py-0.5 rounded-full whitespace-nowrap" style={{ background: '#ede9fe', color: '#7c3aed' }}>
+                        {p.short}
                       </button>
                     ))}
                   </div>
@@ -1295,7 +1323,7 @@ export default function PageView() {
               <div className="flex items-center mb-2">
                 <button
                   onClick={async () => {
-                    if (!confirm('确定要清除所有内容吗？此操作不可撤销。')) return;
+                    if (!confirm(isZh ? '确定要清除所有内容吗？此操作不可撤销。' : 'Clear all content? This action cannot be undone.')) return;
                     try {
                       await api.patch(`/api/workspace/pages/${pageId}`, { content: [] });
                       setPage((p: any) => ({ ...p, content: [] }));
@@ -1311,7 +1339,7 @@ export default function PageView() {
                   <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                     <path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/>
                   </svg>
-                  清除内容
+                  {isZh ? '清除内容' : 'Clear content'}
                 </button>
                 <button
                   onClick={() => { setGalleryMode('apply'); setShowGallery(true); }}
@@ -1320,7 +1348,7 @@ export default function PageView() {
                   onMouseEnter={e => { e.currentTarget.style.background = 'var(--notion-hover)'; e.currentTarget.style.color = 'var(--notion-text)'; }}
                   onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--notion-text-muted)'; }}
                 >
-                  <HandIcon name="package" size={12} /> 模板库
+                  <HandIcon name="package" size={12} /> {isZh ? '模板库' : 'Template Gallery'}
                 </button>
               </div>
             )}
@@ -1383,8 +1411,8 @@ export default function PageView() {
         onClose={() => setShowGallery(false)}
         onSelect={handleGallerySelect}
         onAppend={galleryMode === 'apply' ? handleGalleryAppend : undefined}
-        useTemplateLabel={galleryMode === 'add_button' ? 'Create Template Button' : 'Replace Current Page'}
-        appendTemplateLabel="Insert into Current Page"
+        useTemplateLabel={galleryMode === 'add_button' ? (isZh ? '创建模板按钮' : 'Create Template Button') : (isZh ? '替换当前页面' : 'Replace Current Page')}
+        appendTemplateLabel={isZh ? '插入到当前页面' : 'Insert into Current Page'}
       />
 
       {/* ── Cover picker modal ── */}
@@ -1444,7 +1472,7 @@ export default function PageView() {
         >
           <div className="rounded-2xl shadow-2xl p-5" style={{ width: 380, background: 'var(--notion-card, white)', border: '1px solid var(--notion-border)' }}>
             <div className="flex items-center justify-between mb-4">
-              <h3 className="text-sm font-semibold" style={{ color: 'var(--notion-text)' }}>Choose icon</h3>
+              <h3 className="text-sm font-semibold" style={{ color: 'var(--notion-text)' }}>{tWorkspace('chooseIcon')}</h3>
               <button onClick={() => setShowIconPicker(false)} style={{ color: 'var(--notion-text-muted)' }}>
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
               </button>
@@ -1464,7 +1492,7 @@ export default function PageView() {
                 onMouseEnter={e => e.currentTarget.style.background = 'var(--notion-hover)'}
                 onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
               >
-                Remove icon
+                {tWorkspace('removeIcon')}
               </button>
             )}
           </div>
@@ -1481,35 +1509,35 @@ export default function PageView() {
             <div className="flex items-center gap-3 mb-5">
               <div className="w-9 h-9 rounded-xl flex items-center justify-center" style={{ background: '#ede9fe' }}><HandIcon name="package" size={22} /></div>
               <div>
-                <h3 className="text-base font-semibold" style={{ color: 'var(--notion-text)' }}>Save as Template</h3>
-                <p className="text-xs" style={{ color: 'var(--notion-text-muted)' }}>Make this page available in the template gallery</p>
+                <h3 className="text-base font-semibold" style={{ color: 'var(--notion-text)' }}>{tWorkspace('saveAsTemplate')}</h3>
+                <p className="text-xs" style={{ color: 'var(--notion-text-muted)' }}>{tWorkspace('makeTemplateDesc')}</p>
               </div>
             </div>
 
             <div className="space-y-4">
               <div>
-                <label className="text-xs font-medium block mb-1.5" style={{ color: 'var(--notion-text)' }}>Title</label>
+                <label className="text-xs font-medium block mb-1.5" style={{ color: 'var(--notion-text)' }}>{tWorkspace('titleLabel')}</label>
                 <input
                   value={templateTitle}
                   onChange={e => setTemplateTitle(e.target.value)}
-                  placeholder={title || 'Template title'}
+                  placeholder={title || tWorkspace('templateLabel')}
                   className="w-full text-sm px-3 py-2 rounded-lg outline-none"
                   style={{ border: '1px solid var(--notion-border)', color: 'var(--notion-text)', background: 'var(--notion-bg)' }}
                 />
               </div>
               <div>
-                <label className="text-xs font-medium block mb-1.5" style={{ color: 'var(--notion-text)' }}>Description</label>
+                <label className="text-xs font-medium block mb-1.5" style={{ color: 'var(--notion-text)' }}>{tWorkspace('descLabel')}</label>
                 <textarea
                   value={templateDesc}
                   onChange={e => setTemplateDesc(e.target.value)}
-                  placeholder="Describe when to use this template..."
+                  placeholder={tWorkspace('descPlaceholder')}
                   rows={2}
                   className="w-full text-sm px-3 py-2 rounded-lg outline-none resize-none"
                   style={{ border: '1px solid var(--notion-border)', color: 'var(--notion-text)', background: 'var(--notion-bg)' }}
                 />
               </div>
               <div>
-                <label className="text-xs font-medium block mb-2" style={{ color: 'var(--notion-text)' }}>Category</label>
+                <label className="text-xs font-medium block mb-2" style={{ color: 'var(--notion-text)' }}>{tWorkspace('categoryLabel')}</label>
                 <div className="grid grid-cols-4 gap-1.5">
                   {TEMPLATE_CATEGORIES.map(cat => (
                     <button key={cat} onClick={() => setTemplateCategory(cat)}
@@ -1532,12 +1560,54 @@ export default function PageView() {
                 onMouseEnter={e => e.currentTarget.style.background = 'var(--notion-hover)'}
                 onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
               >
-                Cancel
+                {tWorkspace('cancel')}
               </button>
               <button onClick={handleSaveAsTemplate} disabled={savingTemplate} className="flex-1 py-2 text-sm rounded-lg font-medium text-white transition-opacity disabled:opacity-60 shadow-md"
                 style={{ background: '#7c3aed' }}
               >
-                {savingTemplate ? 'Saving...' : 'Save Template'}
+                {savingTemplate ? tWorkspace('savingText') : tWorkspace('saveTemplate')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Rename Template Button modal ── */}
+      {renameTemplateButton && (
+        <div
+          className="fixed inset-0 z-[220] flex items-center justify-center"
+          style={{ background: 'rgba(0,0,0,0.45)' }}
+          onClick={e => { if (e.target === e.currentTarget) setRenameTemplateButton(null); }}
+        >
+          <div className="rounded-xl p-5 shadow-2xl" style={{ width: 360, background: 'var(--notion-card, white)', border: '1px solid var(--notion-border)' }}>
+            <h3 className="text-sm font-semibold mb-3" style={{ color: 'var(--notion-text)' }}>
+              {isZh ? '重命名模板按钮' : 'Rename Template Button'}
+            </h3>
+            <input
+              autoFocus
+              value={renameTemplateButtonValue}
+              onChange={(e) => setRenameTemplateButtonValue(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') submitRenameTemplateButton();
+                if (e.key === 'Escape') setRenameTemplateButton(null);
+              }}
+              className="w-full text-sm px-3 py-2 rounded-lg outline-none"
+              style={{ border: '1px solid var(--notion-border)', color: 'var(--notion-text)', background: 'var(--notion-bg)' }}
+            />
+            <div className="flex gap-2 mt-4">
+              <button
+                onClick={() => setRenameTemplateButton(null)}
+                className="flex-1 py-2 text-sm rounded-lg"
+                style={{ border: '1px solid var(--notion-border)', color: 'var(--notion-text-muted)' }}
+              >
+                {isZh ? '取消' : 'Cancel'}
+              </button>
+              <button
+                onClick={submitRenameTemplateButton}
+                className="flex-1 py-2 text-sm rounded-lg text-white font-medium"
+                style={{ background: '#7c3aed' }}
+              >
+                {isZh ? '保存' : 'Save'}
               </button>
             </div>
           </div>
@@ -1572,7 +1642,7 @@ export default function PageView() {
                 color: '#fff', fontSize: 12, fontWeight: 800, flexShrink: 0,
               }}>@</div>
               <span className="text-sm font-semibold flex-1" style={{ color: 'var(--notion-text)' }}>
-                AI 助手 — 输出将自动插入到光标位置
+                {isZh ? 'AI 助手 — 输出将自动插入到光标位置' : 'AI Assistant - Output will be inserted at cursor'}
               </span>
               {!mentionStreaming && (
                 <button
@@ -1598,7 +1668,7 @@ export default function PageView() {
                   if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleMentionSubmit(); }
                   if (e.key === 'Escape' && !mentionStreaming) { setShowMentionDialog(false); setMentionResult(''); setMentionInput(''); }
                 }}
-                placeholder="输入指令，例如：帮我写一段产品介绍..."
+                placeholder={isZh ? '输入指令，例如：帮我写一段产品介绍...' : 'Type a prompt, e.g. write a short product introduction...'}
                 disabled={mentionStreaming}
                 className="flex-1 text-sm outline-none bg-transparent"
                 style={{ color: 'var(--notion-text)' }}
@@ -1615,9 +1685,9 @@ export default function PageView() {
                       <circle style={{ opacity: 0.25 }} cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
                       <path style={{ opacity: 0.75 }} fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
                     </svg>
-                    生成中
+                    {isZh ? '生成中' : 'Generating'}
                   </>
-                ) : '发送'}
+                ) : (isZh ? '发送' : 'Send')}
               </button>
             </div>
 

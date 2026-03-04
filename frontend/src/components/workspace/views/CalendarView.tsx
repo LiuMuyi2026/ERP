@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useCallback } from 'react';
+import { useLocale } from 'next-intl';
 import { DBColumn, DBRow, getOptionColor, generateRowId } from './types';
 
 interface CalendarViewProps {
@@ -9,9 +10,6 @@ interface CalendarViewProps {
   dateField: string; // key of date column
   onRowsChange: (rows: DBRow[]) => void;
 }
-
-const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
 
 function getDaysInMonth(year: number, month: number) {
   return new Date(year, month + 1, 0).getDate();
@@ -22,6 +20,18 @@ function getFirstDayOfWeek(year: number, month: number) {
 }
 
 export default function CalendarView({ columns, rows, dateField, onRowsChange }: CalendarViewProps) {
+  const locale = useLocale();
+  const isZh = String(locale || '').toLowerCase().startsWith('zh');
+  const WEEKDAYS = isZh ? ['日', '一', '二', '三', '四', '五', '六'] : ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  const MONTHS = isZh ? ['1月', '2月', '3月', '4月', '5月', '6月', '7月', '8月', '9月', '10月', '11月', '12月'] : ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+  const untitled = isZh ? '未命名' : 'Untitled';
+  const moreLabel = isZh ? '还有' : '+';
+  const moreSuffix = isZh ? '条' : 'more';
+  const emptyDayLabel = isZh ? '当天暂无事件' : 'No events on this day';
+  const inputPlaceholder = isZh ? '输入事件标题...' : 'New event title...';
+  const addEventLabel = isZh ? '+ 添加事件' : '+ Add event';
+  const hintLabel = isZh ? '点击某一天可查看或新增事件' : 'Click a day to see events or add new ones';
+
   const today = new Date();
   const [year, setYear] = useState(today.getFullYear());
   const [month, setMonth] = useState(today.getMonth());
@@ -142,12 +152,12 @@ export default function CalendarView({ columns, rows, dateField, onRowsChange }:
                         return (
                           <div key={row._id} className="text-[10px] px-1.5 py-0.5 rounded truncate"
                             style={{ background: colors.bg, color: colors.text }}>
-                            {row[titleCol.key] || 'Untitled'}
+                            {row[titleCol.key] || untitled}
                           </div>
                         );
                       })}
                       {events.length > 3 && (
-                        <div className="text-[10px] px-1 text-gray-400">+{events.length - 3} more</div>
+                        <div className="text-[10px] px-1 text-gray-400">{isZh ? `${moreLabel} ${events.length - 3} ${moreSuffix}` : `${moreLabel}${events.length - 3} ${moreSuffix}`}</div>
                       )}
                     </div>
                   </>
@@ -163,7 +173,7 @@ export default function CalendarView({ columns, rows, dateField, onRowsChange }:
         {selectedDay ? (
           <div>
             <h4 className="text-sm font-semibold mb-3 pb-2" style={{ color: 'var(--notion-text)', borderBottom: '1px solid var(--notion-border)' }}>
-              📅 {new Date(selectedDay + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+              📅 {new Date(selectedDay + 'T00:00:00').toLocaleDateString(isZh ? 'zh-CN' : 'en-US', isZh ? { year: 'numeric', month: 'short', day: 'numeric' } : { month: 'short', day: 'numeric', year: 'numeric' })}
             </h4>
 
             {/* Events on this day */}
@@ -171,7 +181,7 @@ export default function CalendarView({ columns, rows, dateField, onRowsChange }:
               {(rowsByDate[selectedDay] || []).map(row => (
                 <div key={row._id} className="flex items-center justify-between gap-2 px-2 py-1.5 rounded-lg"
                   style={{ background: 'var(--notion-hover)', border: '1px solid var(--notion-border)' }}>
-                  <span className="text-xs truncate" style={{ color: 'var(--notion-text)' }}>{row[titleCol.key] || 'Untitled'}</span>
+                  <span className="text-xs truncate" style={{ color: 'var(--notion-text)' }}>{row[titleCol.key] || untitled}</span>
                   <button onClick={() => deleteRow(row._id!)} className="flex-shrink-0 p-0.5 rounded" style={{ color: 'var(--notion-text-muted)' }}
                     onMouseEnter={e => { e.currentTarget.style.color = '#dc2626'; }}
                     onMouseLeave={e => { e.currentTarget.style.color = 'var(--notion-text-muted)'; }}>
@@ -180,7 +190,7 @@ export default function CalendarView({ columns, rows, dateField, onRowsChange }:
                 </div>
               ))}
               {!(rowsByDate[selectedDay]?.length) && (
-                <p className="text-xs italic" style={{ color: 'var(--notion-text-muted)' }}>No events on this day</p>
+                <p className="text-xs italic" style={{ color: 'var(--notion-text-muted)' }}>{emptyDayLabel}</p>
               )}
             </div>
 
@@ -188,22 +198,22 @@ export default function CalendarView({ columns, rows, dateField, onRowsChange }:
             <div className="rounded-lg overflow-hidden" style={{ border: '1.5px solid #7c3aed' }}>
               <input value={newEventTitle} onChange={e => setNewEventTitle(e.target.value)}
                 onKeyDown={e => { if (e.key === 'Enter') addEvent(); if (e.key === 'Escape') setNewEventTitle(''); }}
-                placeholder="New event title..."
+                placeholder={inputPlaceholder}
                 className="w-full text-xs px-2.5 py-2 outline-none"
                 style={{ color: 'var(--notion-text)', background: '#faf9ff' }} />
               <button onClick={addEvent} disabled={!newEventTitle.trim()}
                 className="w-full text-xs py-1.5 text-white font-medium disabled:opacity-40"
                 style={{ background: '#7c3aed' }}>
-                + Add event
+                {addEventLabel}
               </button>
             </div>
           </div>
         ) : (
           <div className="flex flex-col items-center justify-center h-48 gap-2">
             <span style={{ fontSize: 28 }}>📅</span>
-            <p className="text-xs text-center" style={{ color: 'var(--notion-text-muted)' }}>
-              Click a day to see events or add new ones
-            </p>
+              <p className="text-xs text-center" style={{ color: 'var(--notion-text-muted)' }}>
+              {hintLabel}
+              </p>
           </div>
         )}
       </div>

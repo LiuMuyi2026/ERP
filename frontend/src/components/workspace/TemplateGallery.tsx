@@ -28,11 +28,12 @@ interface TemplateGalleryProps {
   appendTemplateLabel?: string;
 }
 
-const BUILTIN_CATEGORIES = ['Meeting', 'Planning', 'Product', 'Engineering', 'Business', 'Marketing', 'Personal'];
-
 const CATEGORY_ICONS: Record<string, string> = {
   Meeting: 'handshake', Planning: 'clipboard', Product: 'rocket', Engineering: 'gear',
   Business: 'briefcase', Marketing: 'megaphone', Personal: 'herb', Custom: 'sparkle',
+  会议: 'handshake', 规划: 'clipboard', 产品: 'rocket', 工程: 'gear',
+  商务: 'briefcase', 市场: 'megaphone', 个人: 'herb', 自定义: 'sparkle',
+  人事: 'users',
 };
 
 const CATEGORY_GRADIENTS: Record<string, string> = {
@@ -44,6 +45,15 @@ const CATEGORY_GRADIENTS: Record<string, string> = {
   Marketing:   'linear-gradient(135deg, #a18cd1 0%, #fbc2eb 100%)',
   Personal:    'linear-gradient(135deg, #ffecd2 0%, #fcb69f 100%)',
   Custom:      'linear-gradient(135deg, #e0c3fc 0%, #8ec5fc 100%)',
+  会议:        'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+  规划:        'linear-gradient(135deg, #f093fb 0%, #f5576c 100%)',
+  产品:        'linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)',
+  工程:        'linear-gradient(135deg, #43e97b 0%, #38f9d7 100%)',
+  商务:        'linear-gradient(135deg, #fa709a 0%, #fee140 100%)',
+  市场:        'linear-gradient(135deg, #a18cd1 0%, #fbc2eb 100%)',
+  个人:        'linear-gradient(135deg, #ffecd2 0%, #fcb69f 100%)',
+  自定义:      'linear-gradient(135deg, #e0c3fc 0%, #8ec5fc 100%)',
+  人事:        'linear-gradient(135deg, #38bdf8 0%, #818cf8 100%)',
 };
 
 const CATEGORY_BG: Record<string, string> = {
@@ -55,30 +65,15 @@ const CATEGORY_BG: Record<string, string> = {
   Marketing:   '#f9f0ff',
   Personal:    '#fff8f0',
   Custom:      '#f0f4ff',
-};
-
-const VARIABLE_LABELS: Record<string, string> = {
-  date: 'Date',
-  time: 'Time',
-  datetime: 'DateTime',
-  year: 'Year',
-  month: 'Month',
-  day: 'Day',
-  quarter: 'Quarter',
-  next_week: 'Next Week Date',
-  next_weekday: 'Next Weekday',
-  weekday: 'Weekday',
-  weekday_zh: 'Weekday ZH',
-  user: 'User',
-  user_name: 'User Name',
-  email: 'Email',
-  user_email: 'User Email',
-  workspace: 'Workspace',
-  workspace_name: 'Workspace Name',
-  tenant: 'Tenant',
-  tenant_slug: 'Tenant Slug',
-  page: 'Page',
-  page_title: 'Page Title',
+  会议:        '#f3f0ff',
+  规划:        '#fff0f5',
+  产品:        '#e6f7ff',
+  工程:        '#e6fff7',
+  商务:        '#fff3e0',
+  市场:        '#f9f0ff',
+  个人:        '#fff8f0',
+  自定义:      '#f0f4ff',
+  人事:        '#eef2ff',
 };
 
 function extractTemplateVariables(value: any): string[] {
@@ -158,7 +153,7 @@ function MarkdownPreview({ text, compact = false }: { text: string; compact?: bo
 }
 
 // ── View structure visualization ──────────────────────────────────────────────
-function ViewStructureViz({ views, t }: { views: Template['default_views']; t: any }) {
+function ViewStructureViz({ views, t, isZh }: { views: Template['default_views']; t: any; isZh: boolean }) {
   if (!views?.length) return null;
   return (
     <div className="mt-4">
@@ -172,7 +167,7 @@ function ViewStructureViz({ views, t }: { views: Template['default_views']; t: a
           }}>
             <span style={{ fontSize: 11 }}>{v.icon}</span>
             {v.title}
-            <span className="opacity-50 text-[9px]">{v.type === 'document' ? 'doc' : v.type === 'task_tracker' ? 'tasks' : 'table'}</span>
+            <span className="opacity-50 text-[9px]">{v.type === 'document' ? (isZh ? '文档' : 'doc') : v.type === 'task_tracker' ? (isZh ? '任务' : 'tasks') : (isZh ? '表格' : 'table')}</span>
           </div>
         ))}
       </div>
@@ -309,8 +304,54 @@ export default function TemplateGallery({
   const [deleting, setDeleting] = useState(false);
   const searchRef = useRef<HTMLInputElement>(null);
   const lang = useLocale();
+  const isZh = String(lang || '').toLowerCase().startsWith('zh');
   const tWorkspace = useTranslations('workspace');
   const tCommon = useTranslations('common');
+  const VARIABLE_LABELS: Record<string, string> = isZh ? {
+    date: '日期',
+    time: '时间',
+    datetime: '日期时间',
+    year: '年份',
+    month: '月份',
+    day: '日',
+    quarter: '季度',
+    next_week: '下周日期',
+    next_weekday: '下周工作日',
+    weekday: '星期',
+    weekday_zh: '中文星期',
+    user: '用户',
+    user_name: '用户名',
+    email: '邮箱',
+    user_email: '用户邮箱',
+    workspace: '工作区',
+    workspace_name: '工作区名称',
+    tenant: '租户',
+    tenant_slug: '租户标识',
+    page: '页面',
+    page_title: '页面标题',
+  } : {
+    date: 'Date',
+    time: 'Time',
+    datetime: 'DateTime',
+    year: 'Year',
+    month: 'Month',
+    day: 'Day',
+    quarter: 'Quarter',
+    next_week: 'Next Week Date',
+    next_weekday: 'Next Weekday',
+    weekday: 'Weekday',
+    weekday_zh: 'Weekday ZH',
+    user: 'User',
+    user_name: 'User Name',
+    email: 'Email',
+    user_email: 'User Email',
+    workspace: 'Workspace',
+    workspace_name: 'Workspace Name',
+    tenant: 'Tenant',
+    tenant_slug: 'Tenant Slug',
+    page: 'Page',
+    page_title: 'Page Title',
+  };
 
   useEffect(() => {
     if (!open) return;
@@ -374,7 +415,6 @@ export default function TemplateGallery({
     .filter(t => !search || t.title.toLowerCase().includes(search.toLowerCase()) || (t.description || '').toLowerCase().includes(search.toLowerCase()));
 
   const categories = Array.from(new Set(templates.filter(t => t.source === 'builtin').map(t => t.category)));
-  const showCardGrid = (activeFilter === 'All' || BUILTIN_CATEGORIES.includes(activeFilter)) && !selected;
   const selectedVariables = selected ? extractTemplateVariables({ title: selected.title, content: selected.content, views: selected.default_views }) : [];
 
   return (
@@ -615,7 +655,7 @@ export default function TemplateGallery({
                       <span className="inline-flex items-center gap-1"><HandIcon name="sparkle-star" size={10} /> {selected.source === 'builtin' ? tWorkspace('builtIn') : tWorkspace('myTemplate')}</span>
                     </span>
                     {selected.creator_name && selected.source === 'user' && (
-                      <span className="text-xs" style={{ color: 'var(--notion-text-muted)' }}>by {selected.creator_name}</span>
+                      <span className="text-xs" style={{ color: 'var(--notion-text-muted)' }}>{isZh ? '作者' : 'by'} {selected.creator_name}</span>
                     )}
                   </div>
 
@@ -625,13 +665,13 @@ export default function TemplateGallery({
                   )}
 
                   {/* Views */}
-                  <ViewStructureViz views={selected.default_views} t={tWorkspace} />
+                  <ViewStructureViz views={selected.default_views} t={tWorkspace} isZh={isZh} />
 
                   {/* Template variables */}
                   {selectedVariables.length > 0 && (
                     <div>
                       <p className="text-[10px] uppercase tracking-widest font-semibold mb-2" style={{ color: 'var(--notion-text-muted)' }}>
-                        Variables
+                        {isZh ? '变量' : 'Variables'}
                       </p>
                       <div className="flex flex-wrap gap-1.5">
                         {selectedVariables.map(v => (
@@ -670,7 +710,7 @@ export default function TemplateGallery({
                           <line x1="12" y1="5" x2="12" y2="19" />
                           <line x1="5" y1="12" x2="19" y2="12" />
                         </svg>
-                        {appendTemplateLabel || 'Insert into Page'}
+                        {appendTemplateLabel || (isZh ? '插入到页面' : 'Insert into Page')}
                       </button>
                     )}
                     {selected.source === 'user' && (
@@ -681,7 +721,7 @@ export default function TemplateGallery({
                         style={{ color: '#dc2626', border: '1px solid #fecaca', opacity: deleting ? 0.6 : 1 }}
                         onMouseEnter={e => { e.currentTarget.style.background = '#fef2f2'; }}
                         onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; }}
-                        title="Delete template"
+                        title={isZh ? '删除模板' : 'Delete template'}
                       >
                         <HandIcon name="trash-can" size={16} />
                       </button>

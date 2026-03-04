@@ -59,6 +59,7 @@ class PageFromTemplate(BaseModel):
     workspace_id: str
     parent_page_id: Optional[str] = None
     title: Optional[str] = None
+    lang: str = "en"
 
 
 class WorkspaceMemberAdd(BaseModel):
@@ -2659,7 +2660,7 @@ async def use_template(template_id: str, body: PageFromTemplate,
     db = ctx["db"]
     page_id = str(uuid.uuid4())
     variables = await _build_template_variables(db, ctx, workspace_id=body.workspace_id)
-    src_title, content, icon = await _resolve_template_payload_rendered(db, template_id, "zh", variables)
+    src_title, content, icon = await _resolve_template_payload_rendered(db, template_id, body.lang, variables)
     title = body.title or src_title
 
     # Serialize content to JSON string — asyncpg requires explicit CAST for JSONB with text() queries

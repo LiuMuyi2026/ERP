@@ -3,7 +3,8 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { api } from '@/lib/api';
-import { useTranslations } from 'next-intl';
+import { useLocale, useTranslations } from 'next-intl';
+import toast from 'react-hot-toast';
 import dynamic from 'next/dynamic';
 import TemplateGallery from '@/components/workspace/TemplateGallery';
 import { HandIcon } from '@/components/ui/HandIcon';
@@ -111,6 +112,8 @@ export default function WorkspacePage() {
   const { tenant } = useParams<{ tenant: string }>();
   const router = useRouter();
   const searchParams = useSearchParams();
+  const locale = useLocale();
+  const isZh = String(locale || '').toLowerCase().startsWith('zh');
   const tWorkspace = useTranslations('workspace');
   const tCommon = useTranslations('common');
 
@@ -176,7 +179,7 @@ export default function WorkspacePage() {
 
   const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const homeLabels = {
+  const homeLabels = isZh ? {
     home: '工作区主页',
     recent: '最近访问',
     calendar: '日历管理',
@@ -189,7 +192,21 @@ export default function WorkspacePage() {
     emptyTodos: '暂无待办追踪页面',
     loading: '加载中...',
     today: '今天',
+  } : {
+    home: 'Workspace Home',
+    recent: 'Recent',
+    calendar: 'Calendar',
+    todos: 'Workspace To-dos',
+    createCalendar: 'New Calendar Page',
+    createTodo: 'New To-do Page',
+    open: 'Open',
+    emptyRecent: 'No recently visited pages',
+    emptyCalendar: 'No calendar-related pages',
+    emptyTodos: 'No task tracking pages',
+    loading: 'Loading...',
+    today: 'Today',
   };
+  const opFailed = isZh ? '操作失败' : 'Operation failed';
 
   // ── Data loading ──────────────────────────────────────────────────────────
 
@@ -324,12 +341,13 @@ export default function WorkspacePage() {
     try {
       const page = await api.post(`/api/workspace/templates/${templateId}/use`, {
         workspace_id: activeWsId, title: templateTitle,
+        lang: locale,
         ...(currentParentId ? { parent_page_id: currentParentId } : {}),
       });
       window.dispatchEvent(new CustomEvent('workspace-changed'));
       await loadPages(activeWsId, 0, false);
       router.push(`/${tenant}/workspace/${page.id}`);
-    } catch (err: any) { alert(err.message); }
+    } catch (err: any) { toast.error(err?.message || opFailed); }
   }
 
   async function createBlankPage() {
@@ -343,7 +361,7 @@ export default function WorkspacePage() {
       window.dispatchEvent(new CustomEvent('workspace-changed'));
       await loadPages(activeWsId, 0, false);
       router.push(`/${tenant}/workspace/${page.id}`);
-    } catch (err: any) { alert(err.message); }
+    } catch (err: any) { toast.error(err?.message || opFailed); }
   }
 
   async function createCalendarPage() {
@@ -351,25 +369,35 @@ export default function WorkspacePage() {
     try {
       const now = new Date();
       const monthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+      const calendarTitle = isZh ? `日历管理 ${monthKey}` : `Calendar ${monthKey}`;
+      const viewTitle = isZh ? '日历' : 'Calendar';
+      const fieldTitle = isZh ? '事件' : 'Event';
+      const fieldDate = isZh ? '日期' : 'Date';
+      const fieldOwner = isZh ? '负责人' : 'Owner';
+      const fieldStatus = isZh ? '状态' : 'Status';
+      const fieldNotes = isZh ? '备注' : 'Notes';
+      const statusPlanned = isZh ? '计划中' : 'Planned';
+      const statusInProgress = isZh ? '进行中' : 'In progress';
+      const statusDone = isZh ? '已完成' : 'Done';
       const page = await api.post('/api/workspace/pages', {
         workspace_id: activeWsId,
-        title: `日历管理 ${monthKey}`,
+        title: calendarTitle,
         icon: '📅',
         content: {
           _views: [
             {
               id: 'calendar',
               type: 'database',
-              title: 'Calendar',
+              title: viewTitle,
               icon: '📅',
               dbData: {
                 schema: {
                   columns: [
-                    { key: 'title', title: 'Event', type: 'title' },
-                    { key: 'date', title: 'Date', type: 'date' },
-                    { key: 'owner', title: 'Owner', type: 'text' },
-                    { key: 'status', title: 'Status', type: 'status', options: [{ value: 'Planned' }, { value: 'In progress' }, { value: 'Done' }] },
-                    { key: 'notes', title: 'Notes', type: 'text' },
+                    { key: 'title', title: fieldTitle, type: 'title' },
+                    { key: 'date', title: fieldDate, type: 'date' },
+                    { key: 'owner', title: fieldOwner, type: 'text' },
+                    { key: 'status', title: fieldStatus, type: 'status', options: [{ value: statusPlanned }, { value: statusInProgress }, { value: statusDone }] },
+                    { key: 'notes', title: fieldNotes, type: 'text' },
                   ],
                   groupBy: 'status',
                   dateField: 'date',
@@ -384,7 +412,7 @@ export default function WorkspacePage() {
       await loadPages(activeWsId, 0, false);
       router.push(`/${tenant}/workspace/${page.id}`);
     } catch (err: any) {
-      alert(err?.message || 'Failed to create calendar page');
+      toast.error(err?.message || (isZh ? '创建日历页面失败' : 'Failed to create calendar page'));
     }
   }
 
@@ -393,7 +421,7 @@ export default function WorkspacePage() {
     try {
       const page = await api.post('/api/workspace/pages', {
         workspace_id: activeWsId,
-        title: '工作区待办',
+        title: isZh ? '工作区待办' : 'Workspace To-dos',
         icon: '✅',
         content: { _type: 'task_tracker', _tasks: [] },
       });
@@ -401,7 +429,7 @@ export default function WorkspacePage() {
       await loadPages(activeWsId, 0, false);
       router.push(`/${tenant}/workspace/${page.id}`);
     } catch (err: any) {
-      alert(err?.message || 'Failed to create todo page');
+      toast.error(err?.message || (isZh ? '创建待办页面失败' : 'Failed to create todo page'));
     }
   }
 
@@ -413,7 +441,7 @@ export default function WorkspacePage() {
         target_workspace_id: activeWsId,
       });
       await loadPages(activeWsId, 0, false);
-    } catch (err: any) { alert(err.message); }
+    } catch (err: any) { toast.error(err?.message || opFailed); }
   }
 
   async function deletePage(pageId: string) {
@@ -424,7 +452,7 @@ export default function WorkspacePage() {
       setPages(prev => prev.filter(p => p.id !== pageId));
       setTotal(t => t - 1);
       setSelectedIds(prev => { const n = new Set(prev); n.delete(pageId); return n; });
-    } catch (err: any) { alert(err.message); }
+    } catch (err: any) { toast.error(err?.message || opFailed); }
   }
 
   async function deleteSelected() {
@@ -461,7 +489,7 @@ export default function WorkspacePage() {
   // ── Folder navigation ────────────────────────────────────────────────────
   function navigateToFolder(page: Page) {
     setCurrentParentId(page.id);
-    setBreadcrumbs(prev => [...prev, { id: page.id, title: page.title || 'Untitled' }]);
+    setBreadcrumbs(prev => [...prev, { id: page.id, title: page.title || tWorkspace('untitled') }]);
     setSelectedIds(new Set());
   }
 
@@ -489,7 +517,7 @@ export default function WorkspacePage() {
         await loadPages(activeWsId, 0, false);
       }
       router.push(`/${tenant}/workspace/${page.id}`);
-    } catch (err: any) { alert(err.message); }
+    } catch (err: any) { toast.error(err?.message || opFailed); }
   }
 
   // ── Workspace actions ──────────────────────────────────────────────────────
@@ -507,7 +535,7 @@ export default function WorkspacePage() {
       setShowNewTeamWs(false);
       setNewWsName(''); setNewWsIcon('folder'); setNewWsDesc('');
       window.dispatchEvent(new CustomEvent('workspace-changed'));
-    } catch (err: any) { alert(err.message); }
+    } catch (err: any) { toast.error(err?.message || opFailed); }
   }
 
   async function saveEdit() {
@@ -521,7 +549,7 @@ export default function WorkspacePage() {
         ? { ...w, name: editWsName.trim() || w.name, icon: editWsIcon, description: editWsDesc } : w));
       setEditWs(null);
       window.dispatchEvent(new CustomEvent('workspace-changed'));
-    } catch (err: any) { alert(err.message); }
+    } catch (err: any) { toast.error(err?.message || opFailed); }
   }
 
   async function confirmDeleteWs() {
@@ -534,7 +562,7 @@ export default function WorkspacePage() {
       setDeleteWs(null);
       // Notify sidebar to refresh its tree
       window.dispatchEvent(new CustomEvent('workspace-changed'));
-    } catch (err: any) { alert(err.message); }
+    } catch (err: any) { toast.error(err?.message || opFailed); }
   }
 
   async function openMembers(ws: Workspace) {
@@ -556,7 +584,7 @@ export default function WorkspacePage() {
       await api.post(`/api/workspace/workspaces/${memberWs.id}/members`, { user_id: empUserId, role: 'editor' });
       setMembers(prev => [...prev.filter(m => m.user_id !== empUserId),
         { user_id: empUserId, full_name: emp.full_name, email: emp.email, title: emp.title || '', role: 'editor' }]);
-    } catch (err: any) { alert(err.message); }
+    } catch (err: any) { toast.error(err?.message || opFailed); }
     finally { setAddingMember(false); }
   }
 
@@ -565,7 +593,7 @@ export default function WorkspacePage() {
     try {
       await api.delete(`/api/workspace/workspaces/${memberWs.id}/members/${userId}`);
       setMembers(prev => prev.filter(m => m.user_id !== userId));
-    } catch (err: any) { alert(err.message); }
+    } catch (err: any) { toast.error(err?.message || opFailed); }
   }
 
   async function updateMemberRole(userId: string, role: string) {
@@ -573,7 +601,7 @@ export default function WorkspacePage() {
     try {
       await api.post(`/api/workspace/workspaces/${memberWs.id}/members`, { user_id: userId, role });
       setMembers(prev => prev.map(m => m.user_id === userId ? { ...m, role } : m));
-    } catch (err: any) { alert(err.message); }
+    } catch (err: any) { toast.error(err?.message || opFailed); }
   }
 
   // ── Derived state ─────────────────────────────────────────────────────────
@@ -754,7 +782,7 @@ export default function WorkspacePage() {
                         onMouseEnter={e => e.currentTarget.style.background = 'var(--notion-hover)'}
                         onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
                         <IconOrEmoji value={p.icon || contentTypeIcon(p.content_type) || 'document'} size={14} />
-                        <span className="text-xs truncate flex-1" style={{ color: 'var(--notion-text)' }}>{p.title || 'Untitled'}</span>
+                        <span className="text-xs truncate flex-1" style={{ color: 'var(--notion-text)' }}>{p.title || tWorkspace('untitled')}</span>
                         <span className="text-[10px]" style={{ color: 'var(--notion-text-muted)' }}>{relativeTime(p.updated_at, tWorkspace)}</span>
                       </button>
                     ))}
@@ -796,7 +824,7 @@ export default function WorkspacePage() {
                         onMouseEnter={e => e.currentTarget.style.background = 'var(--notion-hover)'}
                         onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
                         <IconOrEmoji value={p.icon || '📅'} size={14} />
-                        <span className="text-xs truncate flex-1" style={{ color: 'var(--notion-text)' }}>{p.title || 'Untitled'}</span>
+                        <span className="text-xs truncate flex-1" style={{ color: 'var(--notion-text)' }}>{p.title || tWorkspace('untitled')}</span>
                         <span className="text-[10px]" style={{ color: 'var(--notion-text-muted)' }}>{homeLabels.open}</span>
                       </button>
                     ))}
@@ -825,7 +853,7 @@ export default function WorkspacePage() {
                           onMouseEnter={e => e.currentTarget.style.background = 'var(--notion-hover)'}
                           onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
                           <div className="flex items-center justify-between gap-2 mb-1">
-                            <span className="text-xs truncate" style={{ color: 'var(--notion-text)' }}>{item.page.title || 'Untitled'}</span>
+                            <span className="text-xs truncate" style={{ color: 'var(--notion-text)' }}>{item.page.title || tWorkspace('untitled')}</span>
                             <span className="text-[10px]" style={{ color: 'var(--notion-text-muted)' }}>{item.done}/{item.total}</span>
                           </div>
                           <div style={{ height: 5, borderRadius: 999, background: 'var(--notion-hover)' }}>
@@ -1125,7 +1153,7 @@ export default function WorkspacePage() {
                       <div className="flex items-center gap-2 flex-1 min-w-0">
                         <span className="flex-shrink-0"><IconOrEmoji value={page.icon || ctIcon || 'document'} size={20} /></span>
                         <span className="truncate text-sm font-medium" style={{ color: 'var(--notion-text)' }}>
-                          {page.title || 'Untitled'}
+                          {page.title || tWorkspace('untitled')}
                         </span>
                         {(page.child_count ?? 0) > 0 && (
                           <button
@@ -1176,7 +1204,7 @@ export default function WorkspacePage() {
                             page={page}
                             onOpen={() => { setMenuPageId(null); router.push(`/${tenant}/workspace/${page.id}`); }}
                             onDuplicate={() => duplicatePage(page.id)}
-                            onShare={() => { setMenuPageId(null); setSharePageId(page.id); setShareTitle(page.title || 'Untitled'); }}
+                            onShare={() => { setMenuPageId(null); setSharePageId(page.id); setShareTitle(page.title || tWorkspace('untitled')); }}
                             onDelete={() => deletePage(page.id)}
                             onClose={() => setMenuPageId(null)}
                             onAddSubPage={() => createSubPage(page.id)}
@@ -1242,7 +1270,7 @@ export default function WorkspacePage() {
                                 page={page}
                                 onOpen={() => { setMenuPageId(null); router.push(`/${tenant}/workspace/${page.id}`); }}
                                 onDuplicate={() => duplicatePage(page.id)}
-                                onShare={() => { setMenuPageId(null); setSharePageId(page.id); setShareTitle(page.title || 'Untitled'); }}
+                                onShare={() => { setMenuPageId(null); setSharePageId(page.id); setShareTitle(page.title || tWorkspace('untitled')); }}
                                 onDelete={() => deletePage(page.id)}
                                 onClose={() => setMenuPageId(null)}
                                 onAddSubPage={() => createSubPage(page.id)}
@@ -1256,7 +1284,7 @@ export default function WorkspacePage() {
                         <div className="flex items-start gap-2 mb-3">
                           <span className="leading-none flex-shrink-0"><IconOrEmoji value={page.icon || ctIcon || 'document'} size={28} /></span>
                           <span className="text-sm font-semibold leading-snug line-clamp-2" style={{ color: 'var(--notion-text)', wordBreak: 'break-word' }}>
-                            {page.title || 'Untitled'}
+                            {page.title || tWorkspace('untitled')}
                           </span>
                         </div>
                         {/* Badge + child count + time */}

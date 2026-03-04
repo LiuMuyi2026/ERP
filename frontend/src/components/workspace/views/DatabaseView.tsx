@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useCallback, useRef } from 'react';
+import { useLocale } from 'next-intl';
 import { DBColumn, DBRow, DBSchema, DatabaseViewData, ColumnType, generateRowId } from './types';
 import { HandIcon } from '@/components/ui/HandIcon';
 import TableView from './TableView';
@@ -13,39 +14,39 @@ import ListView from './ListView';
 
 type ViewMode = 'table' | 'kanban' | 'calendar' | 'gallery' | 'list';
 
-const VIEW_MODES: { id: ViewMode; label: string; icon: string }[] = [
-  { id: 'table',    label: 'Table',    icon: '⊞' },
-  { id: 'kanban',   label: 'Board',    icon: '⋮⋮' },
+const VIEW_MODES_EN: { id: ViewMode; label: string; icon: string }[] = [
+  { id: 'table',    label: 'Table', icon: '⊞' },
+  { id: 'kanban',   label: 'Board', icon: '⋮⋮' },
   { id: 'calendar', label: 'Calendar', icon: 'alarm-clock' },
-  { id: 'gallery',  label: 'Gallery',  icon: '⊟' },
-  { id: 'list',     label: 'List',     icon: '☰' },
+  { id: 'gallery',  label: 'Gallery', icon: '⊟' },
+  { id: 'list',     label: 'List', icon: '☰' },
 ];
 
-const COLUMN_TYPES: { type: ColumnType; label: string; icon: string }[] = [
-  { type: 'title',        label: 'Title',        icon: '𝐀' },
-  { type: 'text',         label: 'Text',         icon: '¶' },
-  { type: 'number',       label: 'Number',       icon: '#' },
-  { type: 'select',       label: 'Select',       icon: '◉' },
+const COLUMN_TYPES_EN: { type: ColumnType; label: string; icon: string }[] = [
+  { type: 'title',        label: 'Title', icon: '𝐀' },
+  { type: 'text',         label: 'Text', icon: '¶' },
+  { type: 'number',       label: 'Number', icon: '#' },
+  { type: 'select',       label: 'Select', icon: '◉' },
   { type: 'multi_select', label: 'Multi-select', icon: '⊕' },
-  { type: 'status',       label: 'Status',       icon: 'lightning' },
-  { type: 'date',         label: 'Date',         icon: 'alarm-clock' },
-  { type: 'checkbox',     label: 'Checkbox',     icon: '☑' },
-  { type: 'url',          label: 'URL',          icon: 'link' },
-  { type: 'email',        label: 'Email',        icon: 'envelope' },
+  { type: 'status',       label: 'Status', icon: 'lightning' },
+  { type: 'date',         label: 'Date', icon: 'alarm-clock' },
+  { type: 'checkbox',     label: 'Checkbox', icon: '☑' },
+  { type: 'url',          label: 'URL', icon: 'link' },
+  { type: 'email',        label: 'Email', icon: 'envelope' },
 ];
 
 // ── Default schema builder ────────────────────────────────────────────────────
 
-function buildDefaultSchema(): DBSchema {
+function buildDefaultSchema(isZh: boolean): DBSchema {
   return {
     columns: [
-      { key: 'title', title: 'Name', type: 'title' },
-      { key: 'status', title: 'Status', type: 'status', options: [
-        { value: 'Not started' }, { value: 'In progress' }, { value: 'Done' }
+      { key: 'title', title: isZh ? '名称' : 'Name', type: 'title' },
+      { key: 'status', title: isZh ? '状态' : 'Status', type: 'status', options: [
+        { value: isZh ? '未开始' : 'Not started' }, { value: isZh ? '进行中' : 'In progress' }, { value: isZh ? '已完成' : 'Done' }
       ]},
-      { key: 'due', title: 'Due Date', type: 'date' },
-      { key: 'priority', title: 'Priority', type: 'select', options: [
-        { value: 'High' }, { value: 'Medium' }, { value: 'Low' }
+      { key: 'due', title: isZh ? '截止日期' : 'Due Date', type: 'date' },
+      { key: 'priority', title: isZh ? '优先级' : 'Priority', type: 'select', options: [
+        { value: isZh ? '高' : 'High' }, { value: isZh ? '中' : 'Medium' }, { value: isZh ? '低' : 'Low' }
       ]},
     ],
     groupBy: 'status',
@@ -59,6 +60,19 @@ function AddColumnModal({ onAdd, onClose }: {
   onAdd: (col: DBColumn) => void;
   onClose: () => void;
 }) {
+  const isZh = String(useLocale() || '').toLowerCase().startsWith('zh');
+  const columnTypes = isZh ? [
+    { type: 'title', label: '标题', icon: '𝐀' },
+    { type: 'text', label: '文本', icon: '¶' },
+    { type: 'number', label: '数字', icon: '#' },
+    { type: 'select', label: '单选', icon: '◉' },
+    { type: 'multi_select', label: '多选', icon: '⊕' },
+    { type: 'status', label: '状态', icon: 'lightning' },
+    { type: 'date', label: '日期', icon: 'alarm-clock' },
+    { type: 'checkbox', label: '复选框', icon: '☑' },
+    { type: 'url', label: '链接', icon: 'link' },
+    { type: 'email', label: '邮箱', icon: 'envelope' },
+  ] as { type: ColumnType; label: string; icon: string }[] : COLUMN_TYPES_EN;
   const [name, setName] = useState('');
   const [type, setType] = useState<ColumnType>('text');
 
@@ -74,19 +88,19 @@ function AddColumnModal({ onAdd, onClose }: {
       onClick={e => { if (e.target === e.currentTarget) onClose(); }}
     >
       <div className="rounded-xl p-5 shadow-xl" style={{ background: 'var(--notion-card-elevated, var(--notion-card, white))', width: 320, border: '1px solid var(--notion-border)' }}>
-        <h3 className="font-semibold text-sm mb-3" style={{ color: 'var(--notion-text)' }}>Add Column</h3>
+        <h3 className="font-semibold text-sm mb-3" style={{ color: 'var(--notion-text)' }}>{isZh ? '新增字段' : 'Add Column'}</h3>
         <input
           autoFocus
           value={name}
           onChange={e => setName(e.target.value)}
           onKeyDown={e => { if (e.key === 'Enter') handleAdd(); if (e.key === 'Escape') onClose(); }}
-          placeholder="Column name..."
+          placeholder={isZh ? '字段名称...' : 'Column name...'}
           className="w-full text-sm px-3 py-2 rounded-lg outline-none mb-3"
           style={{ border: '1.5px solid #7c3aed', color: 'var(--notion-text)', background: '#faf9ff' }}
         />
-        <p className="text-xs mb-2" style={{ color: 'var(--notion-text-muted)' }}>Type</p>
+        <p className="text-xs mb-2" style={{ color: 'var(--notion-text-muted)' }}>{isZh ? '字段类型' : 'Type'}</p>
         <div className="grid grid-cols-2 gap-1.5 mb-4">
-          {COLUMN_TYPES.map(ct => (
+          {columnTypes.map(ct => (
             <button key={ct.type}
               onClick={() => setType(ct.type)}
               className="flex items-center gap-2 px-2.5 py-2 rounded-lg text-xs text-left transition-colors"
@@ -106,12 +120,12 @@ function AddColumnModal({ onAdd, onClose }: {
           <button onClick={handleAdd}
             className="flex-1 py-2 text-sm rounded-lg text-white font-medium"
             style={{ background: '#7c3aed' }}>
-            Add
+            {isZh ? '添加' : 'Add'}
           </button>
           <button onClick={onClose}
             className="flex-1 py-2 text-sm rounded-lg"
             style={{ border: '1px solid var(--notion-border)', color: 'var(--notion-text-muted)' }}>
-            Cancel
+            {isZh ? '取消' : 'Cancel'}
           </button>
         </div>
       </div>
@@ -126,6 +140,19 @@ function SchemaPanel({ schema, onSchemaChange, onClose }: {
   onSchemaChange: (s: DBSchema) => void;
   onClose: () => void;
 }) {
+  const isZh = String(useLocale() || '').toLowerCase().startsWith('zh');
+  const columnTypes = isZh ? [
+    { type: 'title', label: '标题', icon: '𝐀' },
+    { type: 'text', label: '文本', icon: '¶' },
+    { type: 'number', label: '数字', icon: '#' },
+    { type: 'select', label: '单选', icon: '◉' },
+    { type: 'multi_select', label: '多选', icon: '⊕' },
+    { type: 'status', label: '状态', icon: 'lightning' },
+    { type: 'date', label: '日期', icon: 'alarm-clock' },
+    { type: 'checkbox', label: '复选框', icon: '☑' },
+    { type: 'url', label: '链接', icon: 'link' },
+    { type: 'email', label: '邮箱', icon: 'envelope' },
+  ] as { type: ColumnType; label: string; icon: string }[] : COLUMN_TYPES_EN;
   const selectCols = schema.columns.filter(c => c.type === 'select' || c.type === 'status' || c.type === 'multi_select');
   const dateCols = schema.columns.filter(c => c.type === 'date');
 
@@ -140,18 +167,18 @@ function SchemaPanel({ schema, onSchemaChange, onClose }: {
     <div className="absolute right-0 top-8 z-40 rounded-xl shadow-xl p-4"
       style={{ background: 'var(--notion-card-elevated, var(--notion-card, white))', width: 260, border: '1px solid var(--notion-border)', minWidth: 240 }}>
       <div className="flex items-center justify-between mb-3">
-        <span className="text-sm font-semibold" style={{ color: 'var(--notion-text)' }}>Schema</span>
+        <span className="text-sm font-semibold" style={{ color: 'var(--notion-text)' }}>{isZh ? '字段设置' : 'Schema'}</span>
         <button onClick={onClose} className="p-1 rounded" style={{ color: 'var(--notion-text-muted)' }}>✕</button>
       </div>
 
       {/* Columns list */}
-      <p className="text-[11px] uppercase tracking-wide font-semibold mb-1.5" style={{ color: 'var(--notion-text-muted)' }}>Columns</p>
+      <p className="text-[11px] uppercase tracking-wide font-semibold mb-1.5" style={{ color: 'var(--notion-text-muted)' }}>{isZh ? '字段列表' : 'Columns'}</p>
       <div className="space-y-1 mb-3">
         {schema.columns.map(col => (
           <div key={col.key} className="flex items-center justify-between px-2 py-1.5 rounded-lg"
             style={{ background: 'var(--notion-hover)' }}>
             <div className="flex items-center gap-2">
-              <HandIcon name={COLUMN_TYPES.find(ct => ct.type === col.type)?.icon || '¶'} size={12} style={{ color: 'var(--notion-text-muted)' }} />
+              <HandIcon name={columnTypes.find(ct => ct.type === col.type)?.icon || '¶'} size={12} style={{ color: 'var(--notion-text-muted)' }} />
               <span className="text-xs" style={{ color: 'var(--notion-text)' }}>{col.title}</span>
             </div>
             {col.type !== 'title' && (
@@ -170,7 +197,7 @@ function SchemaPanel({ schema, onSchemaChange, onClose }: {
       {/* Group by (for kanban) */}
       {selectCols.length > 0 && (
         <>
-          <p className="text-[11px] uppercase tracking-wide font-semibold mb-1.5 mt-2" style={{ color: 'var(--notion-text-muted)' }}>Board Group By</p>
+          <p className="text-[11px] uppercase tracking-wide font-semibold mb-1.5 mt-2" style={{ color: 'var(--notion-text-muted)' }}>{isZh ? '看板分组字段' : 'Board Group By'}</p>
           <select value={schema.groupBy || ''} onChange={e => setGroupBy(e.target.value)}
             className="w-full text-xs px-2 py-1.5 rounded-lg outline-none mb-3"
             style={{ border: '1px solid var(--notion-border)', color: 'var(--notion-text)' }}>
@@ -182,7 +209,7 @@ function SchemaPanel({ schema, onSchemaChange, onClose }: {
       {/* Date field (for calendar) */}
       {dateCols.length > 0 && (
         <>
-          <p className="text-[11px] uppercase tracking-wide font-semibold mb-1.5" style={{ color: 'var(--notion-text-muted)' }}>Calendar Date Field</p>
+          <p className="text-[11px] uppercase tracking-wide font-semibold mb-1.5" style={{ color: 'var(--notion-text-muted)' }}>{isZh ? '日历日期字段' : 'Calendar Date Field'}</p>
           <select value={schema.dateField || ''} onChange={e => setDateField(e.target.value)}
             className="w-full text-xs px-2 py-1.5 rounded-lg outline-none"
             style={{ border: '1px solid var(--notion-border)', color: 'var(--notion-text)' }}>
@@ -202,7 +229,15 @@ interface DatabaseViewProps {
 }
 
 export default function DatabaseView({ initialData, onChange }: DatabaseViewProps) {
-  const defaultSchema = buildDefaultSchema();
+  const isZh = String(useLocale() || '').toLowerCase().startsWith('zh');
+  const viewModes = isZh ? [
+    { id: 'table', label: '表格', icon: '⊞' },
+    { id: 'kanban', label: '看板', icon: '⋮⋮' },
+    { id: 'calendar', label: '日历', icon: 'alarm-clock' },
+    { id: 'gallery', label: '画廊', icon: '⊟' },
+    { id: 'list', label: '列表', icon: '☰' },
+  ] as { id: ViewMode; label: string; icon: string }[] : VIEW_MODES_EN;
+  const defaultSchema = buildDefaultSchema(isZh);
   const [schema, setSchema] = useState<DBSchema>(initialData?.schema ?? defaultSchema);
   const [rows, setRows] = useState<DBRow[]>(initialData?.rows ?? []);
   const [viewMode, setViewMode] = useState<ViewMode>('table');
@@ -250,7 +285,7 @@ export default function DatabaseView({ initialData, onChange }: DatabaseViewProp
       <div className="flex items-center justify-between gap-3 flex-wrap">
         {/* View mode tabs */}
         <div className="flex items-center gap-0.5 rounded-lg p-0.5" style={{ background: 'var(--notion-active)' }}>
-          {VIEW_MODES.map(vm => (
+          {viewModes.map(vm => (
             <button
               key={vm.id}
               onClick={() => setViewMode(vm.id)}
@@ -282,7 +317,7 @@ export default function DatabaseView({ initialData, onChange }: DatabaseViewProp
             <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
               <line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" />
             </svg>
-            Field
+            {isZh ? '字段' : 'Field'}
           </button>
 
           <button
@@ -303,7 +338,7 @@ export default function DatabaseView({ initialData, onChange }: DatabaseViewProp
             <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <circle cx="12" cy="12" r="3" /><path d="M19.07 4.93a10 10 0 0 1 0 14.14M4.93 4.93a10 10 0 0 0 0 14.14" />
             </svg>
-            Schema
+            {isZh ? '设置' : 'Schema'}
           </button>
 
           {showSchema && (
@@ -338,7 +373,7 @@ export default function DatabaseView({ initialData, onChange }: DatabaseViewProp
           <div className="flex flex-col items-center justify-center py-16 gap-2">
             <span style={{ fontSize: 32 }}>⋮⋮</span>
             <p className="text-sm" style={{ color: 'var(--notion-text-muted)' }}>
-              Add a Select or Status column to use Board view
+              {isZh ? '请先添加“单选”或“状态”字段以启用看板视图' : 'Add a Select or Status column to use Board view'}
             </p>
           </div>
         )}
@@ -354,7 +389,7 @@ export default function DatabaseView({ initialData, onChange }: DatabaseViewProp
           <div className="flex flex-col items-center justify-center py-16 gap-2">
             <HandIcon name="alarm-clock" size={32} />
             <p className="text-sm" style={{ color: 'var(--notion-text-muted)' }}>
-              Add a Date column to use Calendar view
+              {isZh ? '请先添加“日期”字段以启用日历视图' : 'Add a Date column to use Calendar view'}
             </p>
           </div>
         )}
