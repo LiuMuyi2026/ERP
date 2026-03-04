@@ -286,6 +286,14 @@ export default function MessageManagement() {
   /* ---- Active filter count (excluding default source) ---- */
   const activeFilters = [channel, direction, source !== 'interaction' ? source : '', dateFrom, dateTo].filter(Boolean).length;
 
+  const getPrimaryContactName = useCallback((item: CommItem) => {
+    return item.lead_name || item.account_name || (item.source === 'whatsapp_message' ? (item.thread_label || item.wa_contact_id || '未关联') : '未关联');
+  }, []);
+
+  const hasLinkedCustomer = useCallback((item: CommItem) => {
+    return Boolean(item.lead_name || item.account_name);
+  }, []);
+
   /* ---- Aggregate WhatsApp messages by contact ---- */
   const displayRows = useMemo<DisplayRow[]>(() => {
     const nonWa: CommItem[] = [];
@@ -310,7 +318,7 @@ export default function MessageManagement() {
       rows.push({
         _grouped: true,
         wa_contact_id: contactId,
-        contact_name: latest.lead_name || contactId,
+        contact_name: getPrimaryContactName(latest),
         company: latest.lead_company,
         lead_id: latest.lead_id,
         message_count: msgs.length,
@@ -330,7 +338,7 @@ export default function MessageManagement() {
     });
 
     return rows;
-  }, [items, sortBy]);
+  }, [items, sortBy, getPrimaryContactName]);
 
   /* ---- Grouping helpers for views ---- */
   const groupedByDate = displayRows.reduce<Record<string, DisplayRow[]>>((acc, row) => {
@@ -344,7 +352,7 @@ export default function MessageManagement() {
   const groupedByLead = displayRows.reduce<Record<string, DisplayRow[]>>((acc, row) => {
     const key = row._grouped
       ? (row.contact_name || row.wa_contact_id)
-      : (row.lead_name || row.lead_id || row.thread_label || row.account_name || row.account_id || 'Unknown');
+      : getPrimaryContactName(row);
     if (!acc[key]) acc[key] = [];
     acc[key].push(row);
     return acc;
@@ -635,7 +643,7 @@ export default function MessageManagement() {
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 mb-0.5">
                           <span className="text-[13px] font-medium" style={{ color: '#111b21' }}>
-                            {item.lead_name || '—'}
+                            {getPrimaryContactName(item)}
                           </span>
                           {item.lead_company && (
                             <span className="text-[11px]" style={{ color: '#8696a0' }}>{item.lead_company}</span>
@@ -757,20 +765,15 @@ export default function MessageManagement() {
                     <td className="px-4 py-3">
                       <div className="flex items-center justify-between gap-2">
                         <span className="min-w-0">
-                          {item.lead_name ? (
+                          {hasLinkedCustomer(item) ? (
                             <span>
-                              <span className="text-[13px] font-medium" style={{ color: '#111b21' }}>{item.lead_name}</span>
+                              <span className="text-[13px] font-medium" style={{ color: '#111b21' }}>{getPrimaryContactName(item)}</span>
                               {(item.lead_company || item.account_name) && (
                                 <span className="text-[11px] ml-1.5" style={{ color: '#8696a0' }}>{item.lead_company || item.account_name}</span>
                               )}
                             </span>
-                          ) : item.account_name ? (
-                            <span>
-                              <span className="text-[13px] font-medium" style={{ color: '#111b21' }}>{item.account_name}</span>
-                              <span className="text-[11px] ml-1.5" style={{ color: '#8696a0' }}>未关联线索</span>
-                            </span>
                           ) : (
-                            <span className="text-[12px]" style={{ color: '#9ca3af' }}>未关联</span>
+                            <span className="text-[13px] font-medium" style={{ color: '#111b21' }}>{getPrimaryContactName(item)}</span>
                           )}
                         </span>
                         <button onClick={(e) => {
@@ -975,7 +978,7 @@ export default function MessageManagement() {
               </div>
               <div>
                 <div className="text-[14px] font-semibold" style={{ color: '#111b21' }}>
-                  {detailItem.lead_name || '—'}
+                  {getPrimaryContactName(detailItem)}
                 </div>
                 {detailItem.lead_company && (
                   <div className="text-[12px]" style={{ color: '#8696a0' }}>{detailItem.lead_company}</div>
