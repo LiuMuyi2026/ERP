@@ -645,7 +645,13 @@ export default function HRPage() {
     if (!selectedEmployee) return;
     setSaving(true);
     try {
-      await api.patch(`/api/hr/employees/${selectedEmployee.id}`, editForm);
+      const payload = { ...editForm };
+      // Convert empty strings to null for numeric / UUID fields so Pydantic doesn't reject them
+      if (payload.salary === '' || payload.salary === undefined) payload.salary = null;
+      else payload.salary = Number(payload.salary);
+      if (payload.position_id === '') payload.position_id = null;
+      if (payload.department_id === '') payload.department_id = null;
+      await api.patch(`/api/hr/employees/${selectedEmployee.id}`, payload);
       const posName = positions.find((p: any) => p.id === editForm.position_id)?.name || selectedEmployee.position_name || '';
       const deptName = departments.find((d: any) => d.id === editForm.department_id)?.name || selectedEmployee.department_name || '';
       const updated = { ...selectedEmployee, ...editForm, position_name: posName, department_name: deptName };
@@ -1820,8 +1826,8 @@ export default function HRPage() {
                   <div className="grid grid-cols-2 gap-3">
                     <div>
                       <label className="block text-xs mb-1" style={{ color: '#9B9A97' }}>{tHr('labelSalary')}</label>
-                      <input type="number" value={editForm.salary}
-                        onChange={e => setEditForm({ ...editForm, salary: e.target.value })}
+                      <input type="number" value={editForm.salary ?? ''}
+                        onChange={e => setEditForm({ ...editForm, salary: e.target.value === '' ? '' : Number(e.target.value) })}
                         className="w-full px-3 py-2 rounded-xl text-sm outline-none"
                         style={{ border: '1px solid var(--notion-border)', color: 'var(--notion-text)' }} />
                     </div>

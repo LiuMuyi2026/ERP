@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 from typing import Optional
 from app.deps import get_current_user_with_tenant
 from app.services.auth import get_password_hash
@@ -38,6 +38,13 @@ class EmployeeUpdate(BaseModel):
     salary: Optional[float] = None
     currency: Optional[str] = None
     status: Optional[str] = None
+
+    @field_validator("salary", mode="before")
+    @classmethod
+    def coerce_salary(cls, v):
+        if v == "" or v is None:
+            return None
+        return v
 
 
 class LeaveRequestCreate(BaseModel):
