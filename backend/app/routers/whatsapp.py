@@ -79,6 +79,10 @@ class SendMessageBody(BaseModel):
     filename: Optional[str] = None
     caption: Optional[str] = None
     reply_to_message_id: Optional[str] = None
+    original_content: Optional[str] = None
+    auto_translated: bool = False
+    translation_source_language: Optional[str] = None
+    translation_target_language: Optional[str] = None
 
 class LinkLeadBody(BaseModel):
     lead_id: str
@@ -714,6 +718,15 @@ async def send_message(contact_id: str, body: SendMessageBody, ctx: dict = Depen
     if body.reply_to_message_id:
         _, quoted_wa_key = await _get_message_with_key(db, body.reply_to_message_id, contact_id)
 
+    metadata_payload: dict = {}
+    if body.auto_translated and body.original_content:
+        metadata_payload = {
+            "auto_translated": True,
+            "original_content": body.original_content,
+            "translation_source_language": body.translation_source_language,
+            "translation_target_language": body.translation_target_language,
+        }
+
     await db.execute(text("""
         INSERT INTO whatsapp_messages (id, wa_account_id, wa_contact_id, direction, message_type, content,
             media_url, media_mime_type, status, timestamp, created_at, reply_to_message_id, metadata, created_by)
@@ -723,7 +736,7 @@ async def send_message(contact_id: str, body: SendMessageBody, ctx: dict = Depen
         "mtype": body.message_type, "content": body.content or body.caption or "",
         "murl": body.media_url, "mmime": body.media_mime_type,
         "ts": now, "reply_id": body.reply_to_message_id,
-        "meta": json.dumps({}), "created_by": ctx["sub"],
+        "meta": json.dumps(metadata_payload), "created_by": ctx["sub"],
     })
     await db.execute(text("""
         UPDATE whatsapp_contacts SET last_message_at = :ts, updated_at = :ts WHERE id = :cid
@@ -740,7 +753,10 @@ async def send_message(contact_id: str, body: SendMessageBody, ctx: dict = Depen
     wa_key = bridge_result.get("wa_key")
     status = bridge_result.get("status", "pending")
 
-    update_meta = json.dumps({"wa_key": wa_key}) if wa_key else "{}"
+    update_meta_payload = dict(metadata_payload)
+    if wa_key:
+        update_meta_payload["wa_key"] = wa_key
+    update_meta = json.dumps(update_meta_payload)
     if wa_message_id:
         await db.execute(
             text("UPDATE whatsapp_messages SET wa_message_id = :mid, status = :st, metadata = :meta WHERE id = :id"),

@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams } from 'next/navigation';
-import { api } from '@/lib/api';
+import { api, ApiError } from '@/lib/api';
 import { useWhatsAppSocket } from '@/lib/useWhatsAppSocket';
 import { HandIcon } from '@/components/ui/HandIcon';
 import toast from 'react-hot-toast';
@@ -392,6 +392,7 @@ export default function WhatsAppChatPanel({
 
   // Typing indicator
   const typingTimer = useRef<NodeJS.Timeout | null>(null);
+  const typingSupportedRef = useRef(true);
   const lastReadAtRef = useRef(0);
 
   // Resolved contactId (when opened via leadId, resolve from messages)
@@ -484,6 +485,10 @@ export default function WhatsAppChatPanel({
   });
 
   const effectiveContactId = contactId || resolvedContactId;
+
+  useEffect(() => {
+    typingSupportedRef.current = true;
+  }, [effectiveContactId]);
   const params = useParams();
   const tenantSlug = params?.tenant as string || '';
   const userTargetLanguage = normalizeLanguageCode(locale);
@@ -719,8 +724,12 @@ export default function WhatsAppChatPanel({
 
   // ── Typing indicator ──
   const sendTyping = useCallback((type: 'composing' | 'paused') => {
-    if (!effectiveContactId) return;
-    api.post(`/api/whatsapp/conversations/${effectiveContactId}/typing`, { type }).catch(() => {});
+    if (!effectiveContactId || !typingSupportedRef.current) return;
+    api.post(`/api/whatsapp/conversations/${effectiveContactId}/typing`, { type }).catch((e: any) => {
+      if (e instanceof ApiError && e.status === 404) {
+        typingSupportedRef.current = false;
+      }
+    });
   }, [effectiveContactId]);
 
   const translateWithAi = useCallback(async (
@@ -812,12 +821,18 @@ export default function WhatsAppChatPanel({
     try {
       const rawInput = input.trim();
       let outgoingContent = rawInput;
+      let outgoingAutoTranslated = false;
+      let outgoingSourceLanguage: string | undefined;
+      let outgoingTargetLanguage: string | undefined;
       if (rawInput && autoTranslateEnabled) {
         const inferredRecipientLanguage = normalizeLanguageCode(recipientLanguageHint || guessLanguageFromPhone(conversation?.phone_number));
         try {
           const translated = await translateWithAi(rawInput, inferredRecipientLanguage, userTargetLanguage, 'outgoing');
           if (translated.isTranslated && translated.translatedText.trim()) {
             outgoingContent = translated.translatedText.trim();
+            outgoingAutoTranslated = outgoingContent !== rawInput;
+            outgoingSourceLanguage = translated.sourceLanguage || userTargetLanguage;
+            outgoingTargetLanguage = translated.targetLanguage || inferredRecipientLanguage;
           }
           if (translated.targetLanguage) setRecipientLanguageHint(translated.targetLanguage);
         } catch {
@@ -850,13 +865,24 @@ export default function WhatsAppChatPanel({
         filename,
         caption: attachFile ? outgoingContent : undefined,
         reply_to_message_id: replyTo?.id || undefined,
+        original_content: outgoingAutoTranslated ? rawInput : undefined,
+        auto_translated: outgoingAutoTranslated,
+        translation_source_language: outgoingAutoTranslated ? outgoingSourceLanguage : undefined,
+        translation_target_language: outgoingAutoTranslated ? outgoingTargetLanguage : undefined,
       });
       setInput('');
       setAttachFile(null);
       setReplyTo(null);
       sendTyping('paused');
       loadMessages();
-    } catch (e: any) { console.error('sendMessage:', e); toast.error('Failed to send message'); }
+    } catch (e: any) {
+      console.error('sendMessage:', e);
+      if (e instanceof ApiError && e.status === 404) {
+        toast.error('Conversation not found. Please refresh the chat list.');
+      } else {
+        toast.error('Failed to send message');
+      }
+    }
     finally { setSending(false); }
   }
 
@@ -2246,7 +2272,30 @@ export default function WhatsAppChatPanel({
                       {msg.content && !['document', 'poll', 'buttons', 'list', 'contact', 'location', 'voice_note', 'sticker', 'call'].includes(msg.message_type) && (
                         (() => {
                           const translation = messageTranslations[msg.id];
+                          const msgMeta = parseMessageMetadata(msg.metadata);
+                          const outgoingOriginal = typeof msgMeta.original_content === 'string' ? msgMeta.original_content : '';
+                          const showOutgoingTranslated = !!(isOut && msgMeta.auto_translated && outgoingOriginal);
                           const showTranslated = autoTranslateEnabled && !isOut && !!translation && !translation.error;
+                          if (showOutgoingTranslated) {
+                            return (
+                              <div className="space-y-1">
+                                <div className="flex items-center gap-1.5">
+                                  <span className="text-[9px] px-1.5 py-0.5 rounded-full font-semibold" style={{ background: '#dbeafe', color: '#1d4ed8' }}>
+                                    {L.autoTranslatedLabel}
+                                  </span>
+                                  <span className="text-[9px]" style={{ color: 'var(--notion-text-muted)' }}>
+                                    {msgMeta.translation_source_language || userTargetLanguage} → {msgMeta.translation_target_language || normalizeLanguageCode(recipientLanguageHint)}
+                                  </span>
+                                </div>
+                                <p className="text-sm whitespace-pre-wrap" style={{ color: 'var(--notion-text)', lineHeight: 1.5 }}>
+                                  {msg.content}
+                                </p>
+                                <p className="text-[11px] whitespace-pre-wrap" style={{ color: 'var(--notion-text-muted)', lineHeight: 1.5 }}>
+                                  {L.originalTextLabel}: {outgoingOriginal}
+                                </p>
+                              </div>
+                            );
+                          }
                           if (showTranslated) {
                             return (
                               <div className="space-y-1">
@@ -2544,14 +2593,22 @@ export default function WhatsAppChatPanel({
                 <button
                   type="button"
                   onClick={() => setAutoTranslateEnabled(v => !v)}
-                  className="relative inline-flex h-5 w-9 items-center rounded-full transition-colors flex-shrink-0"
-                  style={{ background: autoTranslateEnabled ? '#10b981' : '#cbd5e1' }}
+                  className="flex items-center gap-1.5 px-2 py-1 rounded-full border transition-colors flex-shrink-0"
+                  style={{ borderColor: autoTranslateEnabled ? '#86efac' : '#d1d5db', background: autoTranslateEnabled ? '#ecfdf3' : '#f8fafc' }}
                   title={`${L.autoTranslate} · ${L.targetLanguage}: ${userTargetLanguage} · ${L.recipientLanguage}: ${normalizeLanguageCode(recipientLanguageHint)}`}
                 >
+                  <span className="text-[10px] font-medium" style={{ color: autoTranslateEnabled ? '#166534' : '#64748b' }}>
+                    {L.autoTranslate}
+                  </span>
                   <span
-                    className="inline-block h-4 w-4 transform rounded-full bg-white transition-transform"
-                    style={{ transform: autoTranslateEnabled ? 'translateX(18px)' : 'translateX(2px)' }}
-                  />
+                    className="relative inline-flex h-5 w-9 items-center rounded-full transition-colors"
+                    style={{ background: autoTranslateEnabled ? '#10b981' : '#cbd5e1' }}
+                  >
+                    <span
+                      className="inline-block h-4 w-4 transform rounded-full bg-white transition-transform"
+                      style={{ transform: autoTranslateEnabled ? 'translateX(18px)' : 'translateX(2px)' }}
+                    />
+                  </span>
                 </button>
               </div>
 

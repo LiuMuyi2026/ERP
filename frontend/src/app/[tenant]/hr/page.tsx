@@ -423,9 +423,12 @@ export default function HRPage() {
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [departments, setDepartments] = useState<any[]>([]);
   const [leaves, setLeaves] = useState<Leave[]>([]);
-  const [tenantUsers, setTenantUsers] = useState<TenantUser[]>([]);
   const [allTasks, setAllTasks] = useState<UserTask[]>([]);
   const [loading, setLoading] = useState(true);
+  const [leaveDataLoading, setLeaveDataLoading] = useState(false);
+  const [leaveDataLoaded, setLeaveDataLoaded] = useState(false);
+  const [tasksLoading, setTasksLoading] = useState(false);
+  const [tasksLoaded, setTasksLoaded] = useState(false);
   const [positions, setPositions] = useState<any[]>([]);
   const [tab, setTab] = useState<'employees' | 'leave' | 'tasks' | 'conversations' | 'whatsapp'>('employees');
   const [employeeViewMode, setEmployeeViewMode] = useState<'table' | 'card'>('table');
@@ -516,23 +519,47 @@ export default function HRPage() {
     }
   }, [leaveForm.start_date, leaveForm.end_date]);
 
-  useEffect(() => {
-    Promise.all([
-      api.get('/api/hr/employees').catch(() => []),
-      api.get('/api/hr/departments').catch(() => []),
-      api.get('/api/hr/leave-requests').catch(() => []),
-      api.get('/api/admin/users-lite').catch(() => []),
-      api.get('/api/workspace/user-tasks').catch(() => []),
-      api.get('/api/admin/positions').catch(() => []),
-    ]).then(([emps, depts, lvs, users, tasks, pos]) => {
+  async function loadBaseData() {
+    setLoading(true);
+    try {
+      const [emps, depts, pos] = await Promise.all([
+        api.get('/api/hr/employees').catch(() => []),
+        api.get('/api/hr/departments').catch(() => []),
+        api.get('/api/admin/positions').catch(() => []),
+      ]);
       setEmployees(Array.isArray(emps) ? emps : []);
       setDepartments(Array.isArray(depts) ? depts : []);
-      setLeaves(Array.isArray(lvs) ? lvs : []);
-      setTenantUsers(Array.isArray(users) ? users : []);
-      setAllTasks(Array.isArray(tasks) ? tasks : []);
       setPositions(Array.isArray(pos) ? pos : []);
-    }).finally(() => setLoading(false));
-  }, []);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function loadLeaveManagementData(force = false) {
+    if (!force && (leaveDataLoaded || leaveDataLoading)) return;
+    setLeaveDataLoading(true);
+    try {
+      const lvs = await api.get('/api/hr/leave-requests').catch(() => []);
+      setLeaves(Array.isArray(lvs) ? lvs : []);
+      setLeaveDataLoaded(true);
+    } finally {
+      setLeaveDataLoading(false);
+    }
+  }
+
+  async function loadTasksData(force = false) {
+    if (!force && (tasksLoaded || tasksLoading)) return;
+    setTasksLoading(true);
+    try {
+      const tasks = await api.get('/api/workspace/user-tasks').catch(() => []);
+      setAllTasks(Array.isArray(tasks) ? tasks : []);
+      setTasksLoaded(true);
+    } finally {
+      setTasksLoading(false);
+    }
+  }
+
+  useEffect(() => { loadBaseData(); }, []);
 
   // Load leads when an employee is selected (if they have a linked user account)
   useEffect(() => {
@@ -577,6 +604,7 @@ export default function HRPage() {
     try {
       const req = await api.post('/api/hr/leave-requests', { ...leaveForm, days: parseFloat(leaveForm.days) || 1 });
       setLeaves(prev => [{ ...leaveForm, id: req.id, status: 'pending', created_at: new Date().toISOString() } as any, ...prev]);
+      setLeaveDataLoaded(true);
       setShowLeaveCreate(false);
       setLeaveForm({ employee_id: '', leave_type: 'annual', start_date: '', end_date: '', days: '', reason: '' });
     } catch (err: any) { alert(err.message); }
@@ -629,6 +657,7 @@ export default function HRPage() {
     try {
       await api.patch(`/api/hr/leave-requests/${id}/approve`, {});
       setLeaves(prev => prev.map(l => l.id === id ? { ...l, status: 'approved' } : l));
+      setLeaveDataLoaded(true);
     } catch (err: any) { alert(err.message); }
   }
 
@@ -637,6 +666,7 @@ export default function HRPage() {
     try {
       await api.patch(`/api/hr/leave-requests/${id}/reject`, {});
       setLeaves(prev => prev.map(l => l.id === id ? { ...l, status: 'rejected' } : l));
+      setLeaveDataLoaded(true);
     } catch (err: any) { alert(err.message); }
   }
 
@@ -770,6 +800,25 @@ export default function HRPage() {
     }
   }
 
+  function handleTabChange(tabKey: 'employees' | 'leave' | 'tasks' | 'conversations' | 'whatsapp') {
+    setTab(tabKey);
+    if (tabKey === 'conversations') {
+      loadConversations();
+      return;
+    }
+    if (tabKey === 'tasks') {
+      loadTasksData();
+      return;
+    }
+    if (tabKey === 'leave') {
+      if (leaveView === 'my') {
+        if (myLeaves.length === 0 && !myLeavesLoading) loadMyLeaves();
+      } else if (isAdmin) {
+        loadLeaveManagementData();
+      }
+    }
+  }
+
   async function loadThread(conv: any) {
     setSelectedConv(conv);
     setConvThread([]);
@@ -844,7 +893,7 @@ export default function HRPage() {
       <div className="px-8 pb-4 flex items-center gap-3 border-b" style={{ borderColor: 'var(--notion-border)' }}>
         <div className="flex gap-0.5 rounded-md p-0.5" style={{ background: 'var(--notion-active)' }}>
           {(['employees', 'leave', 'tasks', ...(isAdmin ? ['conversations' as const, 'whatsapp' as const] : [])] as const).map(tabKey => (
-            <button key={tabKey} onClick={() => { setTab(tabKey); if (tabKey === 'conversations') loadConversations(); if (tabKey === 'leave' && leaveView === 'my' && myLeaves.length === 0 && !myLeavesLoading) loadMyLeaves(); }}
+            <button key={tabKey} onClick={() => handleTabChange(tabKey)}
               className="px-3 py-1 rounded text-sm font-medium transition-colors"
               style={{
                 background: tab === tabKey ? 'white' : 'transparent',
@@ -1049,7 +1098,7 @@ export default function HRPage() {
                     {tHr('myLeave')}
                   </button>
                   {isAdmin && (
-                    <button onClick={() => setLeaveView('management')}
+                    <button onClick={() => { setLeaveView('management'); loadLeaveManagementData(); }}
                       className="px-3 py-1 rounded text-sm font-medium transition-colors"
                       style={{
                         background: leaveView === 'management' ? 'white' : 'transparent',
@@ -1094,40 +1143,48 @@ export default function HRPage() {
 
               {/* Leave Management view (admin) */}
               {leaveView === 'management' && (
-                <NotionTable columns={leaveMgmtCols} data={leaves} statusColors={LEAVE_STATUS_COLORS}
-                  onCreate={() => setShowLeaveCreate(true)} createLabel={tHr('createLeaveLabel')} emptyMessage={tHr('emptyLeave')}
-                  rowActions={row => row.status === 'pending' ? (
-                    <div className="flex gap-1">
-                      <button
-                        onClick={e => { e.stopPropagation(); approveLeave(row.id); }}
-                        className="px-2 py-1 rounded text-xs transition-colors"
-                        style={{ color: '#16a34a', background: '#f0fdf4' }}
-                        onMouseEnter={e => (e.currentTarget.style.background = '#dcfce7')}
-                        onMouseLeave={e => (e.currentTarget.style.background = '#f0fdf4')}>
-                        {tHr('approve')}
-                      </button>
-                      <button
-                        onClick={e => { e.stopPropagation(); rejectLeave(row.id); }}
-                        className="px-2 py-1 rounded text-xs transition-colors"
-                        style={{ color: '#dc2626', background: '#fee2e2' }}
-                        onMouseEnter={e => (e.currentTarget.style.background = '#fecaca')}
-                        onMouseLeave={e => (e.currentTarget.style.background = '#fee2e2')}>
-                        {tHr('reject')}
-                      </button>
-                    </div>
-                  ) : null}
-                />
+                leaveDataLoading ? (
+                  <div className="py-12 text-center text-sm" style={{ color: '#9B9A97' }}>{tCommon('loading')}</div>
+                ) : (
+                  <NotionTable columns={leaveMgmtCols} data={leaves} statusColors={LEAVE_STATUS_COLORS}
+                    onCreate={() => setShowLeaveCreate(true)} createLabel={tHr('createLeaveLabel')} emptyMessage={tHr('emptyLeave')}
+                    rowActions={row => row.status === 'pending' ? (
+                      <div className="flex gap-1">
+                        <button
+                          onClick={e => { e.stopPropagation(); approveLeave(row.id); }}
+                          className="px-2 py-1 rounded text-xs transition-colors"
+                          style={{ color: '#16a34a', background: '#f0fdf4' }}
+                          onMouseEnter={e => (e.currentTarget.style.background = '#dcfce7')}
+                          onMouseLeave={e => (e.currentTarget.style.background = '#f0fdf4')}>
+                          {tHr('approve')}
+                        </button>
+                        <button
+                          onClick={e => { e.stopPropagation(); rejectLeave(row.id); }}
+                          className="px-2 py-1 rounded text-xs transition-colors"
+                          style={{ color: '#dc2626', background: '#fee2e2' }}
+                          onMouseEnter={e => (e.currentTarget.style.background = '#fecaca')}
+                          onMouseLeave={e => (e.currentTarget.style.background = '#fee2e2')}>
+                          {tHr('reject')}
+                        </button>
+                      </div>
+                    ) : null}
+                  />
+                )
               )}
             </div>
           );
         })()}
         {tab === 'tasks' && (
-          <UserTasksTab
-            employees={employees}
-            allTasks={allTasks}
-            onSelectEmployee={setSelectedUserForTasks}
-            tHr={tHr}
-          />
+          tasksLoading ? (
+            <div className="py-12 text-center text-sm" style={{ color: '#9B9A97' }}>{tCommon('loading')}</div>
+          ) : (
+            <UserTasksTab
+              employees={employees}
+              allTasks={allTasks}
+              onSelectEmployee={setSelectedUserForTasks}
+              tHr={tHr}
+            />
+          )
         )}
 
         {tab === 'conversations' && (() => {
