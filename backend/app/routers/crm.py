@@ -905,12 +905,24 @@ async def convert_lead(lead_id: str, ctx: dict = Depends(get_current_user_with_t
 
 
 @router.get("/accounts")
-async def list_accounts(search: Optional[str] = None, ctx: dict = Depends(get_current_user_with_tenant)):
+async def list_accounts(
+    search: Optional[str] = None,
+    user_id: Optional[str] = None,
+    ctx: dict = Depends(get_current_user_with_tenant),
+):
+    role = ctx.get("role", "")
+    if role not in ("tenant_admin", "platform_admin"):
+        user_id = ctx["sub"]
+
     params: dict = {}
-    where = "1=1"
+    where_parts = ["1=1"]
     if search:
-        where = "name ILIKE :search"
+        where_parts.append("name ILIKE :search")
         params["search"] = f"%{search}%"
+    if user_id:
+        where_parts.append("(owner_id = :uid OR created_by = :uid)")
+        params["uid"] = user_id
+    where = " AND ".join(where_parts)
     rows = await ctx["db"].execute(text(f"SELECT * FROM crm_accounts WHERE {where} ORDER BY created_at DESC"), params)
     return [dict(r._mapping) for r in rows.fetchall()]
 

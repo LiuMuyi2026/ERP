@@ -263,6 +263,7 @@ function AccountCatalogPanel({ accountId }: { accountId: string }) {
 function LinkContactModal({ contact, onClose, onLinked, isMobile = false }: {
   contact: Conversation; onClose: () => void; onLinked: () => void; isMobile?: boolean;
 }) {
+  const tCrm = useTranslations('crm');
   const [tab, setTab] = useState<'lead' | 'account'>('lead');
   const [search, setSearch] = useState('');
   const [results, setResults] = useState<any[]>([]);
@@ -270,6 +271,8 @@ function LinkContactModal({ contact, onClose, onLinked, isMobile = false }: {
   const [linking, setLinking] = useState(false);
   const [users, setUsers] = useState<{ id: string; full_name?: string; email?: string }[]>([]);
   const [ownerUserId, setOwnerUserId] = useState('');
+  const [meId, setMeId] = useState('');
+  const [isAdminScope, setIsAdminScope] = useState(false);
   const debounceRef = useRef<ReturnType<typeof setTimeout>>();
 
   const isLinked = !!(contact.lead_id || contact.account_id);
@@ -280,17 +283,23 @@ function LinkContactModal({ contact, onClose, onLinked, isMobile = false }: {
     let mounted = true;
     (async () => {
       try {
-        const [me, allUsers] = await Promise.all([
-          api.get('/api/auth/me').catch(() => null),
-          api.get('/api/admin/users-lite').catch(() => []),
-        ]);
+        const me = await api.get('/api/auth/me').catch(() => null);
+        const role = String(me?.role || '').toLowerCase();
+        const adminScope = role === 'tenant_admin' || role === 'platform_admin' || role === 'manager' || role === 'admin';
+        const allUsers = adminScope ? await api.get('/api/admin/users-lite').catch(() => []) : [];
         if (!mounted) return;
+        setIsAdminScope(adminScope);
+        setMeId(me?.id || '');
         const list = Array.isArray(allUsers) ? allUsers : (allUsers?.items || []);
-        setUsers(list);
-        const preset = contact.assigned_to || me?.id || list?.[0]?.id || '';
+        setUsers(adminScope ? list : (me?.id ? [{ id: me.id, full_name: me?.full_name, email: me?.email }] : []));
+        const preset = adminScope
+          ? (contact.assigned_to || me?.id || list?.[0]?.id || '')
+          : (me?.id || '');
         setOwnerUserId(preset);
       } catch {
         if (mounted) {
+          setIsAdminScope(false);
+          setMeId('');
           setUsers([]);
           setOwnerUserId('');
         }
@@ -301,21 +310,32 @@ function LinkContactModal({ contact, onClose, onLinked, isMobile = false }: {
 
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
-    if (tab === 'lead' && !ownerUserId) { setResults([]); return; }
+    const effectiveOwnerId = isAdminScope ? ownerUserId : meId;
+    if (tab === 'lead' && !effectiveOwnerId) { setResults([]); return; }
     if (!search.trim()) { setResults([]); return; }
     debounceRef.current = setTimeout(async () => {
       setSearching(true);
       try {
         const endpoint = tab === 'lead'
-          ? `/api/crm/leads?search=${encodeURIComponent(search)}&limit=20${ownerUserId ? `&user_id=${encodeURIComponent(ownerUserId)}` : ''}`
-          : `/api/crm/accounts?search=${encodeURIComponent(search)}&limit=20`;
+          ? `/api/crm/leads?search=${encodeURIComponent(search)}&limit=20${effectiveOwnerId ? `&user_id=${encodeURIComponent(effectiveOwnerId)}` : ''}`
+          : `/api/crm/accounts?search=${encodeURIComponent(search)}&limit=20${effectiveOwnerId ? `&user_id=${encodeURIComponent(effectiveOwnerId)}` : ''}`;
         const data = await api.get(endpoint);
-        setResults(Array.isArray(data) ? data : (data?.items || []));
+        const rows = Array.isArray(data) ? data : (data?.items || []);
+        if (!isAdminScope && effectiveOwnerId && tab === 'account') {
+          setResults(rows.filter((r: any) => (
+            String(r?.owner_id || '') === effectiveOwnerId
+            || String(r?.created_by || '') === effectiveOwnerId
+            || String(r?.assigned_to || '') === effectiveOwnerId
+            || String(r?.user_id || '') === effectiveOwnerId
+          )));
+        } else {
+          setResults(rows);
+        }
       } catch { setResults([]); }
       finally { setSearching(false); }
     }, 300);
     return () => { if (debounceRef.current) clearTimeout(debounceRef.current); };
-  }, [search, tab, ownerUserId]);
+  }, [search, tab, ownerUserId, isAdminScope, meId]);
 
   async function handleLink(targetId: string) {
     setLinking(true);
@@ -326,14 +346,14 @@ function LinkContactModal({ contact, onClose, onLinked, isMobile = false }: {
         await api.post(`/api/whatsapp/contacts/${contact.id}/link-account`, { account_id: targetId });
       }
       onLinked();
-    } catch (e: any) { toast.error(e.message || 'Link failed'); }
+    } catch (e: any) { toast.error(e.message || tCrm('waInboxLinkFailed')); }
     finally { setLinking(false); }
   }
 
   async function handleUnlink() {
     setLinking(true);
     try { await api.post(`/api/whatsapp/contacts/${contact.id}/unlink`, {}); onLinked(); }
-    catch (e: any) { toast.error(e.message || 'Unlink failed'); }
+    catch (e: any) { toast.error(e.message || tCrm('waInboxUnlinkFailed')); }
     finally { setLinking(false); }
   }
 
@@ -342,14 +362,15 @@ function LinkContactModal({ contact, onClose, onLinked, isMobile = false }: {
     try {
       const name = contact.push_name || contact.display_name || contact.phone_number || 'Unknown';
       const leadData: any = { full_name: name, source: 'WhatsApp' };
-      if (ownerUserId) leadData.assigned_to = ownerUserId;
+      const effectiveOwnerId = isAdminScope ? ownerUserId : meId;
+      if (effectiveOwnerId) leadData.assigned_to = effectiveOwnerId;
       if (contact.phone_number) { leadData.phone = contact.phone_number; leadData.whatsapp = contact.phone_number; }
       const newLead: any = await api.post('/api/crm/leads', leadData);
       const leadId = newLead.id || newLead.lead_id;
       await api.post(`/api/whatsapp/contacts/${contact.id}/link-lead`, { lead_id: leadId });
-      toast.success('新线索已创建并绑定');
+      toast.success(tCrm('waInboxLeadCreatedAndLinked'));
       onLinked();
-    } catch (e: any) { toast.error(e.message || 'Failed to create lead'); }
+    } catch (e: any) { toast.error(e.message || tCrm('waInboxCreateLeadFailed')); }
     finally { setLinking(false); }
   }
 
@@ -360,7 +381,7 @@ function LinkContactModal({ contact, onClose, onLinked, isMobile = false }: {
         onClick={e => e.stopPropagation()}>
         <div className="px-5 py-3 border-b flex items-center justify-between" style={{ borderColor: 'var(--notion-border)' }}>
           <div>
-            <h3 className="text-sm font-semibold" style={{ color: 'var(--notion-text)' }}>Link to CRM</h3>
+            <h3 className="text-sm font-semibold" style={{ color: 'var(--notion-text)' }}>{tCrm('waInboxLinkToCrm')}</h3>
             <p className="text-[11px] mt-0.5" style={{ color: 'var(--notion-text-muted)' }}>
               {contact.display_name || contact.push_name || contact.phone_number}
             </p>
@@ -370,9 +391,9 @@ function LinkContactModal({ contact, onClose, onLinked, isMobile = false }: {
 
         {isLinked && (
           <div className="px-5 py-2 border-b flex items-center justify-between" style={{ borderColor: 'var(--notion-border)', background: '#f0fdf4' }}>
-            <span className="text-xs" style={{ color: '#15803d' }}>Currently linked to: <strong>{currentLink}</strong></span>
+            <span className="text-xs" style={{ color: '#15803d' }}>{tCrm('waInboxCurrentlyLinked')}: <strong>{currentLink}</strong></span>
             <button onClick={handleUnlink} disabled={linking}
-              className="text-[10px] px-2 py-0.5 rounded font-medium" style={{ background: '#fef2f2', color: '#dc2626' }}>Unlink</button>
+              className="text-[10px] px-2 py-0.5 rounded font-medium" style={{ background: '#fef2f2', color: '#dc2626' }}>{tCrm('waInboxUnlink')}</button>
           </div>
         )}
 
@@ -381,33 +402,35 @@ function LinkContactModal({ contact, onClose, onLinked, isMobile = false }: {
             <button key={t} onClick={() => setTab(t)}
               className="flex-1 py-2 text-xs font-medium transition-colors"
               style={{ color: tab === t ? '#1d4ed8' : 'var(--notion-text-muted)', borderBottom: tab === t ? '2px solid #1d4ed8' : '2px solid transparent' }}>
-              {t === 'lead' ? 'Link Lead' : 'Link Account'}
+              {t === 'lead' ? tCrm('waInboxLinkLead') : tCrm('waInboxLinkAccount')}
             </button>
           ))}
         </div>
 
         <div className="px-5 py-3">
-          {tab === 'lead' && (
+          {tab === 'lead' && isAdminScope && (
             <select value={ownerUserId} onChange={e => { setOwnerUserId(e.target.value); setResults([]); }}
               className="w-full px-3 py-2 rounded-md text-sm outline-none border mb-2"
               style={{ borderColor: 'var(--notion-border)', color: 'var(--notion-text)' }}>
-              <option value="">Select user first...</option>
+              <option value="">{tCrm('waInboxSelectUserFirst')}</option>
               {users.map(u => (
                 <option key={u.id} value={u.id}>{u.full_name || u.email || u.id}</option>
               ))}
             </select>
           )}
           <input type="text" value={search} onChange={e => setSearch(e.target.value)}
-            placeholder={tab === 'lead' ? 'Search leads under selected user...' : 'Search accounts by name...'}
+            placeholder={tab === 'lead'
+              ? (isAdminScope ? tCrm('waInboxSearchLeadsByUser') : tCrm('waInboxSearchOwnLeads'))
+              : (isAdminScope ? tCrm('waInboxSearchAccountsByName') : tCrm('waInboxSearchOwnAccountsByName'))}
             autoFocus
             className="w-full px-3 py-2 rounded-md text-sm outline-none border"
             style={{ borderColor: 'var(--notion-border)', color: 'var(--notion-text)' }} />
         </div>
 
         <div className="px-5 pb-4 max-h-[300px] overflow-y-auto">
-          {searching && <p className="text-xs text-center py-4" style={{ color: 'var(--notion-text-muted)' }}>Searching...</p>}
+          {searching && <p className="text-xs text-center py-4" style={{ color: 'var(--notion-text-muted)' }}>{tCrm('waInboxSearching')}</p>}
           {!searching && search && results.length === 0 && (
-            <p className="text-xs text-center py-4" style={{ color: 'var(--notion-text-muted)' }}>No results found</p>
+            <p className="text-xs text-center py-4" style={{ color: 'var(--notion-text-muted)' }}>{tCrm('waInboxNoResults')}</p>
           )}
           {results.map(item => (
             <button key={item.id} onClick={() => handleLink(item.id)} disabled={linking}
@@ -432,7 +455,7 @@ function LinkContactModal({ contact, onClose, onLinked, isMobile = false }: {
           <button onClick={handleCreateAndLink} disabled={linking}
             className="w-full py-2 rounded-md text-xs font-medium text-white"
             style={{ background: '#008069' }}>
-            {linking ? '创建中...' : '+ 创建新线索并绑定'}
+            {linking ? tCrm('waInboxCreating') : tCrm('waInboxCreateLeadAndLink')}
           </button>
         </div>
       </div>
