@@ -1831,7 +1831,7 @@ function LeadsTab({ leads, users, onCreateLead, defaultStatusFilter }: {
       {/* ── Toolbar ── */}
       <div className="flex items-center gap-2 flex-wrap">
         {/* Search */}
-        <div className="relative" style={{ minWidth: 200 }}>
+        <div className="relative" style={{ minWidth: isMobile ? 0 : 200, width: isMobile ? '100%' : undefined }}>
           <svg className="absolute left-2.5 top-1/2 -translate-y-1/2" width="13" height="13"
             viewBox="0 0 24 24" fill="none" stroke="#9B9A97" strokeWidth="2">
             <circle cx="11" cy="11" r="8" /><path d="m21 21-4.35-4.35" />
@@ -1866,7 +1866,7 @@ function LeadsTab({ leads, users, onCreateLead, defaultStatusFilter }: {
           {/* Filter Panel */}
           {showFilterPanel && (
             <div className="absolute top-full left-0 mt-2 z-50 bg-white rounded-2xl shadow-2xl p-4 space-y-4"
-              style={{ width: 380, border: '1px solid var(--notion-border)' }}>
+              style={{ width: isMobile ? 'min(92vw, 380px)' : 380, border: '1px solid var(--notion-border)' }}>
               <div className="flex items-center justify-between mb-1">
                 <span className="text-sm font-semibold" style={{ color: '#1a1a1a' }}>{tCrm('filterConditions')}</span>
                 {activeFilterCount > 0 && (
@@ -1994,7 +1994,7 @@ function LeadsTab({ leads, users, onCreateLead, defaultStatusFilter }: {
         </div>
 
         {/* View mode toggle */}
-        <div className="flex items-center gap-0.5 p-0.5 rounded-lg" style={{ background: '#F0EFec', marginLeft: 4 }}>
+        <div className="flex items-center gap-0.5 p-0.5 rounded-lg" style={{ background: '#F0EFec', marginLeft: isMobile ? 0 : 4 }}>
           {([
             ['table',  '☰', tCrm('tableMode')],
             ['kanban', '⊞', tCrm('kanbanMode')],
@@ -2025,7 +2025,7 @@ function LeadsTab({ leads, users, onCreateLead, defaultStatusFilter }: {
         )}
 
         {/* Count */}
-        <span className="ml-auto text-xs font-medium" style={{ color: '#9B9A97' }}>
+        <span className={`${isMobile ? 'w-full' : 'ml-auto'} text-xs font-medium`} style={{ color: '#9B9A97' }}>
           {tCrm('leadsCountLabel', { filtered: filtered.length, total: leads.length })}
         </span>
       </div>

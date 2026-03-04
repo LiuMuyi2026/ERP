@@ -68,27 +68,29 @@ export default function MessagesCenter() {
     <div className="h-full min-h-0 flex flex-col" style={{ background: '#f0f2f5' }}>
       {/* Tab bar */}
       <div
-        className="flex items-center gap-1 px-6 py-2 flex-shrink-0 sticky top-0 z-20"
+        className="flex items-center gap-1 px-3 sm:px-6 py-2 flex-shrink-0 sticky top-0 z-20"
         style={{ background: 'white', borderBottom: '1px solid #e5e7eb' }}
       >
-        <h1 className="text-base font-semibold mr-4" style={{ color: '#3b4a54' }}>
+        <h1 className="text-sm sm:text-base font-semibold mr-2 sm:mr-4 flex-shrink-0" style={{ color: '#3b4a54' }}>
           {t('title') || 'Messages Center'}
         </h1>
-        {TAB_CONFIG.map(({ key, icon, color }) => {
-          const active = activeTab === key;
-          return (
-            <button key={key} onClick={() => setActiveTab(key)}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium transition-colors"
-              style={{
-                background: active ? `${color}15` : 'transparent',
-                color: active ? color : '#667781',
-                border: active ? `1px solid ${color}30` : '1px solid transparent',
-              }}>
-              <TabIcon type={icon} active={active} color={color} />
-              {tabLabels[key]}
-            </button>
-          );
-        })}
+        <div className="flex items-center gap-1 overflow-x-auto min-w-0">
+          {TAB_CONFIG.map(({ key, icon, color }) => {
+            const active = activeTab === key;
+            return (
+              <button key={key} onClick={() => setActiveTab(key)}
+                className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-full text-xs font-medium transition-colors whitespace-nowrap flex-shrink-0"
+                style={{
+                  background: active ? `${color}15` : 'transparent',
+                  color: active ? color : '#667781',
+                  border: active ? `1px solid ${color}30` : '1px solid transparent',
+                }}>
+                <TabIcon type={icon} active={active} color={color} />
+                {tabLabels[key]}
+              </button>
+            );
+          })}
+        </div>
       </div>
 
       {/* Content */}
@@ -96,7 +98,7 @@ export default function MessagesCenter() {
         {activeTab === 'whatsapp'  && <WhatsAppInbox />}
         {activeTab === 'email'     && <EmailInbox />}
         {activeTab === 'internal'  && <InternalMessages />}
-        {activeTab === 'commlog'   && <div className="px-8 py-4 overflow-auto h-full" style={{ background: 'white' }}><MessageManagement /></div>}
+        {activeTab === 'commlog'   && <div className="px-3 sm:px-8 py-4 overflow-auto h-full" style={{ background: 'white' }}><MessageManagement /></div>}
       </div>
     </div>
   );

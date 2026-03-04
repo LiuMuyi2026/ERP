@@ -677,11 +677,12 @@ export default function OrdersPage() {
             width: isMobile ? '100%' : 420,
             borderColor: 'var(--notion-border)',
             background: 'var(--notion-card, white)',
+            paddingBottom: isMobile ? 'env(safe-area-inset-bottom)' : undefined,
           }}
         >
 
           {/* Panel header */}
-          <div className="flex items-center justify-between px-5 py-4 border-b" style={{ borderColor: 'var(--notion-border)' }}>
+          <div className={`${isMobile ? 'px-4' : 'px-5'} flex items-center justify-between py-4 border-b`} style={{ borderColor: 'var(--notion-border)' }}>
             <h2 className="text-base font-bold" style={{ color: 'var(--notion-text)' }}>
               {panelMode === 'create' ? <><HandIcon name="sparkle-new" size={16} /> {t('createPOTitle')}</> : <><HandIcon name="package" size={16} /> {t('poDetailTitle')}</>}
             </h2>

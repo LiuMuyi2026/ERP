@@ -947,8 +947,11 @@ export default function WhatsAppInbox() {
         }}
       >
         {/* Header bar — WhatsApp green */}
-        <div className="flex items-center justify-between px-4 py-2.5 flex-shrink-0" style={{ background: '#008069' }}>
-          <div className="flex items-center gap-2 min-w-0 flex-1 overflow-x-auto">
+        <div
+          className={`px-3 py-2.5 flex-shrink-0 ${isMobile ? 'flex flex-col gap-2' : 'flex items-center justify-between'}`}
+          style={{ background: '#008069' }}
+        >
+          <div className={`flex items-center gap-2 min-w-0 ${isMobile ? '' : 'flex-1'} overflow-x-auto`}>
             {accounts.map(acc => {
               const isConn = acc.status === 'connected';
               return (
@@ -963,42 +966,44 @@ export default function WhatsAppInbox() {
               <span className="text-[11px]" style={{ color: 'rgba(255,255,255,0.7)' }}>{tCrm('waInboxConnectHint')}</span>
             )}
           </div>
-          <button onClick={() => toggleNotif(!notifEnabled)}
-            className="p-2 rounded-full hover:bg-white/10 transition-colors flex-shrink-0"
-            title={notifEnabled ? 'Notifications on' : 'Notifications off'}>
-            {notifEnabled ? (
+          <div className="flex items-center gap-1.5 overflow-x-auto">
+            <button onClick={() => toggleNotif(!notifEnabled)}
+              className="p-2 rounded-full hover:bg-white/10 transition-colors flex-shrink-0"
+              title={notifEnabled ? 'Notifications on' : 'Notifications off'}>
+              {notifEnabled ? (
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/>
+                </svg>
+              ) : (
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.5)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/><line x1="1" y1="1" x2="23" y2="23"/>
+                </svg>
+              )}
+            </button>
+            <button onClick={() => setShowAddContact(true)}
+              className="p-2 rounded-full hover:bg-white/10 transition-colors flex-shrink-0"
+              title={tCrm('waInboxAddContact')}>
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/>
+                <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
               </svg>
-            ) : (
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.5)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/><line x1="1" y1="1" x2="23" y2="23"/>
+            </button>
+            <button onClick={() => setShowBroadcast(true)}
+              className="p-2 rounded-full hover:bg-white/10 transition-colors flex-shrink-0"
+              title="Broadcast">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M3 11v2a1 1 0 0 0 1 1h3l5 4V6L7 10H4a1 1 0 0 0-1 1z"/>
+                <path d="M16 9a5 5 0 0 1 0 6"/>
+                <path d="M19 6a9 9 0 0 1 0 12"/>
               </svg>
-            )}
-          </button>
-          <button onClick={() => setShowAddContact(true)}
-            className="p-2 rounded-full hover:bg-white/10 transition-colors flex-shrink-0"
-            title={tCrm('waInboxAddContact')}>
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
-            </svg>
-          </button>
-          <button onClick={() => setShowBroadcast(true)}
-            className="p-2 rounded-full hover:bg-white/10 transition-colors flex-shrink-0"
-            title="Broadcast">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M3 11v2a1 1 0 0 0 1 1h3l5 4V6L7 10H4a1 1 0 0 0-1 1z"/>
-              <path d="M16 9a5 5 0 0 1 0 6"/>
-              <path d="M19 6a9 9 0 0 1 0 12"/>
-            </svg>
-          </button>
-          <button onClick={() => setShowAccountPanel(true)}
-            className="p-2 rounded-full hover:bg-white/10 transition-colors flex-shrink-0"
-            title={tCrm('waInboxSettings')}>
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <circle cx="12" cy="5" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="12" cy="19" r="1"/>
-            </svg>
-          </button>
+            </button>
+            <button onClick={() => setShowAccountPanel(true)}
+              className="p-2 rounded-full hover:bg-white/10 transition-colors flex-shrink-0"
+              title={tCrm('waInboxSettings')}>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="12" cy="5" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="12" cy="19" r="1"/>
+              </svg>
+            </button>
+          </div>
         </div>
 
         {/* Search + filters */}
@@ -1280,7 +1285,7 @@ export default function WhatsAppInbox() {
             background: '#f0f2f5',
             borderBottom: '6px solid #00a884',
           }}>
-            <svg width="340" height="200" viewBox="0 0 340 200" fill="none">
+            <svg width={isMobile ? 240 : 340} height={isMobile ? 140 : 200} viewBox="0 0 340 200" fill="none">
               <rect x="70" y="20" width="200" height="160" rx="10" fill="#d9fdd3" opacity="0.5"/>
               <circle cx="170" cy="80" r="35" fill="#00a884" opacity="0.15"/>
               <path d="M155 80 l10 10 l20-20" stroke="#00a884" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" fill="none"/>
@@ -1288,8 +1293,8 @@ export default function WhatsAppInbox() {
               <rect x="140" y="145" width="60" height="6" rx="3" fill="#c4c4c4" opacity="0.3"/>
             </svg>
             <div className="text-center">
-              <p className="text-[28px] font-light" style={{ color: '#41525d' }}>{tCrm('waInboxEmpty')}</p>
-              <p className="text-[14px] mt-2" style={{ color: '#667781' }}>{tCrm('waInboxEmptyHint')}</p>
+              <p className={isMobile ? 'text-[22px] font-light' : 'text-[28px] font-light'} style={{ color: '#41525d' }}>{tCrm('waInboxEmpty')}</p>
+              <p className={isMobile ? 'text-[12px] mt-2 px-4' : 'text-[14px] mt-2'} style={{ color: '#667781' }}>{tCrm('waInboxEmptyHint')}</p>
             </div>
             <div className="flex items-center gap-1.5 mt-2" style={{ color: '#8696a0' }}>
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
@@ -1466,7 +1471,7 @@ export default function WhatsAppInbox() {
       {showBroadcast && (
         <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4" onClick={() => setShowBroadcast(false)}>
           <div
-            className="w-full max-w-6xl h-[90vh] rounded-2xl overflow-hidden shadow-2xl bg-white flex flex-col"
+            className={`w-full max-w-6xl rounded-2xl overflow-hidden shadow-2xl bg-white flex flex-col ${isMobile ? 'h-[100dvh]' : 'h-[90vh]'}`}
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center justify-between px-5 py-3 border-b flex-shrink-0" style={{ borderColor: '#e5e7eb' }}>

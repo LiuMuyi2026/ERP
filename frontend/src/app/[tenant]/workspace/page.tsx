@@ -1001,7 +1001,7 @@ export default function WorkspacePage() {
 
             {/* Bulk actions: shown when items selected */}
             {selectedIds.size > 0 && (
-              <div className="flex items-center gap-1.5 ml-auto">
+              <div className="flex items-center gap-1.5 w-full sm:w-auto sm:ml-auto">
                 <span className="text-xs" style={{ color: 'var(--notion-text-muted)' }}>{tWorkspace('selectedCount', { n: selectedIds.size })}</span>
                 <button onClick={copySelected} className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs transition-colors"
                   style={{ background: 'var(--notion-hover)', color: 'var(--notion-text)' }}
@@ -1020,7 +1020,7 @@ export default function WorkspacePage() {
 
             {/* Paste button when clipboard has items */}
             {clipboard.length > 0 && selectedIds.size === 0 && (
-              <button onClick={pasteClipboard} className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs transition-colors ml-auto"
+              <button onClick={pasteClipboard} className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs transition-colors w-full sm:w-auto sm:ml-auto"
                 style={{ background: 'rgba(116,129,158,0.1)', color: '#74819e', border: '1px solid rgba(116,129,158,0.2)' }}
                 onMouseEnter={e => e.currentTarget.style.background = 'rgba(116,129,158,0.18)'}
                 onMouseLeave={e => e.currentTarget.style.background = 'rgba(116,129,158,0.1)'}>
@@ -1031,7 +1031,7 @@ export default function WorkspacePage() {
             )}
 
             {/* Total count */}
-            <span className="text-xs ml-auto" style={{ color: 'var(--notion-text-muted)', whiteSpace: 'nowrap' }}>
+            <span className="text-xs w-full sm:w-auto sm:ml-auto" style={{ color: 'var(--notion-text-muted)', whiteSpace: 'nowrap' }}>
               {tWorkspace('totalFiles', { n: total })}
             </span>
           </div>
