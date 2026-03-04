@@ -2547,6 +2547,18 @@ def _is_admin(ctx: dict) -> bool:
     role = ctx.get("role", "")
     return role in ("tenant_admin", "platform_admin")
 
+async def _is_admin_scope(ctx: dict) -> bool:
+    role = ctx.get("role", "")
+    if role in ("tenant_admin", "platform_admin", "manager"):
+        return True
+    db: AsyncSession = ctx["db"]
+    row = await db.execute(
+        text("SELECT COALESCE(is_admin, FALSE) AS is_admin FROM users WHERE id = CAST(:uid AS uuid) LIMIT 1"),
+        {"uid": ctx["sub"]},
+    )
+    user = row.fetchone()
+    return bool(user and user.is_admin)
+
 
 @router.post("/lead-files")
 async def create_lead_file(body: LeadFileCreate, ctx: dict = Depends(get_current_user_with_tenant)):
@@ -2856,11 +2868,13 @@ async def check_file_access(file_id: str, ctx: dict = Depends(get_current_user_w
 @router.get("/communications")
 async def list_communications(
     lead_id: Optional[str] = None,
+    account_id: Optional[str] = None,
     channel: Optional[str] = None,
     direction: Optional[str] = None,
     source: Optional[str] = None,
     message_type: Optional[str] = None,
     status: Optional[str] = None,
+    user_id: Optional[str] = None,
     search: Optional[str] = None,
     date_from: Optional[str] = None,
     date_to: Optional[str] = None,
@@ -2871,6 +2885,10 @@ async def list_communications(
 ):
     """Unified message list: interactions + whatsapp_messages."""
     db = ctx["db"]
+    current_user_id = ctx["sub"]
+    is_admin_scope = await _is_admin_scope(ctx)
+    if not is_admin_scope:
+        user_id = current_user_id
     offset = (page - 1) * page_size
 
     # Build WHERE clauses applied to both halves of the UNION
@@ -2880,6 +2898,9 @@ async def list_communications(
     if lead_id:
         where_outer.append("lead_id = :lead_id")
         params["lead_id"] = lead_id
+    if account_id:
+        where_outer.append("account_id = :account_id")
+        params["account_id"] = account_id
     if channel:
         where_outer.append("channel = :channel")
         params["channel"] = channel
@@ -2904,6 +2925,9 @@ async def list_communications(
     if date_to:
         where_outer.append("timestamp <= :date_to")
         params["date_to"] = date_to
+    if user_id:
+        where_outer.append("owner_user_id = :owner_user_id")
+        params["owner_user_id"] = user_id
 
     where_sql = (" AND ".join(where_outer)) if where_outer else "TRUE"
     sort_map = {
@@ -2925,17 +2949,27 @@ async def list_communications(
                 i.direction,
                 COALESCE(i.content,'') AS content,
                 i.created_at         AS timestamp,
+                i.created_by::text   AS owner_user_id,
                 u.full_name          AS created_by_name,
                 i.lead_id::text,
+                COALESCE(i.metadata->>'account_id', '') AS account_id,
+                ca.name              AS account_name,
                 l.full_name          AS lead_name,
                 l.company            AS lead_company,
                 NULL                 AS message_type,
                 NULL                 AS media_url,
                 NULL                 AS status,
-                NULL                 AS wa_contact_id
+                NULL                 AS wa_contact_id,
+                CONCAT('interaction:', COALESCE(i.contact_id::text, i.id::text)) AS thread_key,
+                COALESCE(l.full_name, ca.name, COALESCE(u.full_name, u.email), i.id::text) AS thread_label
             FROM interactions i
             LEFT JOIN users u ON u.id = i.created_by
             LEFT JOIN leads l ON l.id = i.lead_id
+            LEFT JOIN crm_accounts ca ON ca.id = CASE
+                WHEN COALESCE(i.metadata->>'account_id', '') ~* '^[0-9a-f-]{36}$'
+                THEN CAST(i.metadata->>'account_id' AS uuid)
+                ELSE NULL
+            END
 
             UNION ALL
 
@@ -2946,17 +2980,24 @@ async def list_communications(
                 m.direction,
                 COALESCE(m.content,'') AS content,
                 m.timestamp,
+                a.owner_user_id::text AS owner_user_id,
                 NULL                 AS created_by_name,
                 c.lead_id::text,
+                c.account_id::text   AS account_id,
+                ca.name              AS account_name,
                 l.full_name          AS lead_name,
                 l.company            AS lead_company,
                 m.message_type,
                 m.media_url,
                 m.status,
-                m.wa_contact_id::text
+                m.wa_contact_id::text,
+                CONCAT('wa:', m.wa_contact_id::text) AS thread_key,
+                COALESCE(l.full_name, ca.name, c.display_name, c.phone_number, m.wa_contact_id::text) AS thread_label
             FROM whatsapp_messages m
             JOIN whatsapp_contacts c ON c.id = m.wa_contact_id
+            JOIN whatsapp_accounts a ON a.id = c.wa_account_id
             LEFT JOIN leads l ON l.id = c.lead_id
+            LEFT JOIN crm_accounts ca ON ca.id = c.account_id
             WHERE m.is_deleted = FALSE
 
             UNION ALL
@@ -2968,17 +3009,27 @@ async def list_communications(
                 e.direction,
                 COALESCE(e.subject || ': ' || SUBSTRING(e.body_text, 1, 200), '') AS content,
                 COALESCE(e.sent_at, e.received_at, e.created_at) AS timestamp,
+                COALESCE(e.sender_user_id::text, ues.user_id::text, '') AS owner_user_id,
                 eu.full_name         AS created_by_name,
                 e.lead_id::text,
+                e.account_id::text   AS account_id,
+                eca.name             AS account_name,
                 el.full_name         AS lead_name,
                 el.company           AS lead_company,
                 NULL                 AS message_type,
                 NULL                 AS media_url,
                 e.status,
-                NULL                 AS wa_contact_id
+                NULL                 AS wa_contact_id,
+                COALESCE(
+                    e.thread_id::text,
+                    CONCAT('email:', LEAST(LOWER(COALESCE(e.from_email,'')), LOWER(COALESCE(e.to_email,''))), '|', GREATEST(LOWER(COALESCE(e.from_email,'')), LOWER(COALESCE(e.to_email,''))))
+                ) AS thread_key,
+                COALESCE(el.full_name, eca.name, NULLIF(e.from_name, ''), e.from_email, e.to_email) AS thread_label
             FROM emails e
             LEFT JOIN users eu ON eu.id = e.sender_user_id
             LEFT JOIN leads el ON el.id = e.lead_id
+            LEFT JOIN crm_accounts eca ON eca.id = e.account_id
+            LEFT JOIN user_email_smtp ues ON LOWER(COALESCE(ues.smtp_from_email, '')) = LOWER(COALESCE(e.to_email, ''))
             WHERE e.is_deleted = FALSE
         )
         SELECT * FROM unified
@@ -2991,7 +3042,9 @@ async def list_communications(
         WITH unified AS (
             SELECT i.id, 'interaction' AS source, i.type AS channel, i.direction,
                    COALESCE(i.content,'') AS content, i.created_at AS timestamp,
-                   i.lead_id, l.full_name AS lead_name, l.company AS lead_company,
+                   i.created_by::text AS owner_user_id,
+                   i.lead_id, COALESCE(i.metadata->>'account_id', '') AS account_id,
+                   l.full_name AS lead_name, l.company AS lead_company,
                    NULL::text AS message_type, NULL::text AS status
             FROM interactions i
             LEFT JOIN leads l ON l.id = i.lead_id
@@ -3000,10 +3053,13 @@ async def list_communications(
 
             SELECT m.id, 'whatsapp_message' AS source, 'whatsapp' AS channel, m.direction,
                    COALESCE(m.content,'') AS content, m.timestamp,
-                   c.lead_id, l.full_name AS lead_name, l.company AS lead_company,
+                   a.owner_user_id::text AS owner_user_id,
+                   c.lead_id, c.account_id::text AS account_id,
+                   l.full_name AS lead_name, l.company AS lead_company,
                    m.message_type, m.status
             FROM whatsapp_messages m
             JOIN whatsapp_contacts c ON c.id = m.wa_contact_id
+            JOIN whatsapp_accounts a ON a.id = c.wa_account_id
             LEFT JOIN leads l ON l.id = c.lead_id
             WHERE m.is_deleted = FALSE
 
@@ -3012,10 +3068,13 @@ async def list_communications(
             SELECT e.id, 'email' AS source, 'email' AS channel, e.direction,
                    COALESCE(e.subject || ': ' || SUBSTRING(e.body_text, 1, 200), '') AS content,
                    COALESCE(e.sent_at, e.received_at, e.created_at) AS timestamp,
-                   e.lead_id, el.full_name AS lead_name, el.company AS lead_company,
+                   COALESCE(e.sender_user_id::text, ues.user_id::text, '') AS owner_user_id,
+                   e.lead_id, e.account_id::text AS account_id,
+                   el.full_name AS lead_name, el.company AS lead_company,
                    NULL::text AS message_type, e.status
             FROM emails e
             LEFT JOIN leads el ON el.id = e.lead_id
+            LEFT JOIN user_email_smtp ues ON LOWER(COALESCE(ues.smtp_from_email, '')) = LOWER(COALESCE(e.to_email, ''))
             WHERE e.is_deleted = FALSE
         )
         SELECT COUNT(*) FROM unified WHERE {where_sql}
@@ -3049,31 +3108,77 @@ async def link_communication(
 ):
     """Link a communication record (interaction/whatsapp/email) to a lead/account."""
     db = ctx["db"]
+    is_admin_scope = await _is_admin_scope(ctx)
+    uid = ctx["sub"]
 
     if body.source == "interaction":
-        if body.lead_id:
-            await db.execute(text(
-                "UPDATE interactions SET lead_id = CAST(:lid AS uuid) WHERE id = CAST(:cid AS uuid)"
-            ), {"lid": body.lead_id, "cid": comm_id})
-        else:
-            await db.execute(text(
-                "UPDATE interactions SET lead_id = NULL WHERE id = CAST(:cid AS uuid)"
-            ), {"cid": comm_id})
+        params: dict = {"cid": comm_id}
+        sets: list[str] = []
+        if body.lead_id is not None:
+            if body.lead_id:
+                sets.append("lead_id = CAST(:lid AS uuid)")
+                params["lid"] = body.lead_id
+            else:
+                sets.append("lead_id = NULL")
+        if body.account_id is not None:
+            if body.account_id:
+                sets.append("metadata = jsonb_set(COALESCE(metadata, '{}'::jsonb), '{account_id}', to_jsonb(:aid::text), true)")
+                params["aid"] = body.account_id
+            else:
+                sets.append("metadata = COALESCE(metadata, '{}'::jsonb) - 'account_id'")
+        if sets:
+            if not is_admin_scope:
+                params["uid"] = uid
+                where_guard = " AND created_by = CAST(:uid AS uuid)"
+            else:
+                where_guard = ""
+            await db.execute(
+                text(f"UPDATE interactions SET {', '.join(sets)} WHERE id = CAST(:cid AS uuid){where_guard}"),
+                params,
+            )
     elif body.source == "whatsapp_message":
         # Link via the whatsapp_contact, not the message itself
         contact_row = await db.execute(text(
-            "SELECT wa_contact_id FROM whatsapp_messages WHERE id = CAST(:mid AS uuid)"
+            """
+            SELECT m.wa_contact_id
+            FROM whatsapp_messages m
+            JOIN whatsapp_contacts c ON c.id = m.wa_contact_id
+            JOIN whatsapp_accounts a ON a.id = c.wa_account_id
+            WHERE m.id = CAST(:mid AS uuid)
+            """
         ), {"mid": comm_id})
         contact = contact_row.fetchone()
         if contact and contact.wa_contact_id:
-            if body.lead_id:
-                await db.execute(text(
-                    "UPDATE whatsapp_contacts SET lead_id = CAST(:lid AS uuid) WHERE id = CAST(:cid AS uuid)"
-                ), {"lid": body.lead_id, "cid": str(contact.wa_contact_id)})
-            else:
-                await db.execute(text(
-                    "UPDATE whatsapp_contacts SET lead_id = NULL WHERE id = CAST(:cid AS uuid)"
-                ), {"cid": str(contact.wa_contact_id)})
+            sets: list[str] = []
+            params: dict = {"cid": str(contact.wa_contact_id)}
+            if body.lead_id is not None:
+                if body.lead_id:
+                    sets.append("lead_id = CAST(:lid AS uuid)")
+                    params["lid"] = body.lead_id
+                else:
+                    sets.append("lead_id = NULL")
+            if body.account_id is not None:
+                if body.account_id:
+                    sets.append("account_id = CAST(:aid AS uuid)")
+                    params["aid"] = body.account_id
+                else:
+                    sets.append("account_id = NULL")
+            if sets:
+                if not is_admin_scope:
+                    params["uid"] = uid
+                    where_guard = """
+                        AND EXISTS (
+                            SELECT 1 FROM whatsapp_contacts c
+                            JOIN whatsapp_accounts a ON a.id = c.wa_account_id
+                            WHERE c.id = CAST(:cid AS uuid) AND a.owner_user_id = CAST(:uid AS uuid)
+                        )
+                    """
+                else:
+                    where_guard = ""
+                await db.execute(
+                    text(f"UPDATE whatsapp_contacts SET {', '.join(sets)} WHERE id = CAST(:cid AS uuid){where_guard}"),
+                    params,
+                )
     elif body.source == "email":
         sets = []
         params: dict = {"cid": comm_id}
@@ -3090,8 +3195,13 @@ async def link_communication(
             else:
                 sets.append("account_id = NULL")
         if sets:
+            if not is_admin_scope:
+                params["uid"] = uid
+                where_guard = " AND COALESCE(sender_user_id::text, '') = :uid"
+            else:
+                where_guard = ""
             await db.execute(text(
-                f"UPDATE emails SET {', '.join(sets)} WHERE id = CAST(:cid AS uuid)"
+                f"UPDATE emails SET {', '.join(sets)} WHERE id = CAST(:cid AS uuid){where_guard}"
             ), params)
     else:
         raise HTTPException(status_code=400, detail=f"Unknown source: {body.source}")

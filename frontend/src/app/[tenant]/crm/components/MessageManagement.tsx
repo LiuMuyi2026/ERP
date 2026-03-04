@@ -18,7 +18,11 @@ type CommItem = {
   direction: string;
   content: string;
   timestamp: string;
+  owner_user_id?: string;
+  created_by?: string;
   created_by_name?: string;
+  account_id?: string;
+  account_name?: string;
   lead_id?: string;
   lead_name?: string;
   lead_company?: string;
@@ -26,6 +30,8 @@ type CommItem = {
   media_url?: string;
   status?: string;
   wa_contact_id?: string;
+  thread_key?: string;
+  thread_label?: string;
 };
 
 /** Aggregated WhatsApp conversation — one row per contact */
@@ -172,6 +178,9 @@ export default function MessageManagement() {
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
   const [sortBy, setSortBy] = useState('time_desc');
+  const [isAdminScope, setIsAdminScope] = useState(false);
+  const [users, setUsers] = useState<{ id: string; full_name?: string; email?: string }[]>([]);
+  const [userFilter, setUserFilter] = useState('');
 
   /* View */
   const [viewMode, setViewMode] = useState<ViewMode>('timeline');
@@ -189,9 +198,29 @@ export default function MessageManagement() {
 
   /* Customer linking */
   const [linkingItem, setLinkingItem] = useState<CommItem | null>(null);
-  const [linkSearch, setLinkSearch] = useState('');
-  const [linkResults, setLinkResults] = useState<any[]>([]);
+  const [linkAccountSearch, setLinkAccountSearch] = useState('');
+  const [linkAccountResults, setLinkAccountResults] = useState<any[]>([]);
+  const [linkLeadSearch, setLinkLeadSearch] = useState('');
+  const [linkLeadResults, setLinkLeadResults] = useState<any[]>([]);
+  const [selectedAccount, setSelectedAccount] = useState<{ id: string; name: string } | null>(null);
+  const [selectedLead, setSelectedLead] = useState<{ id: string; full_name: string; company?: string } | null>(null);
   const [linkLoading, setLinkLoading] = useState(false);
+
+  useEffect(() => {
+    api.get('/api/auth/me')
+      .then((u: any) => {
+        const admin = !!(u?.is_admin || ['tenant_admin', 'platform_admin', 'manager'].includes(u?.role));
+        setIsAdminScope(admin);
+        if (admin) {
+          api.get('/api/admin/users-lite')
+            .then((d: any) => setUsers(Array.isArray(d) ? d : (d?.items || [])))
+            .catch(() => setUsers([]));
+        }
+      })
+      .catch(() => {
+        setIsAdminScope(false);
+      });
+  }, []);
 
   /* ---- Load data ---- */
   const load = useCallback(async () => {
@@ -208,6 +237,7 @@ export default function MessageManagement() {
       if (source) params.source = source;
       if (dateFrom) params.date_from = dateFrom;
       if (dateTo) params.date_to = dateTo;
+      if (isAdminScope && userFilter) params.user_id = userFilter;
 
       const qs = new URLSearchParams(params).toString();
       const data = await api.get(`/api/crm/communications?${qs}`);
@@ -218,7 +248,7 @@ export default function MessageManagement() {
     } finally {
       setLoading(false);
     }
-  }, [page, search, channel, direction, source, dateFrom, dateTo, sortBy]);
+  }, [page, search, channel, direction, source, dateFrom, dateTo, sortBy, isAdminScope, userFilter]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -314,7 +344,7 @@ export default function MessageManagement() {
   const groupedByLead = displayRows.reduce<Record<string, DisplayRow[]>>((acc, row) => {
     const key = row._grouped
       ? (row.contact_name || row.wa_contact_id)
-      : (row.lead_name || row.lead_id || 'Unknown');
+      : (row.lead_name || row.lead_id || row.thread_label || row.account_name || row.account_id || 'Unknown');
     if (!acc[key]) acc[key] = [];
     acc[key].push(row);
     return acc;
@@ -405,6 +435,21 @@ export default function MessageManagement() {
           <option value="outbound">{t('dirOutbound')}</option>
           <option value="inbound">{t('dirInbound')}</option>
         </select>
+
+        {isAdminScope && (
+          <select value={userFilter} onChange={e => { setUserFilter(e.target.value); setPage(1); }}
+            className="px-2.5 py-2 rounded-lg text-[12px] outline-none cursor-pointer"
+            style={{
+              border: `1px solid ${userFilter ? '#00a884' : '#e5e7eb'}`,
+              color: userFilter ? '#00a884' : '#667781',
+              background: userFilter ? '#e7fcf5' : 'white',
+            }}>
+            <option value="">{tMsg('all') || '全部用户'}</option>
+            {users.map(u => (
+              <option key={u.id} value={u.id}>{u.full_name || u.email || u.id}</option>
+            ))}
+          </select>
+        )}
 
         {/* Date range */}
         <div className="flex items-center gap-1.5">
@@ -710,20 +755,39 @@ export default function MessageManagement() {
                       </span>
                     </td>
                     <td className="px-4 py-3">
-                      {item.lead_name ? (
-                        <span>
-                          <span className="text-[13px] font-medium" style={{ color: '#111b21' }}>{item.lead_name}</span>
-                          {item.lead_company && (
-                            <span className="text-[11px] ml-1.5" style={{ color: '#8696a0' }}>{item.lead_company}</span>
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="min-w-0">
+                          {item.lead_name ? (
+                            <span>
+                              <span className="text-[13px] font-medium" style={{ color: '#111b21' }}>{item.lead_name}</span>
+                              {(item.lead_company || item.account_name) && (
+                                <span className="text-[11px] ml-1.5" style={{ color: '#8696a0' }}>{item.lead_company || item.account_name}</span>
+                              )}
+                            </span>
+                          ) : item.account_name ? (
+                            <span>
+                              <span className="text-[13px] font-medium" style={{ color: '#111b21' }}>{item.account_name}</span>
+                              <span className="text-[11px] ml-1.5" style={{ color: '#8696a0' }}>未关联线索</span>
+                            </span>
+                          ) : (
+                            <span className="text-[12px]" style={{ color: '#9ca3af' }}>未关联</span>
                           )}
                         </span>
-                      ) : (
-                        <button onClick={(e) => { e.stopPropagation(); setLinkingItem(item); setLinkSearch(''); setLinkResults([]); }}
-                          className="text-[11px] px-2 py-1 rounded border hover:bg-gray-50"
+                        <button onClick={(e) => {
+                          e.stopPropagation();
+                          setLinkingItem(item);
+                          setLinkAccountSearch('');
+                          setLinkLeadSearch('');
+                          setLinkAccountResults([]);
+                          setLinkLeadResults([]);
+                          setSelectedAccount(item.account_id ? { id: item.account_id, name: item.account_name || '已关联客户' } : null);
+                          setSelectedLead(item.lead_id ? { id: item.lead_id, full_name: item.lead_name || '已关联线索', company: item.lead_company } : null);
+                        }}
+                          className="text-[11px] px-2 py-1 rounded border hover:bg-gray-50 whitespace-nowrap"
                           style={{ borderColor: '#d1d5db', color: '#4338ca' }}>
-                          {tMsg('linkCustomer') || '关联客户'}
+                          {item.lead_name || item.account_name ? '调整关联' : (tMsg('linkCustomer') || '关联客户')}
                         </button>
-                      )}
+                      </div>
                     </td>
                     <td className="px-4 py-3">
                       <span className="text-[10px] px-1.5 py-0.5 rounded-full font-medium"
@@ -964,45 +1028,134 @@ export default function MessageManagement() {
             <h3 className="text-sm font-semibold mb-3" style={{ color: '#3b4a54' }}>
               {tMsg('linkCustomer') || '关联客户'}
             </h3>
-            <input type="text" value={linkSearch}
-              onChange={async (e) => {
-                const q = e.target.value;
-                setLinkSearch(q);
-                if (q.length < 2) { setLinkResults([]); return; }
-                try {
-                  const data = await api.get(`/api/crm/leads?search=${encodeURIComponent(q)}&page_size=10`);
-                  setLinkResults(data.items || []);
-                } catch { setLinkResults([]); }
-              }}
-              placeholder={tMsg('searchLeads') || '搜索客户...'}
-              className="w-full text-sm border rounded-lg px-3 py-2 mb-2 outline-none"
-              style={{ borderColor: '#e5e7eb' }} />
-            <div className="max-h-48 overflow-auto space-y-1">
-              {linkResults.map((lead: any) => (
-                <button key={lead.id}
-                  onClick={async () => {
-                    try {
-                      await api.patch(`/api/crm/communications/${linkingItem.id}/link`, {
-                        source: linkingItem.source,
-                        lead_id: lead.id,
-                      });
-                      setLinkingItem(null);
-                      load();
-                    } catch (e: any) { alert(e.message || 'Failed'); }
-                  }}
-                  className="w-full text-left px-3 py-2 rounded-lg hover:bg-gray-50 text-sm">
-                  <div className="font-medium" style={{ color: '#3b4a54' }}>{lead.full_name}</div>
-                  {lead.company && (
-                    <div className="text-xs" style={{ color: '#8696a0' }}>{lead.company}</div>
-                  )}
-                </button>
-              ))}
+            <div className="space-y-2 mb-3">
+              <div className="text-xs font-medium" style={{ color: '#667781' }}>1. 选择客户</div>
+              <input type="text" value={linkAccountSearch}
+                onChange={async (e) => {
+                  const q = e.target.value;
+                  setLinkAccountSearch(q);
+                  if (q.length < 2) { setLinkAccountResults([]); return; }
+                  try {
+                    const data = await api.get(`/api/crm/accounts?search=${encodeURIComponent(q)}`);
+                    setLinkAccountResults(Array.isArray(data) ? data : []);
+                  } catch { setLinkAccountResults([]); }
+                }}
+                placeholder={'搜索客户公司...'}
+                className="w-full text-sm border rounded-lg px-3 py-2 outline-none"
+                style={{ borderColor: '#e5e7eb' }} />
+              {selectedAccount && (
+                <div className="text-xs rounded-lg px-2.5 py-1.5" style={{ background: '#f3f4f6', color: '#374151' }}>
+                  已选客户: {selectedAccount.name}
+                </div>
+              )}
+              <div className="max-h-24 overflow-auto space-y-1">
+                {linkAccountResults.slice(0, 8).map((acc: any) => (
+                  <button key={acc.id}
+                    onClick={() => {
+                      setSelectedAccount({ id: acc.id, name: acc.name });
+                      setLinkAccountSearch(acc.name || '');
+                    }}
+                    className="w-full text-left px-3 py-2 rounded-lg hover:bg-gray-50 text-sm">
+                    <div className="font-medium" style={{ color: '#3b4a54' }}>{acc.name}</div>
+                  </button>
+                ))}
+              </div>
             </div>
-            <button onClick={() => setLinkingItem(null)}
-              className="mt-3 w-full text-xs py-2 rounded-lg border"
-              style={{ borderColor: '#e5e7eb', color: '#667781' }}>
-              {tMsg('cancel') || '取消'}
-            </button>
+
+            <div className="space-y-2">
+              <div className="text-xs font-medium" style={{ color: '#667781' }}>2. 选择线索（可选）</div>
+              <input type="text" value={linkLeadSearch}
+                onChange={async (e) => {
+                  const q = e.target.value;
+                  setLinkLeadSearch(q);
+                  if (q.length < 2) { setLinkLeadResults([]); return; }
+                  try {
+                    const data = await api.get(`/api/crm/leads?search=${encodeURIComponent(q)}&limit=20`);
+                    const leads = Array.isArray(data) ? data : (data?.items || []);
+                    if (selectedAccount?.name) {
+                      const key = selectedAccount.name.toLowerCase();
+                      setLinkLeadResults(leads.filter((l: any) => String(l.company || '').toLowerCase().includes(key)));
+                    } else {
+                      setLinkLeadResults(leads);
+                    }
+                  } catch { setLinkLeadResults([]); }
+                }}
+                placeholder={tMsg('searchLeads') || '搜索线索...'}
+                className="w-full text-sm border rounded-lg px-3 py-2 outline-none"
+                style={{ borderColor: '#e5e7eb' }} />
+              {selectedLead && (
+                <div className="text-xs rounded-lg px-2.5 py-1.5" style={{ background: '#f3f4f6', color: '#374151' }}>
+                  已选线索: {selectedLead.full_name}{selectedLead.company ? ` · ${selectedLead.company}` : ''}
+                </div>
+              )}
+              <div className="max-h-28 overflow-auto space-y-1">
+                {linkLeadResults.slice(0, 10).map((lead: any) => (
+                  <button key={lead.id}
+                    onClick={() => {
+                      setSelectedLead({ id: lead.id, full_name: lead.full_name, company: lead.company });
+                      if (!selectedAccount && lead.company) {
+                        setSelectedAccount({ id: '', name: lead.company });
+                      }
+                    }}
+                    className="w-full text-left px-3 py-2 rounded-lg hover:bg-gray-50 text-sm">
+                    <div className="font-medium" style={{ color: '#3b4a54' }}>{lead.full_name}</div>
+                    {lead.company && (
+                      <div className="text-xs" style={{ color: '#8696a0' }}>{lead.company}</div>
+                    )}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="grid grid-cols-3 gap-2 mt-4">
+              <button onClick={async () => {
+                setLinkLoading(true);
+                try {
+                  await api.patch(`/api/crm/communications/${linkingItem.id}/link`, {
+                    source: linkingItem.source,
+                    account_id: '',
+                    lead_id: '',
+                  });
+                  setLinkingItem(null);
+                  load();
+                } catch (e: any) {
+                  alert(e.message || 'Failed');
+                } finally {
+                  setLinkLoading(false);
+                }
+              }}
+                disabled={linkLoading}
+                className="text-xs py-2 rounded-lg border"
+                style={{ borderColor: '#fecaca', color: '#b91c1c' }}>
+                清空关联
+              </button>
+              <button onClick={() => setLinkingItem(null)}
+                className="text-xs py-2 rounded-lg border"
+                style={{ borderColor: '#e5e7eb', color: '#667781' }}>
+                {tMsg('cancel') || '取消'}
+              </button>
+              <button onClick={async () => {
+                setLinkLoading(true);
+                try {
+                  await api.patch(`/api/crm/communications/${linkingItem.id}/link`, {
+                    source: linkingItem.source,
+                    account_id: selectedAccount?.id || '',
+                    lead_id: selectedLead?.id || '',
+                  });
+                  setLinkingItem(null);
+                  load();
+                } catch (e: any) {
+                  alert(e.message || 'Failed');
+                } finally {
+                  setLinkLoading(false);
+                }
+              }}
+                disabled={linkLoading}
+                className="text-xs py-2 rounded-lg border text-white"
+                style={{ borderColor: '#4338ca', background: '#4338ca' }}>
+                保存关联
+              </button>
+            </div>
           </div>
         </div>
       )}
