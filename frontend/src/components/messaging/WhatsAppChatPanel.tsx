@@ -1,10 +1,12 @@
 'use client';
 
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { useParams } from 'next/navigation';
 import { api } from '@/lib/api';
 import { useWhatsAppSocket } from '@/lib/useWhatsAppSocket';
 import { HandIcon } from '@/components/ui/HandIcon';
 import toast from 'react-hot-toast';
+import { useLocale } from 'next-intl';
 
 type Reaction = { reactor_jid: string; emoji: string };
 
@@ -81,18 +83,178 @@ const DISAPPEARING_OPTIONS = [
 ];
 
 type AiAction = 'summarize' | 'enrich_profile' | 'sales_strategy' | 'sales_tips' | 'suggest_reply';
-const AI_ACTIONS: { key: AiAction; label: string; icon: string; color: string }[] = [
-  { key: 'suggest_reply', label: 'AI Suggest', icon: 'sparkle', color: '#8b5cf6' },
-  { key: 'summarize', label: 'Summarize', icon: 'document', color: '#7c3aed' },
-  { key: 'enrich_profile', label: 'Enrich Profile', icon: 'person', color: '#0284c7' },
-  { key: 'sales_strategy', label: 'Sales Strategy', icon: 'briefcase', color: '#059669' },
-  { key: 'sales_tips', label: 'Sales Tips', icon: 'star', color: '#d97706' },
-];
 
 export default function WhatsAppChatPanel({
   contactId, leadId, contactName, profilePicUrl, isGroup, disappearingDuration,
   isBlocked: initialIsBlocked, isArchived: initialIsArchived, conversation,
 }: WhatsAppChatPanelProps) {
+  const locale = useLocale();
+  const isZhHans = locale.toLowerCase().startsWith('zh-cn') || locale.toLowerCase() === 'zh';
+  const isZhHant = locale.toLowerCase().startsWith('zh-tw');
+  const L = isZhHant ? {
+    aiSuggest: 'AI 建議',
+    summarize: '摘要',
+    enrichProfile: '補全客戶',
+    salesStrategy: '銷售策略',
+    salesTips: '銷售技巧',
+    aiSuggestReply: 'AI 建議回覆',
+    aiAnalysis: 'AI 分析',
+    aiAnalyzing: 'AI 分析中...',
+    aiTag: 'AI',
+    typeMessage: '輸入訊息',
+    dismiss: '關閉',
+    typing: '輸入中...',
+    online: '在線',
+    lastSeen: '最後上線',
+    tapGroupInfo: '點此查看群組資訊',
+    msgCount: '則訊息',
+    crmInfo: 'CRM 資訊',
+    notLinkedCrm: '未關聯 CRM',
+    searchMessages: '搜尋訊息',
+    moreOptions: '更多選項',
+    call: '通話',
+    voiceCall: '語音通話',
+    videoCall: '視訊通話',
+    unblockContact: '解除封鎖聯絡人',
+    blockContact: '封鎖聯絡人',
+    disappearingMessages: '限時訊息',
+    syncing: '同步中...',
+    syncHistory: '同步歷史',
+    syncProfilePicture: '同步頭像',
+    contactInfo: '聯絡人資訊',
+    markUnread: '標記未讀',
+    deleteChat: '刪除聊天',
+    disappearing: '限時',
+    blockedHint: '此聯絡人已被封鎖。',
+    unblock: '解除封鎖',
+    syncedFromWhatsApp: '已從 WhatsApp 同步 {n} 條訊息',
+    loadingText: '載入中...',
+    searchPlaceholder: '搜尋...',
+    noMessages: '暫無訊息',
+    beginningOfConversation: '對話開始',
+    contactProfile: '聯絡人檔案',
+    name: '姓名',
+    status: '狀態',
+    businessProfile: '商業檔案',
+    category: '類別',
+    email: '郵箱',
+    viewProductCatalog: '查看產品目錄',
+    productCatalog: '產品目錄',
+    noProductsFound: '未找到商品',
+    product: '商品',
+    typeMessageTitle: '輸入訊息',
+  } : isZhHans ? {
+    aiSuggest: 'AI 建议',
+    summarize: '摘要',
+    enrichProfile: '补全客户',
+    salesStrategy: '销售策略',
+    salesTips: '销售技巧',
+    aiSuggestReply: 'AI 建议回复',
+    aiAnalysis: 'AI 分析',
+    aiAnalyzing: 'AI 分析中...',
+    aiTag: 'AI',
+    typeMessage: '输入消息',
+    dismiss: '关闭',
+    typing: '输入中...',
+    online: '在线',
+    lastSeen: '最后上线',
+    tapGroupInfo: '点此查看群组信息',
+    msgCount: '条消息',
+    crmInfo: 'CRM 信息',
+    notLinkedCrm: '未关联 CRM',
+    searchMessages: '搜索消息',
+    moreOptions: '更多选项',
+    call: '通话',
+    voiceCall: '语音通话',
+    videoCall: '视频通话',
+    unblockContact: '解除屏蔽联系人',
+    blockContact: '屏蔽联系人',
+    disappearingMessages: '阅后即焚',
+    syncing: '同步中...',
+    syncHistory: '同步历史',
+    syncProfilePicture: '同步头像',
+    contactInfo: '联系人资料',
+    markUnread: '标记未读',
+    deleteChat: '删除聊天',
+    disappearing: '阅后即焚',
+    blockedHint: '该联系人已被屏蔽。',
+    unblock: '解除屏蔽',
+    syncedFromWhatsApp: '已从 WhatsApp 同步 {n} 条消息',
+    loadingText: '加载中...',
+    searchPlaceholder: '搜索...',
+    noMessages: '暂无消息',
+    beginningOfConversation: '对话开始',
+    contactProfile: '联系人资料',
+    name: '姓名',
+    status: '状态',
+    businessProfile: '商业资料',
+    category: '分类',
+    email: '邮箱',
+    viewProductCatalog: '查看商品目录',
+    productCatalog: '商品目录',
+    noProductsFound: '暂无商品',
+    product: '商品',
+    typeMessageTitle: '输入消息',
+  } : {
+    aiSuggest: 'AI Suggest',
+    summarize: 'Summarize',
+    enrichProfile: 'Enrich Profile',
+    salesStrategy: 'Sales Strategy',
+    salesTips: 'Sales Tips',
+    aiSuggestReply: 'AI Suggest Reply',
+    aiAnalysis: 'AI Analysis',
+    aiAnalyzing: 'Analyzing...',
+    aiTag: 'AI',
+    typeMessage: 'Type a message',
+    dismiss: 'Dismiss',
+    typing: 'typing...',
+    online: 'online',
+    lastSeen: 'last seen',
+    tapGroupInfo: 'tap here for group info',
+    msgCount: 'messages',
+    crmInfo: 'CRM Info',
+    notLinkedCrm: 'No CRM linked',
+    searchMessages: 'Search messages',
+    moreOptions: 'More options',
+    call: 'Call',
+    voiceCall: 'Voice call',
+    videoCall: 'Video call',
+    unblockContact: 'Unblock contact',
+    blockContact: 'Block contact',
+    disappearingMessages: 'Disappearing messages',
+    syncing: 'Syncing...',
+    syncHistory: 'Sync history',
+    syncProfilePicture: 'Sync profile picture',
+    contactInfo: 'Contact info',
+    markUnread: 'Mark as unread',
+    deleteChat: 'Delete chat',
+    disappearing: 'Disappearing',
+    blockedHint: 'This contact is blocked.',
+    unblock: 'Unblock',
+    syncedFromWhatsApp: 'Synced {n} messages from WhatsApp',
+    loadingText: 'Loading...',
+    searchPlaceholder: 'Search...',
+    noMessages: 'No messages yet',
+    beginningOfConversation: 'Beginning of conversation',
+    contactProfile: 'Contact Profile',
+    name: 'Name',
+    status: 'Status',
+    businessProfile: 'Business Profile',
+    category: 'Category',
+    email: 'Email',
+    viewProductCatalog: 'View Product Catalog',
+    productCatalog: 'Product Catalog',
+    noProductsFound: 'No products found',
+    product: 'Product',
+    typeMessageTitle: 'Type a message',
+  };
+  const aiActions: { key: AiAction; label: string; icon: string; color: string }[] = [
+    { key: 'suggest_reply', label: L.aiSuggest, icon: 'sparkle', color: '#8b5cf6' },
+    { key: 'summarize', label: L.summarize, icon: 'document', color: '#7c3aed' },
+    { key: 'enrich_profile', label: L.enrichProfile, icon: 'person', color: '#0284c7' },
+    { key: 'sales_strategy', label: L.salesStrategy, icon: 'briefcase', color: '#059669' },
+    { key: 'sales_tips', label: L.salesTips, icon: 'star', color: '#d97706' },
+  ];
   const [messages, setMessages] = useState<Message[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -235,6 +397,23 @@ export default function WhatsAppChatPanel({
   const [showAttachMenu, setShowAttachMenu] = useState(false);
 
   const effectiveContactId = contactId || resolvedContactId;
+  const params = useParams();
+  const tenantSlug = params?.tenant as string || '';
+
+  // Quick create lead from chat panel
+  async function handleQuickCreateLead() {
+    if (!effectiveContactId) return;
+    try {
+      const name = contactName || conversation?.display_name || conversation?.phone_number || 'Unknown';
+      const leadData: any = { full_name: name, source: 'WhatsApp' };
+      if (conversation?.phone_number) { leadData.phone = conversation.phone_number; leadData.whatsapp = conversation.phone_number; }
+      const newLead: any = await api.post('/api/crm/leads', leadData);
+      const leadId = newLead.id || newLead.lead_id;
+      await api.post(`/api/whatsapp/contacts/${effectiveContactId}/link-lead`, { lead_id: leadId });
+      toast.success('新线索已创建并绑定');
+      loadCrmContext();
+    } catch (e: any) { toast.error(e.message || 'Failed to create lead'); }
+  }
 
   // ── WebSocket for real-time updates ──
   const { on: onWsEvent } = useWhatsAppSocket();
@@ -787,10 +966,21 @@ export default function WhatsAppChatPanel({
   async function handleFetchProfile() {
     if (!effectiveContactId) return;
     setShowProfilePanel(true);
+    setShowCatalogTab(false);
+    setCatalogData(null);
     try {
       const data = await api.get(`/api/whatsapp/conversations/${effectiveContactId}/profile`);
-      setProfileData(data);
-    } catch (e: any) { console.error('handleFetchProfile:', e); setProfileData(null); }
+      const raw = (data && typeof data === 'object')
+        ? ((data as any).profile || (data as any).data || data)
+        : {};
+      const business = (raw && typeof (raw as any).business === 'object' && !Array.isArray((raw as any).business))
+        ? (raw as any).business
+        : {};
+      const picture = typeof (raw as any).picture === 'string'
+        ? (raw as any).picture
+        : (typeof (raw as any).profilePictureUrl === 'string' ? (raw as any).profilePictureUrl : '');
+      setProfileData({ ...(raw as any), business, picture });
+    } catch (e: any) { console.error('handleFetchProfile:', e); setProfileData({}); }
   }
 
   // ── 5.5 Call ──
@@ -862,7 +1052,11 @@ export default function WhatsAppChatPanel({
     setShowCatalogTab(true);
     try {
       const data = await api.get(`/api/whatsapp/conversations/${effectiveContactId}/catalog`);
-      setCatalogData(Array.isArray(data) ? data : (data?.data || data?.products || []));
+      const raw = Array.isArray(data)
+        ? data
+        : (Array.isArray((data as any)?.data) ? (data as any).data
+        : (Array.isArray((data as any)?.products) ? (data as any).products : []));
+      setCatalogData(raw);
     } catch (e: any) { console.error('loadCatalog:', e); setCatalogData([]); }
   }
 
@@ -873,7 +1067,12 @@ export default function WhatsAppChatPanel({
 
   // ── Render interactive message types ──
   function renderButtonsMessage(msg: Message) {
-    const meta = typeof msg.metadata === 'string' ? JSON.parse(msg.metadata) : (msg.metadata || {});
+    let meta: any = {};
+    try {
+      meta = typeof msg.metadata === 'string' ? JSON.parse(msg.metadata) : (msg.metadata || {});
+    } catch {
+      meta = {};
+    }
     const buttons = meta.buttons || [];
     const desc = meta.description || '';
     const footer = meta.footer || '';
@@ -893,7 +1092,12 @@ export default function WhatsAppChatPanel({
   }
 
   function renderListMessage(msg: Message) {
-    const meta = typeof msg.metadata === 'string' ? JSON.parse(msg.metadata) : (msg.metadata || {});
+    let meta: any = {};
+    try {
+      meta = typeof msg.metadata === 'string' ? JSON.parse(msg.metadata) : (msg.metadata || {});
+    } catch {
+      meta = {};
+    }
     const sections = meta.sections || [];
     const desc = meta.description || '';
     const footer = meta.footer || '';
@@ -1009,9 +1213,9 @@ export default function WhatsAppChatPanel({
 
   const groups = groupByDate(messages);
   const hasMessages = messages.length > 0;
-  const presenceText = (wsTyping || presence?.status === 'composing') ? 'typing...'
-    : presence?.status === 'available' ? 'online'
-    : presence?.lastSeen ? `last seen ${new Date(presence.lastSeen * 1000).toLocaleString()}`
+  const presenceText = (wsTyping || presence?.status === 'composing') ? L.typing
+    : presence?.status === 'available' ? L.online
+    : presence?.lastSeen ? `${L.lastSeen} ${new Date(presence.lastSeen * 1000).toLocaleString()}`
     : '';
 
   return (
@@ -1031,9 +1235,18 @@ export default function WhatsAppChatPanel({
           onClick={() => { if (isGroup) { setShowGroupInfo(!showGroupInfo); loadGroupInfo(); } }}
           style={{ cursor: isGroup ? 'pointer' : 'default' }}>
           <p className="text-sm font-medium truncate text-white">{contactName || 'WhatsApp Chat'}</p>
-          <p className="text-xs truncate" style={{ color: presenceText === 'typing...' ? '#a8f0d6' : 'rgba(255,255,255,0.7)' }}>
-            {presenceText || (isGroup ? 'tap here for group info' : `${messages.length} messages`)}
-          </p>
+          <div className="flex items-center gap-2 truncate">
+            <span className="text-xs truncate" style={{ color: presenceText === 'typing...' ? '#a8f0d6' : 'rgba(255,255,255,0.7)' }}>
+              {presenceText || (isGroup ? L.tapGroupInfo : `${messages.length} ${L.msgCount}`)}
+            </span>
+            {(conversation?.lead_name || conversation?.crm_account_name) ? (
+              <span className="text-[10px] px-1.5 py-0.5 rounded-full truncate" style={{ background: 'rgba(255,255,255,0.15)', color: '#a8f0d6' }}>
+                CRM: {conversation.lead_name || conversation.crm_account_name}
+              </span>
+            ) : !isGroup ? (
+              <span className="text-[10px] truncate" style={{ color: 'rgba(255,255,255,0.4)' }}>{L.notLinkedCrm}</span>
+            ) : null}
+          </div>
         </div>
         <div className="flex items-center gap-0.5">
           {/* Quick AI buttons */}
@@ -1043,7 +1256,7 @@ export default function WhatsAppChatPanel({
                 disabled={aiLoading !== null}
                 className="px-2 py-1 rounded-full hover:bg-white/10 transition-colors text-[10px] font-medium flex items-center gap-1"
                 style={{ color: '#e0c3fc', border: '1px solid rgba(255,255,255,0.2)' }}
-                title="AI Suggest Reply">
+                title={L.aiSuggestReply}>
                 {aiLoading === 'suggest_reply' ? <span className="inline-block w-3 h-3 border-2 border-white/60 border-t-transparent rounded-full animate-spin" /> : '✨'}
                 AI
               </button>
@@ -1055,7 +1268,7 @@ export default function WhatsAppChatPanel({
               </button>
               <button onClick={() => { setShowCrmSidebar(!showCrmSidebar); if (!crmContext) loadCrmContext(); }}
                 className="p-2 rounded-full hover:bg-white/10 transition-colors"
-                title="CRM Info"
+                title={L.crmInfo}
                 style={{ color: showCrmSidebar ? '#a8f0d6' : 'white' }}>
                 <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
               </button>
@@ -1063,21 +1276,21 @@ export default function WhatsAppChatPanel({
           )}
           {/* Search */}
           <button onClick={() => setShowSearch(!showSearch)}
-            className="p-2 rounded-full hover:bg-white/10 transition-colors" title="Search messages">
+            className="p-2 rounded-full hover:bg-white/10 transition-colors" title={L.searchMessages}>
             <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.35-4.35"/></svg>
           </button>
           {/* Call (non-group) */}
           {effectiveContactId && !isGroup && (
             <div className="relative">
               <button onClick={() => setShowCallMenu(!showCallMenu)}
-                className="p-2 rounded-full hover:bg-white/10 transition-colors" title="Call">
+                className="p-2 rounded-full hover:bg-white/10 transition-colors" title={L.call}>
                 <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
               </button>
               {showCallMenu && (
                 <div className="absolute right-0 top-10 z-50 rounded-lg shadow-lg border py-1 min-w-[130px]"
                   style={{ background: 'white', borderColor: '#e5e7eb' }}>
-                  <button onClick={() => handleCall(false)} className="block w-full text-left px-3 py-2 text-xs hover:bg-gray-50">📞 Voice call</button>
-                  <button onClick={() => handleCall(true)} className="block w-full text-left px-3 py-2 text-xs hover:bg-gray-50">📹 Video call</button>
+                  <button onClick={() => handleCall(false)} className="block w-full text-left px-3 py-2 text-xs hover:bg-gray-50">📞 {L.voiceCall}</button>
+                  <button onClick={() => handleCall(true)} className="block w-full text-left px-3 py-2 text-xs hover:bg-gray-50">📹 {L.videoCall}</button>
                 </div>
               )}
             </div>
@@ -1085,7 +1298,7 @@ export default function WhatsAppChatPanel({
           {/* More (three-dot) menu */}
           <div className="relative">
             <button onClick={() => setShowMoreMenu(!showMoreMenu)}
-              className="p-2 rounded-full hover:bg-white/10 transition-colors" title="More options">
+              className="p-2 rounded-full hover:bg-white/10 transition-colors" title={L.moreOptions}>
               <svg viewBox="0 0 24 24" width="20" height="20" fill="white"><circle cx="12" cy="5" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="12" cy="19" r="2"/></svg>
             </button>
             {showMoreMenu && (
@@ -1097,20 +1310,20 @@ export default function WhatsAppChatPanel({
                   className="flex items-center gap-3 w-full text-left px-4 py-2.5 text-[13px] hover:bg-gray-50"
                   style={{ color: isBlocked ? '#dc2626' : '#3b4a54' }}>
                   <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
-                  {isBlocked ? 'Unblock contact' : 'Block contact'}
+                  {isBlocked ? L.unblockContact : L.blockContact}
                 </button>
                 {/* Disappearing messages */}
                 <button onClick={() => { setShowMoreMenu(false); setShowDisappearing(!showDisappearing); }}
                   className="flex items-center gap-3 w-full text-left px-4 py-2.5 text-[13px] hover:bg-gray-50" style={{ color: '#3b4a54' }}>
                   <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-                  Disappearing messages {currentDisappearing > 0 && '✓'}
+                  {L.disappearingMessages} {currentDisappearing > 0 && '✓'}
                 </button>
                 {/* AI Analysis */}
                 {hasMessages && (
                   <button onClick={() => { setShowMoreMenu(false); setShowAiPanel(!showAiPanel); }}
                     className="flex items-center gap-3 w-full text-left px-4 py-2.5 text-[13px] hover:bg-gray-50" style={{ color: '#7c3aed' }}>
                     <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 2a4 4 0 0 1 4 4c0 1.1-.9 2-2 2h-4a2 2 0 0 1-2-2 4 4 0 0 1 4-4z"/><path d="M12 8v8"/><path d="M8 12h8"/><circle cx="12" cy="12" r="10"/></svg>
-                    AI Analysis
+                    {L.aiAnalysis}
                   </button>
                 )}
                 {/* Sync history */}
@@ -1118,7 +1331,7 @@ export default function WhatsAppChatPanel({
                   <button onClick={() => { setShowMoreMenu(false); handleSyncHistory(); }} disabled={syncing}
                     className="flex items-center gap-3 w-full text-left px-4 py-2.5 text-[13px] hover:bg-gray-50" style={{ color: '#3b4a54' }}>
                     <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 2v6h-6"/><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M3 22v-6h6"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/></svg>
-                    {syncing ? 'Syncing...' : 'Sync history'}
+                    {syncing ? L.syncing : L.syncHistory}
                   </button>
                 )}
                 {/* Sync profile pic (non-group) */}
@@ -1129,7 +1342,7 @@ export default function WhatsAppChatPanel({
                   }}
                     className="flex items-center gap-3 w-full text-left px-4 py-2.5 text-[13px] hover:bg-gray-50" style={{ color: '#3b4a54' }}>
                     <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="m21 15-5-5L5 21"/></svg>
-                    Sync profile picture
+                    {L.syncProfilePicture}
                   </button>
                 )}
                 {/* Contact profile (non-group) */}
@@ -1137,7 +1350,7 @@ export default function WhatsAppChatPanel({
                   <button onClick={() => { setShowMoreMenu(false); handleFetchProfile(); }}
                     className="flex items-center gap-3 w-full text-left px-4 py-2.5 text-[13px] hover:bg-gray-50" style={{ color: '#3b4a54' }}>
                     <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
-                    Contact info
+                    {L.contactInfo}
                   </button>
                 )}
                 <div className="border-t my-1" style={{ borderColor: '#e5e7eb' }} />
@@ -1145,13 +1358,13 @@ export default function WhatsAppChatPanel({
                 <button onClick={() => { setShowMoreMenu(false); handleMarkUnread(); }}
                   className="flex items-center gap-3 w-full text-left px-4 py-2.5 text-[13px] hover:bg-gray-50" style={{ color: '#3b4a54' }}>
                   <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="3" fill="currentColor"/></svg>
-                  Mark as unread
+                  {L.markUnread}
                 </button>
                 {/* Delete chat */}
                 <button onClick={() => { setShowMoreMenu(false); handleDeleteChat(); }}
                   className="flex items-center gap-3 w-full text-left px-4 py-2.5 text-[13px] hover:bg-gray-50" style={{ color: '#dc2626' }}>
                   <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
-                  Delete chat
+                  {L.deleteChat}
                 </button>
               </div>
             )}
@@ -1162,7 +1375,7 @@ export default function WhatsAppChatPanel({
       {/* ── Disappearing messages dropdown (triggered from more menu) ── */}
       {showDisappearing && (
         <div className="px-4 py-2 border-b flex items-center gap-2 flex-wrap" style={{ borderColor: '#e5e7eb', background: '#f0f2f5' }}>
-          <span className="text-xs font-medium" style={{ color: '#3b4a54' }}>Disappearing:</span>
+          <span className="text-xs font-medium" style={{ color: '#3b4a54' }}>{L.disappearing}:</span>
           {DISAPPEARING_OPTIONS.map(opt => (
             <button key={opt.value} onClick={() => handleDisappearing(opt.value)}
               className="px-2.5 py-1 rounded-full text-xs transition-colors"
@@ -1181,15 +1394,15 @@ export default function WhatsAppChatPanel({
       {/* ── Blocked banner ── */}
       {isBlocked && (
         <div className="px-4 py-2 text-[13px] text-center font-medium" style={{ background: '#fdf2f2', color: '#ea0038' }}>
-          This contact is blocked. <button onClick={handleBlock} className="underline font-semibold">Unblock</button>
+          {L.blockedHint} <button onClick={handleBlock} className="underline font-semibold">{L.unblock}</button>
         </div>
       )}
 
       {/* ── Sync result banner ── */}
       {syncCount !== null && (
         <div className="px-4 py-2 text-[13px] text-center font-medium" style={{ background: '#d1f4cc', color: '#111b21' }}>
-          Synced {syncCount} messages from WhatsApp
-          <button onClick={() => setSyncCount(null)} className="ml-3 text-[12px] px-2 py-0.5 rounded" style={{ background: 'rgba(0,0,0,0.06)' }}>Dismiss</button>
+          {L.syncedFromWhatsApp.replace('{n}', String(syncCount))}
+          <button onClick={() => setSyncCount(null)} className="ml-3 text-[12px] px-2 py-0.5 rounded" style={{ background: 'rgba(0,0,0,0.06)' }}>{L.dismiss}</button>
         </div>
       )}
 
@@ -1200,7 +1413,7 @@ export default function WhatsAppChatPanel({
             <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="#8696a0" strokeWidth="2"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.35-4.35"/></svg>
             <input value={searchQuery} onChange={e => setSearchQuery(e.target.value)}
               onKeyDown={e => { if (e.key === 'Enter') handleSearch(); }}
-              placeholder="Search..."
+              placeholder={L.searchPlaceholder}
               className="flex-1 text-[13px] outline-none bg-transparent"
               style={{ color: '#3b4a54' }} autoFocus />
           </div>
@@ -1228,7 +1441,7 @@ export default function WhatsAppChatPanel({
       {showAiPanel && (
         <div className="border-b" style={{ borderColor: 'var(--notion-border)', background: 'var(--notion-card, white)' }}>
           <div className="px-4 py-3 flex gap-2 flex-wrap">
-            {AI_ACTIONS.map(a => (
+            {aiActions.map(a => (
               <button key={a.key} onClick={() => runAiAction(a.key)} disabled={aiLoading !== null}
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all"
                 style={{
@@ -1246,16 +1459,16 @@ export default function WhatsAppChatPanel({
               <div className="rounded-lg p-3 text-sm" style={{ background: 'var(--notion-hover)', maxHeight: 200, overflowY: 'auto' }}>
                 {aiLoading ? (
                   <div className="flex items-center gap-2" style={{ color: 'var(--notion-text-muted)' }}>
-                    <span className="inline-block w-4 h-4 border-2 border-purple-400 border-t-transparent rounded-full animate-spin" /> Analyzing...
+                    <span className="inline-block w-4 h-4 border-2 border-purple-400 border-t-transparent rounded-full animate-spin" /> {L.aiAnalyzing}
                   </div>
                 ) : aiResult ? (
                   <div>
                     <div className="flex items-center gap-2 mb-2">
                       <span className="text-xs font-semibold px-2 py-0.5 rounded-full text-white"
-                        style={{ background: AI_ACTIONS.find(a => a.key === aiResult.action)?.color }}>
-                        {AI_ACTIONS.find(a => a.key === aiResult.action)?.label}
+                        style={{ background: aiActions.find(a => a.key === aiResult.action)?.color }}>
+                        {aiActions.find(a => a.key === aiResult.action)?.label}
                       </span>
-                      <button onClick={() => setAiResult(null)} className="ml-auto text-xs" style={{ color: 'var(--notion-text-muted)' }}>Dismiss</button>
+                      <button onClick={() => setAiResult(null)} className="ml-auto text-xs" style={{ color: 'var(--notion-text-muted)' }}>{L.dismiss}</button>
                     </div>
                     <div className="whitespace-pre-wrap text-xs leading-relaxed" style={{ color: 'var(--notion-text)' }}>{aiResult.result}</div>
                   </div>
@@ -1303,6 +1516,12 @@ export default function WhatsAppChatPanel({
                         {crmContext.lead.ai_summary}
                       </div>
                     )}
+                    {tenantSlug && crmContext.lead.id && (
+                      <a href={`/${tenantSlug}/crm/customer-360/${crmContext.lead.id}`} target="_blank" rel="noopener noreferrer"
+                        className="inline-block mt-1 text-[10px] font-medium" style={{ color: '#1d4ed8' }}>
+                        查看完整客户详情 →
+                      </a>
+                    )}
                   </div>
                 </div>
 
@@ -1342,9 +1561,23 @@ export default function WhatsAppChatPanel({
                 </button>
               </div>
             ) : (
-              <div className="text-center py-4">
-                <div className="text-xs" style={{ color: '#8696a0' }}>No CRM data linked</div>
-                <p className="text-[10px] mt-1" style={{ color: '#8696a0' }}>Link this contact to a lead in the inbox sidebar</p>
+              <div className="text-center py-4 space-y-2">
+                <div className="text-xs" style={{ color: '#8696a0' }}>未关联CRM客户</div>
+                <div className="flex flex-col items-center gap-2 mt-2">
+                  <button onClick={handleQuickCreateLead}
+                    className="px-4 py-1.5 rounded-lg text-xs font-medium text-white"
+                    style={{ background: '#008069' }}>
+                    + 创建为新线索
+                  </button>
+                  <button onClick={() => {
+                    // Emit a custom event to open LinkContactModal from inbox
+                    window.dispatchEvent(new CustomEvent('open-link-modal', { detail: { contactId: effectiveContactId } }));
+                  }}
+                    className="px-4 py-1.5 rounded-lg text-xs font-medium"
+                    style={{ color: '#008069', border: '1px solid #008069' }}>
+                    搜索已有客户绑定
+                  </button>
+                </div>
               </div>
             )}
           </div>
@@ -1466,24 +1699,24 @@ export default function WhatsAppChatPanel({
       {showProfilePanel && (
         <div className="border-b px-4 py-3" style={{ borderColor: 'var(--notion-border)', background: 'var(--notion-card, white)' }}>
           <div className="flex items-center justify-between mb-2">
-            <span className="text-xs font-semibold" style={{ color: 'var(--notion-text)' }}>Contact Profile</span>
+            <span className="text-xs font-semibold" style={{ color: 'var(--notion-text)' }}>{L.contactProfile}</span>
             <button onClick={() => setShowProfilePanel(false)} className="text-xs" style={{ color: 'var(--notion-text-muted)' }}>✕</button>
           </div>
           {profileData ? (
             <div className="space-y-1">
-              {profileData.name && <p className="text-[11px]"><span className="font-semibold">Name:</span> {profileData.name}</p>}
-              {profileData.status && <p className="text-[11px]"><span className="font-semibold">Status:</span> {profileData.status}</p>}
+              {profileData.name && <p className="text-[11px]"><span className="font-semibold">{L.name}:</span> {profileData.name}</p>}
+              {profileData.status && <p className="text-[11px]"><span className="font-semibold">{L.status}:</span> {profileData.status}</p>}
               {profileData.picture && <img src={profileData.picture} alt="" className="w-12 h-12 rounded-full mt-1" />}
               {profileData.business && Object.keys(profileData.business).length > 0 && (
                 <div className="mt-2 p-2 rounded" style={{ background: 'rgba(0,0,0,0.03)' }}>
-                  <p className="text-[10px] font-semibold mb-1" style={{ color: '#128C7E' }}>Business Profile</p>
+                  <p className="text-[10px] font-semibold mb-1" style={{ color: '#128C7E' }}>{L.businessProfile}</p>
                   {profileData.business.description && <p className="text-[10px]">{profileData.business.description}</p>}
-                  {profileData.business.category && <p className="text-[10px]">Category: {profileData.business.category}</p>}
+                  {profileData.business.category && <p className="text-[10px]">{L.category}: {profileData.business.category}</p>}
                   {profileData.business.website && (
                     <a href={profileData.business.website} target="_blank" rel="noopener noreferrer"
                       className="text-[10px] underline" style={{ color: '#1d4ed8' }}>{profileData.business.website}</a>
                   )}
-                  {profileData.business.email && <p className="text-[10px]">Email: {profileData.business.email}</p>}
+                  {profileData.business.email && <p className="text-[10px]">{L.email}: {profileData.business.email}</p>}
                 </div>
               )}
               {/* Product Catalog tab */}
@@ -1491,15 +1724,15 @@ export default function WhatsAppChatPanel({
                 {!showCatalogTab ? (
                   <button onClick={loadCatalog} className="text-[10px] font-medium px-2 py-1 rounded"
                     style={{ background: '#e0f2f1', color: '#00796b' }}>
-                    View Product Catalog
+                    {L.viewProductCatalog}
                   </button>
                 ) : (
                   <div className="p-2 rounded" style={{ background: 'rgba(0,0,0,0.03)' }}>
-                    <p className="text-[10px] font-semibold mb-1" style={{ color: '#128C7E' }}>Product Catalog</p>
+                    <p className="text-[10px] font-semibold mb-1" style={{ color: '#128C7E' }}>{L.productCatalog}</p>
                     {catalogData === null ? (
-                      <p className="text-[10px]" style={{ color: 'var(--notion-text-muted)' }}>Loading...</p>
+                      <p className="text-[10px]" style={{ color: 'var(--notion-text-muted)' }}>{L.loadingText}</p>
                     ) : catalogData.length === 0 ? (
-                      <p className="text-[10px]" style={{ color: 'var(--notion-text-muted)' }}>No products found</p>
+                      <p className="text-[10px]" style={{ color: 'var(--notion-text-muted)' }}>{L.noProductsFound}</p>
                     ) : (
                       <div className="space-y-2 max-h-[200px] overflow-y-auto">
                         {catalogData.map((product: any, idx: number) => (
@@ -1509,7 +1742,7 @@ export default function WhatsAppChatPanel({
                             )}
                             <div className="min-w-0 flex-1">
                               <p className="text-[10px] font-medium truncate" style={{ color: 'var(--notion-text)' }}>
-                                {product.name || product.title || 'Product'}
+                                {product.name || product.title || L.product}
                               </p>
                               {(product.price || product.priceAmount) && (
                                 <p className="text-[10px] font-semibold" style={{ color: '#15803d' }}>
@@ -1529,7 +1762,7 @@ export default function WhatsAppChatPanel({
               </div>
             </div>
           ) : (
-            <p className="text-[10px]" style={{ color: 'var(--notion-text-muted)' }}>Loading...</p>
+            <p className="text-[10px]" style={{ color: 'var(--notion-text-muted)' }}>{L.loadingText}</p>
           )}
         </div>
       )}
@@ -1547,7 +1780,7 @@ export default function WhatsAppChatPanel({
         }}
         onClick={() => { setMenuMsg(null); setShowDisappearing(false); setShowMoreMenu(false); setShowCallMenu(false); setShowAttachMenu(false); }}>
         {loading ? (
-          <div className="text-center text-sm py-8" style={{ color: 'var(--notion-text-muted)' }}>Loading messages...</div>
+          <div className="text-center text-sm py-8" style={{ color: 'var(--notion-text-muted)' }}>{L.loadingText}</div>
         ) : loadError ? (
           <div className="text-center py-12">
             <p className="text-sm" style={{ color: '#dc2626' }}>加载消息失败: {loadError}</p>
@@ -1556,7 +1789,7 @@ export default function WhatsAppChatPanel({
           </div>
         ) : messages.length === 0 ? (
           <div className="text-center py-12">
-            <p className="text-sm" style={{ color: 'var(--notion-text-muted)' }}>No messages yet</p>
+            <p className="text-sm" style={{ color: 'var(--notion-text-muted)' }}>{L.noMessages}</p>
           </div>
         ) : (<>
           {loadingMore && (
@@ -1567,7 +1800,7 @@ export default function WhatsAppChatPanel({
           {!hasMore && !loadingMore && messages.length > 0 && (
             <div className="text-center py-3">
               <span className="text-xs px-3 py-1 rounded-lg" style={{ background: 'rgba(255,255,255,0.9)', color: '#8696a0' }}>
-                Beginning of conversation
+                {L.beginningOfConversation}
               </span>
             </div>
           )}
@@ -1773,7 +2006,7 @@ export default function WhatsAppChatPanel({
       {/* ── AI Suggested Replies ── */}
       {aiSuggestions.length > 0 && (
         <div className="px-3 py-2 flex gap-2 overflow-x-auto flex-shrink-0" style={{ background: '#f9f5ff', borderTop: '1px solid #ede9fe' }}>
-          <span className="text-[10px] font-medium self-center flex-shrink-0" style={{ color: '#8b5cf6' }}>AI:</span>
+          <span className="text-[10px] font-medium self-center flex-shrink-0" style={{ color: '#8b5cf6' }}>{L.aiTag}:</span>
           {aiSuggestions.map((s, i) => (
             <button key={i} onClick={() => { setInput(s); setAiSuggestions([]); }}
               className="px-3 py-1.5 rounded-full text-xs whitespace-nowrap transition-colors hover:shadow-sm"
@@ -1921,7 +2154,7 @@ export default function WhatsAppChatPanel({
               <div className="flex-1 flex items-center rounded-full px-3" style={{ background: 'white' }}>
                 <input type="text" value={input}
                   onChange={e => handleInputChange(e.target.value)}
-                  placeholder="Type a message"
+                  placeholder={L.typeMessageTitle}
                   className="flex-1 py-2.5 text-[15px] outline-none bg-transparent"
                   style={{ color: '#3b4a54' }} />
               </div>

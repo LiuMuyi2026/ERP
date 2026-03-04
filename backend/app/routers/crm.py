@@ -3029,7 +3029,13 @@ async def list_communications(
             LEFT JOIN users eu ON eu.id = e.sender_user_id
             LEFT JOIN leads el ON el.id = e.lead_id
             LEFT JOIN crm_accounts eca ON eca.id = e.account_id
-            LEFT JOIN user_email_smtp ues ON LOWER(COALESCE(ues.smtp_from_email, '')) = LOWER(COALESCE(e.to_email, ''))
+            LEFT JOIN LATERAL (
+                SELECT s.user_id
+                FROM user_email_smtp s
+                WHERE LOWER(COALESCE(s.smtp_from_email, '')) = LOWER(COALESCE(e.to_email, ''))
+                ORDER BY s.updated_at DESC NULLS LAST, s.created_at DESC
+                LIMIT 1
+            ) ues ON TRUE
             WHERE e.is_deleted = FALSE
         )
         SELECT * FROM unified
@@ -3074,7 +3080,13 @@ async def list_communications(
                    NULL::text AS message_type, e.status
             FROM emails e
             LEFT JOIN leads el ON el.id = e.lead_id
-            LEFT JOIN user_email_smtp ues ON LOWER(COALESCE(ues.smtp_from_email, '')) = LOWER(COALESCE(e.to_email, ''))
+            LEFT JOIN LATERAL (
+                SELECT s.user_id
+                FROM user_email_smtp s
+                WHERE LOWER(COALESCE(s.smtp_from_email, '')) = LOWER(COALESCE(e.to_email, ''))
+                ORDER BY s.updated_at DESC NULLS LAST, s.created_at DESC
+                LIMIT 1
+            ) ues ON TRUE
             WHERE e.is_deleted = FALSE
         )
         SELECT COUNT(*) FROM unified WHERE {where_sql}
@@ -3197,7 +3209,16 @@ async def link_communication(
         if sets:
             if not is_admin_scope:
                 params["uid"] = uid
-                where_guard = " AND COALESCE(sender_user_id::text, '') = :uid"
+                where_guard = """
+                    AND (
+                        COALESCE(sender_user_id::text, '') = :uid
+                        OR EXISTS (
+                            SELECT 1 FROM user_email_smtp s
+                            WHERE s.user_id = CAST(:uid AS uuid)
+                              AND LOWER(COALESCE(s.smtp_from_email, '')) = LOWER(COALESCE(emails.to_email, ''))
+                        )
+                    )
+                """
             else:
                 where_guard = ""
             await db.execute(text(

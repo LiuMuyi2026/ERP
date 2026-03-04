@@ -1490,6 +1490,103 @@ async def unlink_contact(contact_id: str, ctx: dict = Depends(get_current_user_w
     return {"ok": True}
 
 
+import re as _re
+
+def _normalize_phone_for_match(phone: Optional[str]) -> str:
+    """Strip non-digits for phone matching."""
+    if not phone:
+        return ""
+    return _re.sub(r'\D', '', phone)
+
+
+@router.post("/contacts/batch-auto-link")
+async def batch_auto_link(ctx: dict = Depends(get_current_user_with_tenant)):
+    """Auto-match unlinked WhatsApp contacts to CRM leads by phone number."""
+    db = ctx["db"]
+    uid = ctx["sub"]
+    role = ctx.get("role", "")
+    is_admin = role in ("platform_admin", "tenant_admin", "manager")
+
+    # Get all unlinked non-group contacts
+    if is_admin:
+        rows = await db.execute(text("""
+            SELECT c.id, c.phone_number, c.wa_jid
+            FROM whatsapp_contacts c
+            JOIN whatsapp_accounts a ON a.id = c.wa_account_id
+            WHERE c.lead_id IS NULL AND c.is_group = FALSE
+              AND c.is_deleted = FALSE AND a.is_active = TRUE
+        """))
+    else:
+        rows = await db.execute(text("""
+            SELECT c.id, c.phone_number, c.wa_jid
+            FROM whatsapp_contacts c
+            JOIN whatsapp_accounts a ON a.id = c.wa_account_id
+            WHERE c.lead_id IS NULL AND c.is_group = FALSE
+              AND c.is_deleted = FALSE AND a.is_active = TRUE
+              AND a.owner_user_id = :uid
+        """), {"uid": uid})
+    contacts = rows.fetchall()
+
+    # Get all leads with phone/whatsapp numbers
+    lead_rows = await db.execute(text(
+        "SELECT id, phone, whatsapp FROM crm_leads WHERE phone IS NOT NULL OR whatsapp IS NOT NULL"
+    ))
+    leads = lead_rows.fetchall()
+
+    # Build phone -> lead_id lookup (normalized)
+    phone_to_lead: dict[str, str] = {}
+    for lead in leads:
+        for ph in [lead.phone, lead.whatsapp]:
+            norm = _normalize_phone_for_match(ph)
+            if norm and len(norm) >= 7:
+                phone_to_lead[norm] = str(lead.id)
+                # Also try last 10 digits for country code variance
+                if len(norm) > 10:
+                    phone_to_lead[norm[-10:]] = str(lead.id)
+
+    linked_count = 0
+    total_checked = len(contacts)
+
+    for contact in contacts:
+        # Try matching by phone_number or wa_jid (extract digits)
+        contact_phones = []
+        if contact.phone_number:
+            contact_phones.append(_normalize_phone_for_match(contact.phone_number))
+        if contact.wa_jid:
+            # wa_jid is like 1234567890@s.whatsapp.net
+            jid_digits = _normalize_phone_for_match(contact.wa_jid.split('@')[0])
+            if jid_digits:
+                contact_phones.append(jid_digits)
+
+        matched_lead_id = None
+        for cp in contact_phones:
+            if not cp:
+                continue
+            if cp in phone_to_lead:
+                matched_lead_id = phone_to_lead[cp]
+                break
+            # Try last 10 digits
+            if len(cp) > 10 and cp[-10:] in phone_to_lead:
+                matched_lead_id = phone_to_lead[cp[-10:]]
+                break
+
+        if matched_lead_id:
+            # Also look up account_id from contracts
+            acct_row = await db.execute(text(
+                "SELECT account_id FROM crm_contracts WHERE lead_id = :lid AND account_id IS NOT NULL LIMIT 1"
+            ), {"lid": matched_lead_id})
+            acct = acct_row.fetchone()
+            account_id = str(acct.account_id) if acct else None
+            await db.execute(text(
+                "UPDATE whatsapp_contacts SET lead_id = :lid, account_id = COALESCE(:aid, account_id), updated_at = NOW() WHERE id = :cid"
+            ), {"lid": matched_lead_id, "cid": str(contact.id), "aid": account_id})
+            linked_count += 1
+
+    if linked_count > 0:
+        await db.commit()
+    return {"linked_count": linked_count, "total_checked": total_checked}
+
+
 @router.post("/contacts/{contact_id}/pin")
 async def toggle_pin(contact_id: str, ctx: dict = Depends(get_current_user_with_tenant)):
     db = ctx["db"]

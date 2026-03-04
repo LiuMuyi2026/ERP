@@ -294,6 +294,21 @@ function LinkContactModal({ contact, onClose, onLinked }: {
     finally { setLinking(false); }
   }
 
+  async function handleCreateAndLink() {
+    setLinking(true);
+    try {
+      const name = contact.push_name || contact.display_name || contact.phone_number || 'Unknown';
+      const leadData: any = { full_name: name, source: 'WhatsApp' };
+      if (contact.phone_number) { leadData.phone = contact.phone_number; leadData.whatsapp = contact.phone_number; }
+      const newLead: any = await api.post('/api/crm/leads', leadData);
+      const leadId = newLead.id || newLead.lead_id;
+      await api.post(`/api/whatsapp/contacts/${contact.id}/link-lead`, { lead_id: leadId });
+      toast.success('新线索已创建并绑定');
+      onLinked();
+    } catch (e: any) { toast.error(e.message || 'Failed to create lead'); }
+    finally { setLinking(false); }
+  }
+
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-[9999]" onClick={onClose}>
       <div className="rounded-xl w-full max-w-md shadow-xl border overflow-hidden"
@@ -357,6 +372,14 @@ function LinkContactModal({ contact, onClose, onLinked }: {
               )}
             </button>
           ))}
+        </div>
+        {/* Create new lead and link */}
+        <div className="px-5 py-3 border-t" style={{ borderColor: 'var(--notion-border)' }}>
+          <button onClick={handleCreateAndLink} disabled={linking}
+            className="w-full py-2 rounded-md text-xs font-medium text-white"
+            style={{ background: '#008069' }}>
+            {linking ? '创建中...' : '+ 创建新线索并绑定'}
+          </button>
         </div>
       </div>
     </div>
@@ -541,6 +564,17 @@ export default function WhatsAppInbox() {
   const [assigningContact, setAssigningContact] = useState<Conversation | null>(null);
   const [filterAssigned, setFilterAssigned] = useState('');
   const [allUsers, setAllUsers] = useState<{ id: string; full_name?: string; email?: string }[]>([]);
+  const [batchLinking, setBatchLinking] = useState(false);
+
+  async function handleBatchAutoLink() {
+    setBatchLinking(true);
+    try {
+      const res: any = await api.post('/api/whatsapp/contacts/batch-auto-link', {});
+      toast.success(`自动匹配完成：${res.linked_count}/${res.total_checked} 个联系人已绑定`);
+      if (res.linked_count > 0) loadData();
+    } catch (e: any) { toast.error(e.message || 'Auto-link failed'); }
+    finally { setBatchLinking(false); }
+  }
 
   async function loadData() {
     setLoading(true);
@@ -554,9 +588,9 @@ export default function WhatsAppInbox() {
       params.set('sort_by', 'last_message');
       const qs = params.toString();
       const [convs, accs, lbls] = await Promise.all([
-        api.get(`/api/whatsapp/dashboard${qs ? `?${qs}` : ''}`).catch(() => []),
-        api.get('/api/whatsapp/accounts').catch(() => []),
-        api.get('/api/whatsapp/labels').catch(() => []),
+        api.get(`/api/whatsapp/dashboard${qs ? `?${qs}` : ''}`).catch(e => { console.error('dashboard load failed:', e); return []; }),
+        api.get('/api/whatsapp/accounts').catch(e => { console.error('accounts load failed:', e); return []; }),
+        api.get('/api/whatsapp/labels').catch(e => { console.error('labels load failed:', e); return []; }),
       ]);
       setConversations(Array.isArray(convs) ? convs : []);
       setAccounts(Array.isArray(accs) ? accs : []);
@@ -626,6 +660,18 @@ export default function WhatsAppInbox() {
     selectedContact?.id,
     handleNotificationClick,
   );
+
+  // ── Listen for open-link-modal event from ChatPanel ──
+  useEffect(() => {
+    function handleOpenLinkModal(e: Event) {
+      const detail = (e as CustomEvent).detail;
+      if (!detail?.contactId) return;
+      const conv = conversations.find(c => c.id === detail.contactId);
+      if (conv) setLinkingContact(conv);
+    }
+    window.addEventListener('open-link-modal', handleOpenLinkModal);
+    return () => window.removeEventListener('open-link-modal', handleOpenLinkModal);
+  }, [conversations]);
 
   // ── Account management functions ──
   async function createAccount() {
@@ -757,6 +803,15 @@ export default function WhatsAppInbox() {
     setCtxMenu(null);
   }
 
+  async function handleCtxUnlink(conv: Conversation) {
+    setCtxMenu(null);
+    try {
+      await api.post(`/api/whatsapp/contacts/${conv.id}/unlink`, {});
+      setConversations(prev => prev.map(c => c.id === conv.id ? { ...c, lead_id: undefined, lead_name: undefined, lead_status: undefined, account_id: undefined, crm_account_name: undefined } : c));
+      toast.success('已解除绑定');
+    } catch (e: any) { toast.error(e.message || 'Unlink failed'); }
+  }
+
   async function handleDeleteContact(conv: Conversation) {
     setCtxMenu(null);
     if (!confirm(tCrm('waInboxDeleteConfirm'))) return;
@@ -868,6 +923,11 @@ export default function WhatsAppInbox() {
                 {allUsers.map(u => <option key={u.id} value={u.id}>{u.full_name || u.email}</option>)}
               </select>
             )}
+            <button onClick={handleBatchAutoLink} disabled={batchLinking}
+              className="px-2 py-1 rounded-full text-[11px] font-medium whitespace-nowrap"
+              style={{ border: '1px solid #d1d7db', color: '#008069', background: '#e7fcf5' }}>
+              {batchLinking ? '匹配中...' : '🔗 自动匹配'}
+            </button>
           </div>
         </div>
 
@@ -931,11 +991,17 @@ export default function WhatsAppInbox() {
                       </div>
                     </div>
                     {(isLinked || conv.assigned_user_name) && (
-                      <p className="text-[11px] truncate" style={{ color: '#00a884' }}>
-                        {isLinked && <>CRM: {crmName}</>}
-                        {isLinked && conv.assigned_user_name && <> &middot; </>}
-                        {conv.assigned_user_name && <span style={{ color: '#6366f1' }}>{conv.assigned_user_name}</span>}
-                      </p>
+                      <div className="flex items-center gap-1.5 truncate mt-0.5">
+                        {isLinked && (
+                          <span className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full font-medium"
+                            style={{ background: '#e7fcf5', color: '#008069', border: '1px solid #b5f5e0' }}>
+                            👤 {crmName}
+                          </span>
+                        )}
+                        {conv.assigned_user_name && (
+                          <span className="text-[10px] truncate" style={{ color: '#6366f1' }}>{conv.assigned_user_name}</span>
+                        )}
+                      </div>
                     )}
                     <div className="flex items-center justify-between gap-2 mt-0.5">
                       <p className="text-[13px] truncate flex-1" style={{ color: '#667781', fontWeight: hasUnread ? 500 : 400 }}>
@@ -965,11 +1031,11 @@ export default function WhatsAppInbox() {
                             {conv.unread_count}
                           </span>
                         )}
-                        {!isLinked && (
+                        {!isLinked && !conv.is_group && (
                           <button onClick={e => { e.stopPropagation(); setLinkingContact(conv); }}
-                            className="text-[9px] px-1.5 py-0.5 rounded-full opacity-0 group-hover:opacity-100 transition-opacity font-medium"
-                            style={{ background: '#e7fcf5', color: '#008069' }}>
-                            Link
+                            className="text-[9px] px-1.5 py-0.5 rounded-full font-medium"
+                            style={{ background: '#fff7ed', color: '#d97706', border: '1px solid #fed7aa' }}>
+                            绑定客户
                           </button>
                         )}
                       </div>
@@ -997,6 +1063,25 @@ export default function WhatsAppInbox() {
                   onClick={() => { setAssigningContact(ctxMenu.conv); setCtxMenu(null); }}>
                   {ctxMenu.conv.assigned_to ? tCrm('waInboxReassign') : tCrm('waInboxAssign')}
                 </button>
+                {/* CRM Link/Unlink */}
+                {!ctxMenu.conv.is_group && !(ctxMenu.conv.lead_name || ctxMenu.conv.crm_account_name) && (
+                  <button className="w-full text-left px-4 py-2 text-[13px] hover:bg-[#f5f6f6]" style={{ color: '#d97706' }}
+                    onClick={() => { setLinkingContact(ctxMenu.conv); setCtxMenu(null); }}>
+                    绑定CRM客户
+                  </button>
+                )}
+                {(ctxMenu.conv.lead_name || ctxMenu.conv.crm_account_name) && (
+                  <>
+                    <button className="w-full text-left px-4 py-2 text-[13px] hover:bg-[#f5f6f6]" style={{ color: '#008069' }}
+                      onClick={() => { handleSelectContact(ctxMenu.conv); setCtxMenu(null); }}>
+                      查看CRM客户
+                    </button>
+                    <button className="w-full text-left px-4 py-2 text-[13px] hover:bg-[#f5f6f6]" style={{ color: '#dc2626' }}
+                      onClick={() => handleCtxUnlink(ctxMenu.conv)}>
+                      解除绑定
+                    </button>
+                  </>
+                )}
                 <button className="w-full text-left px-4 py-2 text-[13px] hover:bg-[#f5f6f6]" style={{ color: '#dc2626' }}
                   onClick={() => handleDeleteContact(ctxMenu.conv)}>
                   {tCrm('waInboxDeleteContact')}

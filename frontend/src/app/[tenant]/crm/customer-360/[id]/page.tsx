@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { api } from '@/lib/api';
 import { useTranslations } from 'next-intl';
+import toast from 'react-hot-toast';
 import { WorkflowTab } from './WorkflowTab';
 import { HandIcon } from '@/components/ui/HandIcon';
 import WhatsAppChatPanel from '@/components/messaging/WhatsAppChatPanel';
@@ -1588,6 +1589,35 @@ export default function Customer360Page() {
     finally { setAdvancing(false); }
   }
 
+  const [startingWa, setStartingWa] = useState(false);
+  async function handleStartWhatsApp() {
+    if (!data) return;
+    const lead = data.lead;
+    const waPhone = lead.whatsapp || lead.phone;
+    if (!waPhone) return;
+    setStartingWa(true);
+    try {
+      // Get first connected WhatsApp account
+      const accounts: any[] = await api.get('/api/whatsapp/accounts');
+      const connected = accounts.find((a: any) => a.status === 'connected');
+      if (!connected) { toast.error('没有已连接的WhatsApp账号'); return; }
+      // Add contact
+      const addRes: any = await api.post('/api/whatsapp/contacts/add', {
+        phone_number: waPhone, account_id: connected.id,
+        display_name: lead.full_name || undefined,
+      });
+      const newContactId = addRes.id || addRes.contact_id;
+      // Link to lead
+      await api.post(`/api/whatsapp/contacts/${newContactId}/link-lead`, { lead_id: id });
+      // Refresh data and open slide
+      await load();
+      // Open the WhatsApp chat slide
+      setWaSlideContact({ id: newContactId, wa_account_id: connected.id, wa_jid: '', phone_number: waPhone, display_name: lead.full_name });
+      setWaSlideOpen(true);
+    } catch (e: any) { toast.error(e.message || '发起WhatsApp对话失败'); }
+    finally { setStartingWa(false); }
+  }
+
   const FAMILIARITY_STAGES = [
     { key: 'new', label: t('fsNew'), color: '#60a5fa', bg: '#eff6ff' },
     { key: 'replied', label: t('fsReplied'), color: '#34d399', bg: '#ecfdf5' },
@@ -1866,6 +1896,17 @@ export default function Customer360Page() {
                 </button>
               </div>
             ))}
+            {/* Start WhatsApp conversation when lead has WA number but no linked contacts */}
+            {!(data?.wa_contacts?.length || data?.wa_contact) && lead.whatsapp && (
+              <button onClick={handleStartWhatsApp} disabled={startingWa}
+                className="flex items-center gap-2 text-[10px] px-2 py-1 rounded-md font-medium mt-1"
+                style={{ color: '#15803d', background: '#f0fdf4', border: '1px solid #86efac' }}>
+                <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="#25D366">
+                  <path d="M12 2C6.477 2 2 6.477 2 12c0 1.89.525 3.66 1.438 5.168L2 22l4.832-1.438A9.955 9.955 0 0012 22c5.523 0 10-4.477 10-10S17.523 2 12 2z"/>
+                </svg>
+                {startingWa ? '连接中...' : '发起 WhatsApp 对话'}
+              </button>
+            )}
           </div>
         </SideSection>
 
