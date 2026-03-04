@@ -67,6 +67,7 @@ services:
     rootDir: frontend
     dockerfilePath: ./Dockerfile
     autoDeploy: true
+    healthCheckPath: /login
     envVars:
       - key: NEXT_PUBLIC_API_URL
         sync: false
