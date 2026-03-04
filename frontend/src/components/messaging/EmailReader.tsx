@@ -1,6 +1,7 @@
 'use client';
 
 import { useTranslations } from 'next-intl';
+import DOMPurify from 'dompurify';
 import { relTime, absTime } from './wa-helpers';
 
 interface Email {
@@ -82,7 +83,7 @@ export default function EmailReader({ email, onReply, onForward, onLinkCustomer,
           <div
             className="text-sm prose prose-sm max-w-none"
             style={{ color: '#3b4a54' }}
-            dangerouslySetInnerHTML={{ __html: email.body_html }}
+            dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(email.body_html) }}
           />
         ) : (
           <pre className="text-sm whitespace-pre-wrap font-sans" style={{ color: '#3b4a54' }}>

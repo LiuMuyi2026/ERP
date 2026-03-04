@@ -3,6 +3,8 @@ from sqlalchemy import text
 from pydantic import BaseModel
 from typing import Optional
 import uuid
+import hmac as hmac_mod
+import re
 import logging
 from datetime import datetime, timezone
 
@@ -10,6 +12,7 @@ from app.deps import get_current_user_with_tenant
 from app.config import settings
 from app.database import AsyncSessionLocal
 from app.services.mailer import build_smtp_config, send_email, email_delivery_enabled
+from app.utils.sql import safe_set_search_path
 
 logger = logging.getLogger(__name__)
 
@@ -147,7 +150,9 @@ async def send_email_endpoint(body: SendEmailRequest, ctx: dict = Depends(get_cu
 async def inbound_email_webhook(request: Request):
     """Receive inbound emails from SendGrid/Mailgun webhook. No JWT — uses secret."""
     secret = request.query_params.get("secret", "")
-    if not settings.email_webhook_secret or secret != settings.email_webhook_secret:
+    if not settings.email_webhook_secret or not hmac_mod.compare_digest(
+        secret.encode(), settings.email_webhook_secret.encode()
+    ):
         raise HTTPException(status_code=403, detail="Invalid webhook secret")
 
     content_type = request.headers.get("content-type", "")
@@ -158,20 +163,22 @@ async def inbound_email_webhook(request: Request):
         data = await request.json()
 
     # Parse inbound email fields (SendGrid / Mailgun compatible)
-    from_email = data.get("from", data.get("sender", ""))
-    to_email = data.get("to", data.get("recipient", ""))
-    subject = data.get("subject", "")
-    body_text = data.get("text", data.get("body-plain", ""))
-    body_html = data.get("html", data.get("body-html", ""))
-    msg_id_header = data.get("Message-ID", data.get("Message-Id", data.get("message-id", "")))
-    in_reply_to = data.get("In-Reply-To", data.get("in-reply-to", ""))
-    references = data.get("References", data.get("references", ""))
+    raw_from = data.get("from", data.get("sender", "")) or ""
+    to_email = data.get("to", data.get("recipient", "")) or ""
+    subject = data.get("subject", "") or ""
+    body_text = data.get("text", data.get("body-plain", "")) or ""
+    body_html = data.get("html", data.get("body-html", "")) or ""
+    msg_id_header = data.get("Message-ID", data.get("Message-Id", data.get("message-id", ""))) or ""
+    in_reply_to = data.get("In-Reply-To", data.get("in-reply-to", "")) or ""
+    references = data.get("References", data.get("references", "")) or ""
 
     # Parse from_name from "Name <email>" format
+    from_email = raw_from
     from_name = None
-    if "<" in from_email and ">" in from_email:
-        from_name = from_email[:from_email.index("<")].strip().strip('"')
-        from_email = from_email[from_email.index("<")+1:from_email.index(">")]
+    _addr_match = re.match(r'^(.+?)\s*<([^>]+)>', raw_from)
+    if _addr_match:
+        from_name = _addr_match.group(1).strip().strip('"')
+        from_email = _addr_match.group(2)
 
     email_id = str(uuid.uuid4())
     now = datetime.now(timezone.utc)
@@ -179,46 +186,45 @@ async def inbound_email_webhook(request: Request):
     # Thread matching: find existing email by In-Reply-To
     thread_id = email_id
     async with AsyncSessionLocal() as db:
-        # Determine tenant from to_email — try all tenant schemas
-        # For now, use a simple approach: find any tenant with matching lead email
-        tenants_result = await db.execute(text(
-            "SELECT slug FROM platform.tenants WHERE is_active = TRUE AND schema_provisioned = TRUE"
-        ))
-        tenant_slugs = [r.slug for r in tenants_result.fetchall()]
+        try:
+            # Determine tenant from to_email — try all tenant schemas
+            tenants_result = await db.execute(text(
+                "SELECT slug FROM platform.tenants WHERE is_active = TRUE AND schema_provisioned = TRUE"
+            ))
+            tenant_slugs = [r.slug for r in tenants_result.fetchall()]
 
-        matched_tenant = None
-        for slug in tenant_slugs:
-            schema = f"tenant_{slug}"
-            try:
-                await db.execute(text(f"SET search_path TO {schema}, public"))
+            matched_tenant = None
+            for slug in tenant_slugs:
+                try:
+                    await safe_set_search_path(db, slug)
 
-                # Thread matching
-                if in_reply_to:
-                    orig = await db.execute(text("""
-                        SELECT thread_id FROM emails WHERE message_id_header = :mid AND is_deleted = FALSE LIMIT 1
-                    """), {"mid": in_reply_to})
-                    orig_row = orig.fetchone()
-                    if orig_row:
-                        thread_id = str(orig_row.thread_id) if orig_row.thread_id else thread_id
+                    # Thread matching
+                    if in_reply_to:
+                        orig = await db.execute(text("""
+                            SELECT thread_id FROM emails WHERE message_id_header = :mid AND is_deleted = FALSE LIMIT 1
+                        """), {"mid": in_reply_to})
+                        orig_row = orig.fetchone()
+                        if orig_row:
+                            thread_id = str(orig_row.thread_id) if orig_row.thread_id else thread_id
+                            matched_tenant = slug
+                            break
+
+                    # Try matching by from_email to a lead
+                    lead_match = await db.execute(text("""
+                        SELECT id FROM leads WHERE email = :email LIMIT 1
+                    """), {"email": from_email})
+                    if lead_match.fetchone():
                         matched_tenant = slug
                         break
+                except Exception as e:
+                    logger.warning("email-webhook: error checking tenant %s: %s", slug, e)
+                    continue
 
-                # Try matching by from_email to a lead
-                lead_match = await db.execute(text("""
-                    SELECT id FROM leads WHERE email = :email LIMIT 1
-                """), {"email": from_email})
-                if lead_match.fetchone():
-                    matched_tenant = slug
-                    break
-            except Exception:
-                continue
+            if not matched_tenant:
+                logger.warning("email-webhook: no tenant matched for from=%s to=%s", from_email, to_email)
+                return {"status": "ok", "id": email_id, "note": "no matching tenant"}
 
-        if not matched_tenant and tenant_slugs:
-            matched_tenant = tenant_slugs[0]
-
-        if matched_tenant:
-            schema = f"tenant_{matched_tenant}"
-            await db.execute(text(f"SET search_path TO {schema}, public"))
+            await safe_set_search_path(db, matched_tenant)
 
             # Auto-link to lead by from_email
             lead_id = None
@@ -257,6 +263,9 @@ async def inbound_email_webhook(request: Request):
                 "created_at": now,
             })
             await db.commit()
+        finally:
+            # Reset search_path to prevent connection pool contamination
+            await db.execute(text("SET search_path TO public"))
 
     return {"status": "ok", "id": email_id}
 

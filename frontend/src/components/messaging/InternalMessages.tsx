@@ -5,6 +5,7 @@ import { api } from '@/lib/api';
 import { UserAvatar } from '@/components/ui/UserAvatar';
 import { usePageVisibility } from '@/hooks/usePageVisibility';
 import { useTranslations, useLocale } from 'next-intl';
+import toast from 'react-hot-toast';
 
 interface Conversation {
   other_id: string;
@@ -90,7 +91,7 @@ export default function InternalMessages() {
     try {
       const data = await api.get('/api/messages/conversations');
       setConversations(Array.isArray(data) ? data : []);
-    } catch {}
+    } catch (e: any) { console.error('loadConversations:', e); }
   }, []);
 
   // Initial load
@@ -116,7 +117,7 @@ export default function InternalMessages() {
           return changed ? next : prev;
         });
         loadConversations();
-      } catch {}
+      } catch (e: any) { console.error('loadThread poll:', e); }
     };
     load();
     const id = setInterval(load, 15_000);
@@ -137,7 +138,7 @@ export default function InternalMessages() {
       const data = await api.get(`/api/messages/${item.other_id}`);
       setThread(Array.isArray(data) ? data : []);
       loadConversations();
-    } catch {} finally {
+    } catch (e: any) { console.error('selectUser:', e); toast.error('Failed to load messages'); } finally {
       setLoadingThread(false);
       setTimeout(() => inputRef.current?.focus(), 50);
     }
@@ -173,7 +174,11 @@ export default function InternalMessages() {
   }, [conversations, allUsers, search]);
 
   const selName = selectedItem?.full_name || selectedItem?.email || '';
-  const myId = typeof window !== 'undefined' ? JSON.parse(localStorage.getItem('nexus_user') || '{}').id : '';
+  const [myId, setMyId] = useState('');
+
+  useEffect(() => {
+    try { setMyId(JSON.parse(localStorage.getItem('nexus_user') || '{}').id || ''); } catch {}
+  }, []);
 
   return (
     <div className="h-full flex" style={{ background: '#f0f2f5' }}>

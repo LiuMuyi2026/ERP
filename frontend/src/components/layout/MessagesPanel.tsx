@@ -33,13 +33,13 @@ export default function MessagesPanel({ label }: { label?: string }) {
       try {
         const convs = await api.get('/api/whatsapp/dashboard');
         if (Array.isArray(convs)) waCount = convs.reduce((s: number, c: any) => s + (c.unread_count || 0), 0);
-      } catch {}
+      } catch (e: any) { console.error('loadWaCount:', e); }
       setCounts({
         internal: intData.count ?? 0,
         whatsapp: waCount,
         email: emailData.count ?? 0,
       });
-    } catch {}
+    } catch (e: any) { console.error('loadCounts:', e); }
   }, []);
 
   useEffect(() => {

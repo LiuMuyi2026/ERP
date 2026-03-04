@@ -64,6 +64,7 @@ export default function WhatsAppBroadcast() {
   const [templates, setTemplates] = useState<Template[]>([]);
   const [selectedTemplate, setSelectedTemplate] = useState<Template | null>(null);
   const [sending, setSending] = useState(false);
+  const [confirmSendId, setConfirmSendId] = useState<string | null>(null);
 
   const { on: onWsEvent } = useWhatsAppSocket();
 
@@ -138,9 +139,9 @@ export default function WhatsAppBroadcast() {
   }
 
   async function handleSend(id: string) {
-    if (!confirm('Send this broadcast now? Messages will be sent one by one with 1s delay.')) return;
     try {
       await api.post(`/api/whatsapp/broadcasts/${id}/send`, {});
+      setConfirmSendId(null);
       loadBroadcasts();
     } catch (e: any) { toast.error(e.message || 'Failed to send broadcast'); }
   }
@@ -185,7 +186,8 @@ export default function WhatsAppBroadcast() {
           <div className="space-y-3">
             {broadcasts.map((b) => {
               const style = STATUS_STYLE[b.status] || STATUS_STYLE.draft;
-              const targets = Array.isArray(b.target_contacts) ? b.target_contacts : JSON.parse(b.target_contacts as any || '[]');
+              let targets: string[] = [];
+              try { targets = Array.isArray(b.target_contacts) ? b.target_contacts : JSON.parse(b.target_contacts as any || '[]'); } catch { targets = []; }
               return (
                 <div key={b.id} className="rounded-xl p-4 shadow-sm" style={{ background: 'white' }}>
                   <div className="flex items-start justify-between">
@@ -206,7 +208,7 @@ export default function WhatsAppBroadcast() {
                       </div>
                     </div>
                     {b.status === 'draft' && (
-                      <button onClick={() => handleSend(b.id)}
+                      <button onClick={() => setConfirmSendId(b.id)}
                         className="ml-3 px-3 py-1.5 rounded-lg text-xs font-medium text-white flex-shrink-0"
                         style={{ background: '#00a884' }}>
                         Send Now
@@ -397,6 +399,28 @@ export default function WhatsAppBroadcast() {
                   {sending ? 'Creating...' : 'Create Broadcast'}
                 </button>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Confirm Send Dialog */}
+      {confirmSendId && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={() => setConfirmSendId(null)}>
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-sm p-6" onClick={e => e.stopPropagation()}>
+            <h3 className="text-sm font-semibold mb-2" style={{ color: '#3b4a54' }}>Send Broadcast?</h3>
+            <p className="text-xs mb-4" style={{ color: '#8696a0' }}>
+              Messages will be sent one by one with a 1-second delay to avoid rate limits.
+            </p>
+            <div className="flex gap-2 justify-end">
+              <button onClick={() => setConfirmSendId(null)}
+                className="px-4 py-2 rounded-lg text-sm border" style={{ borderColor: '#e5e7eb', color: '#667781' }}>
+                Cancel
+              </button>
+              <button onClick={() => handleSend(confirmSendId)}
+                className="px-4 py-2 rounded-lg text-sm font-medium text-white" style={{ background: '#00a884' }}>
+                Send Now
+              </button>
             </div>
           </div>
         </div>

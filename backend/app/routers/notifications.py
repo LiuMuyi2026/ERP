@@ -4,7 +4,7 @@ from app.services.mailer import build_smtp_config, email_delivery_enabled, send_
 from sqlalchemy import text
 from pydantic import BaseModel
 from typing import Optional, List
-from app.deps import get_current_user_with_tenant
+from app.deps import get_current_user_with_tenant, require_admin_with_tenant
 import uuid
 
 router = APIRouter(prefix="/notifications", tags=["notifications"])
@@ -388,21 +388,21 @@ async def get_notification(notif_id: str, ctx: dict = Depends(get_current_user_w
 
 # ── Mark read ─────────────────────────────────────────────────────────────────
 
-@router.patch("/{notif_id}/read")
-async def mark_read(notif_id: str, ctx: dict = Depends(get_current_user_with_tenant)):
-    await ctx["db"].execute(
-        text("UPDATE notifications SET is_read = TRUE WHERE id = :id AND user_id = :uid"),
-        {"id": notif_id, "uid": ctx["sub"]},
-    )
-    await ctx["db"].commit()
-    return {"status": "ok"}
-
-
 @router.patch("/read-all")
 async def mark_all_read(ctx: dict = Depends(get_current_user_with_tenant)):
     await ctx["db"].execute(
         text("UPDATE notifications SET is_read = TRUE WHERE user_id = :uid AND is_read = FALSE"),
         {"uid": ctx["sub"]},
+    )
+    await ctx["db"].commit()
+    return {"status": "ok"}
+
+
+@router.patch("/{notif_id}/read")
+async def mark_read(notif_id: str, ctx: dict = Depends(get_current_user_with_tenant)):
+    await ctx["db"].execute(
+        text("UPDATE notifications SET is_read = TRUE WHERE id = :id AND user_id = :uid"),
+        {"id": notif_id, "uid": ctx["sub"]},
     )
     await ctx["db"].commit()
     return {"status": "ok"}
@@ -425,7 +425,7 @@ async def delete_notification(notif_id: str, ctx: dict = Depends(get_current_use
 @router.post("/send")
 async def send_notification(
     body: SendNotification,
-    ctx: dict = Depends(get_current_user_with_tenant),
+    ctx: dict = Depends(require_admin_with_tenant),
 ):
     """Send notification to specific users or broadcast to all (admin only)."""
     db = ctx["db"]

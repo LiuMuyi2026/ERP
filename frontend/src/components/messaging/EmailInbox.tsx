@@ -60,7 +60,9 @@ export default function EmailInbox() {
       const data = await api.get(`${endpoint}?${params}`);
       setEmails(data.items || []);
       setTotal(data.total || 0);
-    } catch {
+    } catch (e: any) {
+      console.error('loadEmails:', e);
+      toast.error('Failed to load emails');
       setEmails([]);
     } finally {
       setLoading(false);
@@ -92,6 +94,7 @@ export default function EmailInbox() {
     if (!selectedEmail) return;
     setSelectedEmail({
       ...selectedEmail,
+      to_email: '',  // Clear "To" so user enters new recipient
       subject: `Fwd: ${selectedEmail.subject?.replace(/^Fwd:\s*/i, '')}`,
     });
     setViewMode('compose');
@@ -109,7 +112,7 @@ export default function EmailInbox() {
     try {
       const data = await api.get(`/api/crm/leads?search=${encodeURIComponent(q)}&page_size=10`);
       setLeadResults(data.items || []);
-    } catch { setLeadResults([]); }
+    } catch (e: any) { console.error('searchLeads:', e); setLeadResults([]); }
   }
 
   async function linkToLead(emailId: string, leadId: string) {
