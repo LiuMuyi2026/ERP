@@ -648,12 +648,12 @@ async def get_messages(
                 contact_ids.append(str(row.id))
 
     if len(contact_ids) == 1:
-        q = """SELECT m.*, u.display_name AS created_by_name
+        q = """SELECT m.*, COALESCE(u.full_name, u.email) AS created_by_name
                FROM whatsapp_messages m LEFT JOIN users u ON u.id = m.created_by
                WHERE m.wa_contact_id = :cid AND m.is_deleted = FALSE"""
         params: dict = {"cid": contact_id}
     else:
-        q = """SELECT m.*, u.display_name AS created_by_name
+        q = """SELECT m.*, COALESCE(u.full_name, u.email) AS created_by_name
                FROM whatsapp_messages m LEFT JOIN users u ON u.id = m.created_by
                WHERE m.wa_contact_id = ANY(:cids::uuid[]) AND m.is_deleted = FALSE"""
         params = {"cids": contact_ids}
