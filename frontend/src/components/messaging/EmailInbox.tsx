@@ -618,6 +618,9 @@ export default function EmailInbox() {
             visibleEmails.map((email) => {
               const isActive = selectedEmail?.id === email.id;
               const ts = email.sent_at || email.received_at || email.created_at || '';
+              const counterpartName = (folder === 'inbox' || folder === 'todo' || folder === 'archived')
+                ? (email.direction === 'outbound' ? (email.to_name || email.to_email) : (email.from_name || email.from_email))
+                : (email.to_name || email.to_email);
               return (
                 <div key={email.id}
                   className="px-4 py-3 cursor-pointer transition-colors hover:bg-[#f8fafc]"
@@ -641,11 +644,7 @@ export default function EmailInbox() {
                       {email.is_read === false && (
                         <span className="inline-block w-1.5 h-1.5 rounded-full" style={{ background: '#3b82f6' }} />
                       )}
-                      {(folder === 'inbox' || folder === 'todo' || folder === 'archived')
-                        ? (email.direction === 'outbound' ? (email.to_name || email.to_email) : (email.from_name || email.from_email))
-                        : (folder === 'inbox'
-                        ? (email.from_name || email.from_email)
-                        : (email.to_name || email.to_email))}
+                      {counterpartName}
                     </span>
                     <span className="text-[10px] flex-shrink-0 ml-2" style={{ color: '#8696a0' }}>
                       {relTime(ts)}
