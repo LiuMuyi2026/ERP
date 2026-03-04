@@ -91,6 +91,22 @@ class BulkPermissionUpdate(BaseModel):
 
 # ── Users ─────────────────────────────────────────────────────────────────────
 
+async def _next_employee_number(db) -> str:
+    row = await db.execute(
+        text(
+            """
+            SELECT COALESCE(
+                MAX(NULLIF(regexp_replace(COALESCE(employee_number, ''), '[^0-9]', '', 'g'), '')::int),
+                0
+            )
+            FROM employees
+            """
+        )
+    )
+    next_no = int(row.scalar() or 0) + 1
+    return f"EMP{next_no:04d}"
+
+
 @router.get("/users-lite")
 async def list_users_lite(ctx: dict = Depends(get_current_user_with_tenant)):
     """Safe user directory for non-admin pages (no password fields)."""
@@ -171,10 +187,8 @@ async def invite_user(body: InviteUser, ctx: dict = Depends(get_current_user_wit
         )
     else:
         # Create a new employee record linked to this user
-        r = await db.execute(text("SELECT COUNT(*) FROM employees"))
-        count = r.scalar()
         emp_id = str(uuid.uuid4())
-        emp_number = f"EMP{(count + 1):04d}"
+        emp_number = await _next_employee_number(db)
         await db.execute(
             text("""INSERT INTO employees (id, user_id, employee_number, full_name, email)
                     VALUES (:id, :uid, :num, :name, :email)"""),

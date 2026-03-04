@@ -12,6 +12,22 @@ import uuid
 router = APIRouter(prefix="/hr", tags=["hr"])
 
 
+async def _next_employee_number(db) -> str:
+    row = await db.execute(
+        text(
+            """
+            SELECT COALESCE(
+                MAX(NULLIF(regexp_replace(COALESCE(employee_number, ''), '[^0-9]', '', 'g'), '')::int),
+                0
+            )
+            FROM employees
+            """
+        )
+    )
+    next_no = int(row.scalar() or 0) + 1
+    return f"EMP{next_no:04d}"
+
+
 class EmployeeCreate(BaseModel):
     full_name: str
     email: Optional[str] = None
@@ -81,16 +97,32 @@ async def list_employees(department_id: Optional[str] = None, search: Optional[s
     """))
     # Auto-create employee records for users that have none
     await db.execute(text("""
+        WITH base AS (
+            SELECT COALESCE(
+                MAX(NULLIF(regexp_replace(COALESCE(employee_number, ''), '[^0-9]', '', 'g'), '')::int),
+                0
+            ) AS max_no
+            FROM employees
+        ),
+        pending AS (
+            SELECT
+                u.id,
+                u.created_at,
+                COALESCE(NULLIF(u.full_name, ''), SPLIT_PART(u.email, '@', 1), 'User') AS full_name,
+                u.email
+            FROM users u
+            WHERE NOT EXISTS (SELECT 1 FROM employees e WHERE e.user_id = u.id)
+        )
         INSERT INTO employees (id, user_id, employee_number, full_name, email)
         SELECT
             gen_random_uuid(),
-            u.id,
-            'EMP' || LPAD((ROW_NUMBER() OVER (ORDER BY u.created_at) + cnt.c)::text, 4, '0'),
-            COALESCE(u.full_name, SPLIT_PART(u.email, '@', 1)),
-            u.email
-        FROM users u
-        CROSS JOIN (SELECT COUNT(*) AS c FROM employees) cnt
-        WHERE NOT EXISTS (SELECT 1 FROM employees e WHERE e.user_id = u.id)
+            p.id,
+            'EMP' || LPAD((b.max_no + ROW_NUMBER() OVER (ORDER BY p.created_at, p.id))::text, 4, '0'),
+            p.full_name,
+            p.email
+        FROM pending p
+        CROSS JOIN base b
+        ON CONFLICT (employee_number) DO NOTHING
     """))
     await db.commit()
 
@@ -118,9 +150,7 @@ async def list_employees(department_id: Optional[str] = None, search: Optional[s
 async def create_employee(body: EmployeeCreate, ctx: dict = Depends(get_current_user_with_tenant)):
     db = ctx["db"]
     emp_id = str(uuid.uuid4())
-    result = await db.execute(text("SELECT COUNT(*) FROM employees"))
-    count = result.scalar()
-    emp_number = f"EMP{(count + 1):04d}"
+    emp_number = await _next_employee_number(db)
     # Auto-link user_id if email matches an existing user
     user_id = None
     if body.email:
@@ -424,9 +454,7 @@ async def create_staff(body: StaffCreate, ctx: dict = Depends(get_current_user_w
         await db.rollback()
         raise HTTPException(status_code=409, detail="邮箱已被使用")
 
-    r = await db.execute(text("SELECT COUNT(*) FROM employees"))
-    count = r.scalar()
-    emp_number = f"EMP{(count + 1):04d}"
+    emp_number = await _next_employee_number(db)
     emp_id = str(uuid.uuid4())
     await db.execute(
         text("""INSERT INTO employees
@@ -481,8 +509,6 @@ async def update_staff(user_id: str, body: StaffUpdate, ctx: dict = Depends(get_
                 )
         else:
             # Create a new employee record linked to the user
-            r2 = await db.execute(text("SELECT COUNT(*) FROM employees"))
-            count = r2.scalar()
             ur = await db.execute(text("SELECT full_name, email FROM users WHERE id = :id"), {"id": user_id})
             urow = ur.fetchone()
             new_emp_id = str(uuid.uuid4())
@@ -491,7 +517,7 @@ async def update_staff(user_id: str, body: StaffUpdate, ctx: dict = Depends(get_
                 emp_upd.setdefault(field, None)
             emp_upd.update({
                 "_eid": new_emp_id, "_uid": user_id,
-                "_num": f"EMP{(count + 1):04d}",
+                "_num": await _next_employee_number(db),
                 "_name": urow.full_name or "", "_email": urow.email or "",
             })
             await db.execute(
