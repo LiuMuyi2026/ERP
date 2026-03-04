@@ -88,6 +88,66 @@ function dateLabel(ts: string) {
 }
 
 /* ------------------------------------------------------------------ */
+/* WaChatView — WhatsApp-style chat bubbles                            */
+/* ------------------------------------------------------------------ */
+
+function WaChatView({ items, contactName, maxItems = 50, compact = true }: { items: CommItem[]; contactName: string; maxItems?: number; compact?: boolean }) {
+  const sorted = useMemo(() => {
+    const arr = [...items].sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+    return arr.slice(-maxItems);
+  }, [items, maxItems]);
+
+  let lastDate = '';
+
+  return (
+    <div className="flex flex-col gap-1 py-3 px-4 overflow-y-auto" style={{ ...(compact ? { maxHeight: 400 } : {}), background: '#efeae2' }}>
+      {sorted.map(msg => {
+        const msgDate = new Date(msg.timestamp).toLocaleDateString();
+        const showDate = msgDate !== lastDate;
+        lastDate = msgDate;
+        const isInbound = msg.direction === 'inbound';
+        return (
+          <Fragment key={msg.id}>
+            {showDate && (
+              <div className="flex justify-center my-2">
+                <span className="text-[11px] px-3 py-1 rounded-full shadow-sm" style={{ background: '#d1e7dd', color: '#4a5568' }}>
+                  {dateLabel(msg.timestamp)}
+                </span>
+              </div>
+            )}
+            <div className={`flex ${isInbound ? 'justify-start' : 'justify-end'}`}>
+              <div className="max-w-[75%] px-3 py-1.5 text-[13px]"
+                style={{
+                  background: isInbound ? '#ffffff' : '#d9fdd3',
+                  borderRadius: isInbound ? '0 8px 8px 8px' : '8px 0 8px 8px',
+                  boxShadow: '0 1px 0.5px rgba(0,0,0,0.13)',
+                }}>
+                {isInbound && (
+                  <div className="text-[11px] font-medium mb-0.5" style={{ color: '#00a884' }}>
+                    {contactName}
+                  </div>
+                )}
+                <p style={{ color: '#111b21', wordBreak: 'break-word' }}>{msg.content}</p>
+                <div className="flex items-center justify-end gap-1 mt-0.5">
+                  <span className="text-[10px]" style={{ color: '#667781' }}>
+                    {new Date(msg.timestamp).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}
+                  </span>
+                  {!isInbound && msg.status && (
+                    <span className="text-[10px]" style={{ color: msg.status === 'read' ? '#53bdeb' : '#667781' }}>
+                      {msg.status === 'read' || msg.status === 'delivered' ? '✓✓' : '✓'}
+                    </span>
+                  )}
+                </div>
+              </div>
+            </div>
+          </Fragment>
+        );
+      })}
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
 /* Component                                                           */
 /* ------------------------------------------------------------------ */
 
@@ -121,6 +181,11 @@ export default function MessageManagement() {
 
   /* Expanded WA conversations — track which wa_contact_id are expanded inline */
   const [expandedWa, setExpandedWa] = useState<Set<string>>(new Set());
+
+  /* Chat SlideOver */
+  const [chatContact, setChatContact] = useState<WaGroup | null>(null);
+  const [chatMessages, setChatMessages] = useState<CommItem[]>([]);
+  const [chatLoading, setChatLoading] = useState(false);
 
   /* Customer linking */
   const [linkingItem, setLinkingItem] = useState<CommItem | null>(null);
@@ -163,6 +228,30 @@ export default function MessageManagement() {
     const timer = setTimeout(() => { setSearch(searchInput); setPage(1); }, 400);
     return () => clearTimeout(timer);
   }, [searchInput]);
+
+  /* ---- Fetch full chat messages for SlideOver ---- */
+  useEffect(() => {
+    if (!chatContact) { setChatMessages([]); return; }
+    setChatLoading(true);
+    api.get(`/api/whatsapp/conversations/${chatContact.wa_contact_id}/messages?limit=200`)
+      .then((data: any) => {
+        const msgs: CommItem[] = (data.messages || data || []).map((m: any) => ({
+          id: m.id,
+          source: 'whatsapp_message' as const,
+          channel: 'whatsapp',
+          direction: m.direction,
+          content: m.content || m.body || '',
+          timestamp: m.timestamp || m.created_at,
+          message_type: m.message_type,
+          media_url: m.media_url,
+          status: m.status,
+          wa_contact_id: chatContact.wa_contact_id,
+        }));
+        setChatMessages(msgs);
+      })
+      .catch(() => setChatMessages(chatContact.items))
+      .finally(() => setChatLoading(false));
+  }, [chatContact]);
 
   /* ---- Active filter count (excluding default source) ---- */
   const activeFilters = [channel, direction, source !== 'interaction' ? source : '', dateFrom, dateTo].filter(Boolean).length;
@@ -438,11 +527,7 @@ export default function MessageManagement() {
                         {/* Grouped WA conversation row */}
                         <div
                           className="flex gap-3 py-2.5 px-3 rounded-lg cursor-pointer transition-colors hover:bg-gray-50"
-                          onClick={() => setExpandedWa(prev => {
-                            const next = new Set(prev);
-                            next.has(row.wa_contact_id) ? next.delete(row.wa_contact_id) : next.add(row.wa_contact_id);
-                            return next;
-                          })}>
+                          onClick={() => setChatContact(row)}>
                           <div className="flex flex-col items-center pt-0.5">
                             <div className="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0"
                               style={{ background: '#dcfce7', border: '1.5px solid #86efac' }}>
@@ -465,10 +550,13 @@ export default function MessageManagement() {
                               <span className="text-[11px] ml-auto flex-shrink-0" style={{ color: '#8696a0' }} title={absTime(row.last_timestamp)}>
                                 {relTime(row.last_timestamp)}
                               </span>
-                              <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="#8696a0" strokeWidth="1.5" strokeLinecap="round"
-                                style={{ transform: isExpanded ? 'rotate(180deg)' : 'rotate(0)', transition: 'transform 0.2s' }}>
-                                <path d="M3 4.5l3 3 3-3"/>
-                              </svg>
+                              <button onClick={(e) => { e.stopPropagation(); setExpandedWa(prev => { const next = new Set(prev); next.has(row.wa_contact_id) ? next.delete(row.wa_contact_id) : next.add(row.wa_contact_id); return next; }); }}
+                                className="p-1 -m-1 rounded hover:bg-black/5">
+                                <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="#8696a0" strokeWidth="1.5" strokeLinecap="round"
+                                  style={{ transform: isExpanded ? 'rotate(180deg)' : 'rotate(0)', transition: 'transform 0.2s' }}>
+                                  <path d="M3 4.5l3 3 3-3"/>
+                                </svg>
+                              </button>
                             </div>
                             <p className="text-[13px] truncate" style={{ color: '#3b4a54' }}>
                               {row.last_direction === 'outbound' ? '↗ ' : '↙ '}
@@ -476,29 +564,10 @@ export default function MessageManagement() {
                             </p>
                           </div>
                         </div>
-                        {/* Expanded individual messages */}
+                        {/* Expanded chat preview */}
                         {isExpanded && (
-                          <div className="ml-11 pl-3 space-y-0.5" style={{ borderLeft: '2px solid #86efac' }}>
-                            {row.items.slice(0, 20).map(msg => (
-                              <div key={msg.id}
-                                className="flex items-start gap-2 py-1.5 px-2 rounded cursor-pointer hover:bg-gray-50 text-[12px]"
-                                onClick={() => setDetailItem(msg)}>
-                                <span className="text-[10px] px-1 py-0.5 rounded font-medium flex-shrink-0"
-                                  style={{
-                                    background: msg.direction === 'inbound' ? '#dcfce7' : '#dbeafe',
-                                    color: msg.direction === 'inbound' ? '#15803d' : '#1d4ed8',
-                                  }}>
-                                  {msg.direction === 'inbound' ? '↙' : '↗'}
-                                </span>
-                                <p className="truncate flex-1" style={{ color: '#3b4a54' }}>{msg.content.slice(0, 120)}</p>
-                                <span className="text-[11px] flex-shrink-0" style={{ color: '#8696a0' }}>{relTime(msg.timestamp)}</span>
-                              </div>
-                            ))}
-                            {row.items.length > 20 && (
-                              <p className="text-[11px] py-1 px-2" style={{ color: '#8696a0' }}>
-                                ... 还有 {row.items.length - 20} 条消息
-                              </p>
-                            )}
+                          <div className="ml-11 rounded-lg overflow-hidden" style={{ border: '1px solid #e5e7eb' }}>
+                            <WaChatView items={row.items} contactName={row.contact_name} maxItems={50} />
                           </div>
                         )}
                       </div>
@@ -573,11 +642,7 @@ export default function MessageManagement() {
                   return (
                     <Fragment key={`wa-${row.wa_contact_id}`}>
                       <tr className="hover:bg-gray-50 transition-colors cursor-pointer"
-                        onClick={() => setExpandedWa(prev => {
-                          const next = new Set(prev);
-                          next.has(row.wa_contact_id) ? next.delete(row.wa_contact_id) : next.add(row.wa_contact_id);
-                          return next;
-                        })}
+                        onClick={() => setChatContact(row)}
                         style={{ borderBottom: '1px solid #f0f2f5' }}>
                         <td className="px-4 py-3">
                           <span className="flex items-center gap-1.5">
@@ -603,37 +668,27 @@ export default function MessageManagement() {
                             <p className="text-[13px] truncate" style={{ color: '#3b4a54' }}>
                               {row.last_direction === 'outbound' ? '↗ ' : '↙ '}{row.last_message.slice(0, 100)}
                             </p>
-                            <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="#8696a0" strokeWidth="1.5" strokeLinecap="round" className="flex-shrink-0"
-                              style={{ transform: isExpanded ? 'rotate(180deg)' : 'rotate(0)', transition: 'transform 0.2s' }}>
-                              <path d="M3 4.5l3 3 3-3"/>
-                            </svg>
+                            <button onClick={(e) => { e.stopPropagation(); setExpandedWa(prev => { const next = new Set(prev); next.has(row.wa_contact_id) ? next.delete(row.wa_contact_id) : next.add(row.wa_contact_id); return next; }); }}
+                              className="p-1 -m-1 rounded hover:bg-black/5 flex-shrink-0">
+                              <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="#8696a0" strokeWidth="1.5" strokeLinecap="round"
+                                style={{ transform: isExpanded ? 'rotate(180deg)' : 'rotate(0)', transition: 'transform 0.2s' }}>
+                                <path d="M3 4.5l3 3 3-3"/>
+                              </svg>
+                            </button>
                           </div>
                         </td>
                         <td className="px-4 py-3 text-[12px] whitespace-nowrap" style={{ color: '#8696a0' }} title={absTime(row.last_timestamp)}>
                           {relTime(row.last_timestamp)}
                         </td>
                       </tr>
-                      {/* Expanded messages */}
-                      {isExpanded && row.items.slice(0, 20).map(msg => (
-                        <tr key={msg.id} className="hover:bg-gray-50 cursor-pointer" onClick={() => setDetailItem(msg)}
-                          style={{ borderBottom: '1px solid #f8f9fa', background: '#fafbfc' }}>
-                          <td className="pl-10 pr-4 py-2" />
-                          <td className="px-4 py-2 text-[12px]" style={{ color: '#667781' }}>{msg.lead_name || '—'}</td>
-                          <td className="px-4 py-2">
-                            <span className="text-[10px] px-1 py-0.5 rounded font-medium"
-                              style={{
-                                background: msg.direction === 'inbound' ? '#dcfce7' : '#dbeafe',
-                                color: msg.direction === 'inbound' ? '#15803d' : '#1d4ed8',
-                              }}>
-                              {msg.direction === 'inbound' ? '↙' : '↗'}
-                            </span>
+                      {/* Expanded chat preview */}
+                      {isExpanded && (
+                        <tr>
+                          <td colSpan={5} className="p-0">
+                            <WaChatView items={row.items} contactName={row.contact_name} maxItems={50} />
                           </td>
-                          <td className="px-4 py-2 max-w-md">
-                            <p className="text-[12px] truncate" style={{ color: '#667781' }}>{msg.content.slice(0, 100)}</p>
-                          </td>
-                          <td className="px-4 py-2 text-[11px]" style={{ color: '#8696a0' }}>{relTime(msg.timestamp)}</td>
                         </tr>
-                      ))}
+                      )}
                     </Fragment>
                   );
                 }
@@ -721,11 +776,7 @@ export default function MessageManagement() {
                         <div key={`wa-${row.wa_contact_id}`}>
                           <div
                             className="flex items-center gap-3 px-4 py-2.5 hover:bg-gray-50 cursor-pointer transition-colors"
-                            onClick={() => setExpandedWa(prev => {
-                              const next = new Set(prev);
-                              next.has(row.wa_contact_id) ? next.delete(row.wa_contact_id) : next.add(row.wa_contact_id);
-                              return next;
-                            })}>
+                            onClick={() => setChatContact(row)}>
                             <div className="w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0" style={{ background: '#dcfce7' }}>
                               <svg width="12" height="12" viewBox="0 0 24 24" fill="#15803d">
                                 <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/>
@@ -738,31 +789,17 @@ export default function MessageManagement() {
                               {row.last_direction === 'outbound' ? '↗ ' : '↙ '}{row.last_message.slice(0, 100)}
                             </p>
                             <span className="text-[11px] flex-shrink-0" style={{ color: '#8696a0' }}>{relTime(row.last_timestamp)}</span>
-                            <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="#8696a0" strokeWidth="1.5" strokeLinecap="round" className="flex-shrink-0"
-                              style={{ transform: isExpanded ? 'rotate(180deg)' : 'rotate(0)', transition: 'transform 0.2s' }}>
-                              <path d="M3 4.5l3 3 3-3"/>
-                            </svg>
+                            <button onClick={(e) => { e.stopPropagation(); setExpandedWa(prev => { const next = new Set(prev); next.has(row.wa_contact_id) ? next.delete(row.wa_contact_id) : next.add(row.wa_contact_id); return next; }); }}
+                              className="p-1 -m-1 rounded hover:bg-black/5 flex-shrink-0">
+                              <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="#8696a0" strokeWidth="1.5" strokeLinecap="round"
+                                style={{ transform: isExpanded ? 'rotate(180deg)' : 'rotate(0)', transition: 'transform 0.2s' }}>
+                                <path d="M3 4.5l3 3 3-3"/>
+                              </svg>
+                            </button>
                           </div>
                           {isExpanded && (
-                            <div className="pl-10 border-l-2 ml-7" style={{ borderColor: '#86efac' }}>
-                              {row.items.slice(0, 20).map(msg => (
-                                <div key={msg.id}
-                                  className="flex items-center gap-2 px-3 py-1.5 hover:bg-gray-50 cursor-pointer text-[12px]"
-                                  onClick={() => setDetailItem(msg)}>
-                                  <span className="text-[10px] px-1 py-0.5 rounded font-medium flex-shrink-0"
-                                    style={{
-                                      background: msg.direction === 'inbound' ? '#dcfce7' : '#dbeafe',
-                                      color: msg.direction === 'inbound' ? '#15803d' : '#1d4ed8',
-                                    }}>
-                                    {msg.direction === 'inbound' ? '↙' : '↗'}
-                                  </span>
-                                  <p className="truncate flex-1" style={{ color: '#667781' }}>{msg.content.slice(0, 100)}</p>
-                                  <span className="text-[11px] flex-shrink-0" style={{ color: '#8696a0' }}>{relTime(msg.timestamp)}</span>
-                                </div>
-                              ))}
-                              {row.items.length > 20 && (
-                                <p className="text-[11px] py-1.5 px-3" style={{ color: '#8696a0' }}>... 还有 {row.items.length - 20} 条消息</p>
-                              )}
+                            <div className="ml-7 rounded-lg overflow-hidden" style={{ border: '1px solid #e5e7eb' }}>
+                              <WaChatView items={row.items} contactName={row.contact_name} maxItems={50} />
                             </div>
                           )}
                         </div>
@@ -828,6 +865,38 @@ export default function MessageManagement() {
             className="px-2 py-1.5 rounded-md text-xs" style={{ color: page >= totalPages ? '#d1d5db' : '#667781' }}>»</button>
         </div>
       )}
+
+      {/* ===== WA Chat SlideOver ===== */}
+      <SlideOver open={!!chatContact} onClose={() => setChatContact(null)}
+        title={chatContact?.contact_name || 'WhatsApp'}>
+        {chatContact && (
+          <div className="flex flex-col h-full">
+            <div className="flex items-center gap-3 px-5 py-3" style={{ borderBottom: '1px solid #e5e7eb', background: '#00a884' }}>
+              <div className="w-10 h-10 rounded-full flex items-center justify-center text-white text-sm font-bold" style={{ background: 'rgba(255,255,255,0.2)' }}>
+                {chatContact.contact_name.charAt(0).toUpperCase()}
+              </div>
+              <div>
+                <div className="text-[14px] font-semibold text-white">{chatContact.contact_name}</div>
+                {chatContact.company && (
+                  <div className="text-[12px] text-white/80">{chatContact.company}</div>
+                )}
+              </div>
+              <span className="ml-auto text-[11px] px-2 py-0.5 rounded-full text-white/90" style={{ background: 'rgba(255,255,255,0.2)' }}>
+                {chatLoading ? '...' : `${(chatMessages.length || chatContact.message_count)} 条消息`}
+              </span>
+            </div>
+            <div className="flex-1 overflow-y-auto" style={{ background: '#efeae2' }}>
+              {chatLoading ? (
+                <div className="flex items-center justify-center py-20">
+                  <div className="w-6 h-6 border-2 border-t-transparent rounded-full animate-spin" style={{ borderColor: '#00a884', borderTopColor: 'transparent' }} />
+                </div>
+              ) : (
+                <WaChatView items={chatMessages.length > 0 ? chatMessages : chatContact.items} contactName={chatContact.contact_name} maxItems={200} compact={false} />
+              )}
+            </div>
+          </div>
+        )}
+      </SlideOver>
 
       {/* ===== Detail SlideOver ===== */}
       <SlideOver open={!!detailItem} onClose={() => setDetailItem(null)}
