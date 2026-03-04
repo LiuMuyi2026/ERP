@@ -663,7 +663,22 @@ async def get_messages(
         params["before"] = before
     q += " ORDER BY m.timestamp DESC LIMIT :lim"
     params["lim"] = actual_limit
-    rows = await db.execute(text(q), params)
+    try:
+        rows = await db.execute(text(q), params)
+    except Exception as e:
+        logger.warning("get_messages fallback without created_by join: %s", e)
+        if len(contact_ids) == 1:
+            q = """SELECT m.*, NULL::text AS created_by_name
+                   FROM whatsapp_messages m
+                   WHERE m.wa_contact_id = :cid AND m.is_deleted = FALSE"""
+        else:
+            q = """SELECT m.*, NULL::text AS created_by_name
+                   FROM whatsapp_messages m
+                   WHERE m.wa_contact_id = ANY(:cids::uuid[]) AND m.is_deleted = FALSE"""
+        if before:
+            q += " AND m.timestamp < :before"
+        q += " ORDER BY m.timestamp DESC LIMIT :lim"
+        rows = await db.execute(text(q), params)
     messages = [dict(r._mapping) for r in rows.fetchall()]
     has_more = len(messages) == actual_limit
     messages.reverse()
