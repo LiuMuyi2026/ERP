@@ -1105,16 +1105,24 @@ async def dashboard(
     where_sql = (" AND " + " AND ".join(where_clauses)) if where_clauses else ""
 
     # CTE: merge_key groups 1:1 chats by phone number, groups stay unique by id
+    # NOTE: Avoid aliasing is_pinned/is_muted with COALESCE inside c.* SELECT —
+    # c.* already includes them, creating ambiguous column names that crash asyncpg.
     q = f"""
         WITH base AS (
-            SELECT c.*,
+            SELECT c.id, c.wa_account_id, c.wa_jid, c.phone_number, c.display_name,
+                   c.push_name, c.profile_pic_url, c.lead_id, c.contact_id,
+                   c.is_group, c.last_message_at, c.unread_count,
+                   c.created_at, c.updated_at, c.group_metadata,
+                   c.disappearing_duration, c.wa_labels, c.account_id AS crm_account_id,
+                   c.is_archived, c.is_blocked, c.business_profile, c.has_catalog,
+                   COALESCE(c.is_pinned, FALSE) AS is_pinned,
+                   COALESCE(c.is_muted, FALSE) AS is_muted,
+                   c.assigned_to, c.is_deleted,
                    a.display_name AS account_name, a.phone_number AS account_phone,
                    a.wa_jid AS owner_wa_jid, a.owner_user_id, u.full_name AS owner_name,
                    l.full_name AS lead_name, l.status AS lead_status,
                    ca.name AS crm_account_name,
                    au.full_name AS assigned_user_name,
-                   COALESCE(c.is_pinned, FALSE) AS is_pinned,
-                   COALESCE(c.is_muted, FALSE) AS is_muted,
                    CASE WHEN c.is_group THEN c.id::text
                         ELSE SPLIT_PART(c.wa_jid, '@', 1) END AS merge_key,
                    (SELECT wm.direction || ':' || wm.message_type || ':' || COALESCE(wm.content, '')
@@ -1144,14 +1152,65 @@ async def dashboard(
     else:
         q += " ORDER BY is_pinned DESC, last_message_at DESC NULLS LAST"
 
-    rows = await db.execute(text(q), params)
-    results = []
-    for r in rows.fetchall():
-        row_dict = dict(r._mapping)
-        row_dict["unread_count"] = row_dict.pop("total_unread", row_dict.get("unread_count", 0))
-        row_dict.pop("rn", None)
-        results.append(row_dict)
-    return results
+    try:
+        rows = await db.execute(text(q), params)
+        results = []
+        for r in rows.fetchall():
+            row_dict = dict(r._mapping)
+            row_dict["unread_count"] = row_dict.pop("total_unread", row_dict.get("unread_count", 0))
+            row_dict.pop("rn", None)
+            results.append(row_dict)
+        return results
+    except Exception as e:
+        # Backward-compat fallback for older tenant schemas that may not yet
+        # have all whatsapp_contacts extension columns used above.
+        logger.warning("dashboard query fallback due to schema mismatch: %s", e)
+        fallback_where = ["1=1"]
+        fallback_params: dict = {}
+        if not is_admin:
+            fallback_where.append("a.owner_user_id = :uid")
+            fallback_params["uid"] = ctx["sub"]
+        if is_group is not None:
+            fallback_where.append("c.is_group = :ig")
+            fallback_params["ig"] = is_group
+
+        fq = f"""
+            WITH base AS (
+                SELECT
+                    c.id, c.wa_account_id, c.wa_jid, c.phone_number, c.display_name, c.push_name,
+                    c.profile_pic_url, c.lead_id, c.is_group, c.last_message_at, c.unread_count,
+                    c.created_at, c.updated_at,
+                    a.display_name AS account_name, a.phone_number AS account_phone,
+                    l.full_name AS lead_name, l.status AS lead_status,
+                    NULL::text AS crm_account_name,
+                    FALSE AS is_pinned,
+                    FALSE AS is_muted,
+                    CASE WHEN c.is_group THEN c.id::text ELSE SPLIT_PART(c.wa_jid, '@', 1) END AS merge_key,
+                    (SELECT wm.direction || ':' || wm.message_type || ':' || COALESCE(wm.content, '')
+                     FROM whatsapp_messages wm WHERE wm.wa_contact_id = c.id
+                     ORDER BY wm.timestamp DESC LIMIT 1) AS last_message_preview
+                FROM whatsapp_contacts c
+                JOIN whatsapp_accounts a ON a.id = c.wa_account_id AND a.is_active = TRUE
+                LEFT JOIN leads l ON l.id = c.lead_id
+                WHERE {" AND ".join(fallback_where)}
+            ),
+            ranked AS (
+                SELECT *,
+                       ROW_NUMBER() OVER (PARTITION BY merge_key ORDER BY last_message_at DESC NULLS LAST) AS rn,
+                       SUM(unread_count) OVER (PARTITION BY merge_key) AS total_unread
+                FROM base
+            )
+            SELECT * FROM ranked WHERE rn = 1
+            ORDER BY last_message_at DESC NULLS LAST
+        """
+        rows = await db.execute(text(fq), fallback_params)
+        results = []
+        for r in rows.fetchall():
+            row_dict = dict(r._mapping)
+            row_dict["unread_count"] = row_dict.pop("total_unread", row_dict.get("unread_count", 0))
+            row_dict.pop("rn", None)
+            results.append(row_dict)
+        return results
 
 
 @router.get("/admin/conversations")
