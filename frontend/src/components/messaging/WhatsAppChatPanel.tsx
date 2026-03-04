@@ -404,8 +404,11 @@ export default function WhatsAppChatPanel({
   async function handleQuickCreateLead() {
     if (!effectiveContactId) return;
     try {
+      // Get current user for assignment
+      const me = await api.get('/api/auth/me').catch(() => null);
       const name = contactName || conversation?.display_name || conversation?.phone_number || 'Unknown';
       const leadData: any = { full_name: name, source: 'WhatsApp' };
+      if (me?.id) leadData.assigned_to = me.id;
       if (conversation?.phone_number) { leadData.phone = conversation.phone_number; leadData.whatsapp = conversation.phone_number; }
       const newLead: any = await api.post('/api/crm/leads', leadData);
       const leadId = newLead.id || newLead.lead_id;

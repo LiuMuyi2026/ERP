@@ -1598,7 +1598,8 @@ export default function Customer360Page() {
     setStartingWa(true);
     try {
       // Get first connected WhatsApp account
-      const accounts: any[] = await api.get('/api/whatsapp/accounts');
+      const raw = await api.get('/api/whatsapp/accounts');
+      const accounts: any[] = Array.isArray(raw) ? raw : [];
       const connected = accounts.find((a: any) => a.status === 'connected');
       if (!connected) { toast.error('没有已连接的WhatsApp账号'); return; }
       // Add contact

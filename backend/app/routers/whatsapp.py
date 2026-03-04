@@ -1,6 +1,7 @@
 """WhatsApp integration API — connected to Evolution API."""
 
 import logging
+import re
 import uuid
 import json
 import hmac
@@ -1490,13 +1491,11 @@ async def unlink_contact(contact_id: str, ctx: dict = Depends(get_current_user_w
     return {"ok": True}
 
 
-import re as _re
-
 def _normalize_phone_for_match(phone: Optional[str]) -> str:
     """Strip non-digits for phone matching."""
     if not phone:
         return ""
-    return _re.sub(r'\D', '', phone)
+    return re.sub(r'\D', '', phone)
 
 
 @router.post("/contacts/batch-auto-link")
