@@ -145,15 +145,15 @@ export default function EmailComposer({
   }
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex flex-col h-full" style={{ background: 'white' }}>
       {/* Header */}
-      <div className="flex items-center justify-between px-4 py-3 flex-shrink-0"
-        style={{ borderBottom: '1px solid #e5e7eb' }}>
-        <h3 className="text-sm font-semibold" style={{ color: '#3b4a54' }}>
+      <div className="flex items-center justify-between px-5 py-3.5 flex-shrink-0"
+        style={{ borderBottom: '1px solid #e5e7eb', background: '#f8fafc' }}>
+        <h3 className="text-[15px] font-semibold" style={{ color: '#334155' }}>
           {replyTo ? (isZh ? '回复邮件' : (t('emailReply') || 'Reply')) : (isZh ? '写邮件' : (t('emailCompose') || 'Compose'))}
         </h3>
         {onCancel && (
-          <button onClick={onCancel} className="p-1 rounded hover:bg-gray-100">
+          <button onClick={onCancel} className="p-1.5 rounded-lg hover:bg-white" style={{ border: '1px solid #e5e7eb' }}>
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#8696a0" strokeWidth="2">
               <path d="M18 6 6 18M6 6l12 12"/>
             </svg>
@@ -162,17 +162,17 @@ export default function EmailComposer({
       </div>
 
       {/* Fields */}
-      <div className="flex-shrink-0 space-y-2 p-4" style={{ borderBottom: '1px solid #f3f4f6' }}>
+      <div className="flex-shrink-0 space-y-2 p-5" style={{ borderBottom: '1px solid #f3f4f6', background: '#f8fafc' }}>
         {templates.length > 0 && (
           <div className="flex items-center gap-2">
-            <label className="text-xs w-12 text-right flex-shrink-0" style={{ color: '#8696a0' }}>
+            <label className="text-xs w-14 text-right flex-shrink-0" style={{ color: '#64748b' }}>
               {isZh ? '模板' : 'Tpl'}
             </label>
             <select
               value={templateId}
               onChange={(e) => applyTemplate(e.target.value)}
-              className="flex-1 text-sm border rounded px-2 py-1.5 outline-none"
-              style={{ borderColor: '#e5e7eb' }}
+              className="flex-1 text-sm border rounded-lg px-3 py-2 outline-none"
+              style={{ borderColor: '#dbe3ea', background: 'white' }}
             >
               <option value="">{isZh ? '选择模板...' : 'Choose template...'}</option>
               {templates.map((tpl) => (
@@ -182,15 +182,15 @@ export default function EmailComposer({
           </div>
         )}
         <div className="flex items-center gap-2">
-          <label className="text-xs w-12 text-right flex-shrink-0" style={{ color: '#8696a0' }}>
+          <label className="text-xs w-14 text-right flex-shrink-0" style={{ color: '#64748b' }}>
             {t('emailTo') || 'To'}
           </label>
           <input
             type="email"
             value={to}
             onChange={(e) => setTo(e.target.value)}
-            className="flex-1 text-sm border rounded px-2 py-1.5 outline-none focus:border-blue-400"
-            style={{ borderColor: '#e5e7eb' }}
+            className="flex-1 text-sm border rounded-lg px-3 py-2 outline-none focus:border-blue-400"
+            style={{ borderColor: '#dbe3ea', background: 'white' }}
             placeholder="recipient@example.com"
           />
           {!showCc && (
@@ -202,46 +202,46 @@ export default function EmailComposer({
         {showCc && (
           <>
             <div className="flex items-center gap-2">
-              <label className="text-xs w-12 text-right flex-shrink-0" style={{ color: '#8696a0' }}>
+              <label className="text-xs w-14 text-right flex-shrink-0" style={{ color: '#64748b' }}>
                 {t('emailCc') || 'Cc'}
               </label>
               <input type="text" value={cc} onChange={(e) => setCc(e.target.value)}
-                className="flex-1 text-sm border rounded px-2 py-1.5 outline-none focus:border-blue-400"
-                style={{ borderColor: '#e5e7eb' }} placeholder="cc@example.com" />
+                className="flex-1 text-sm border rounded-lg px-3 py-2 outline-none focus:border-blue-400"
+                style={{ borderColor: '#dbe3ea', background: 'white' }} placeholder="cc@example.com" />
             </div>
             <div className="flex items-center gap-2">
-              <label className="text-xs w-12 text-right flex-shrink-0" style={{ color: '#8696a0' }}>Bcc</label>
+              <label className="text-xs w-14 text-right flex-shrink-0" style={{ color: '#64748b' }}>Bcc</label>
               <input type="text" value={bcc} onChange={(e) => setBcc(e.target.value)}
-                className="flex-1 text-sm border rounded px-2 py-1.5 outline-none focus:border-blue-400"
-                style={{ borderColor: '#e5e7eb' }} placeholder="bcc@example.com" />
+                className="flex-1 text-sm border rounded-lg px-3 py-2 outline-none focus:border-blue-400"
+                style={{ borderColor: '#dbe3ea', background: 'white' }} placeholder="bcc@example.com" />
             </div>
           </>
         )}
 
         <div className="flex items-center gap-2">
-          <label className="text-xs w-12 text-right flex-shrink-0" style={{ color: '#8696a0' }}>
+          <label className="text-xs w-14 text-right flex-shrink-0" style={{ color: '#64748b' }}>
             {t('emailSubject') || 'Subject'}
           </label>
           <input type="text" value={subject} onChange={(e) => setSubject(e.target.value)}
-            className="flex-1 text-sm border rounded px-2 py-1.5 outline-none focus:border-blue-400"
-            style={{ borderColor: '#e5e7eb' }} placeholder="Subject" />
+            className="flex-1 text-sm border rounded-lg px-3 py-2 outline-none focus:border-blue-400"
+            style={{ borderColor: '#dbe3ea', background: 'white' }} placeholder="Subject" />
         </div>
       </div>
 
       {/* Body */}
-      <div className="flex-1 p-4 overflow-auto">
+      <div className="flex-1 p-5 overflow-auto">
         <textarea
           value={bodyText}
           onChange={(e) => setBodyText(e.target.value)}
-          className="w-full h-full min-h-[200px] text-sm outline-none resize-none"
-            style={{ color: '#3b4a54' }}
+          className="w-full h-full min-h-[220px] text-sm outline-none resize-none rounded-xl border p-4 leading-6"
+          style={{ color: '#334155', borderColor: '#dbe3ea', background: 'white' }}
           placeholder={isZh ? '请输入邮件正文...' : 'Write your email...'}
         />
       </div>
 
       {/* Footer */}
-      <div className="flex items-center justify-end gap-2 px-4 py-3 flex-shrink-0"
-        style={{ borderTop: '1px solid #e5e7eb' }}>
+      <div className="flex items-center justify-end gap-2 px-5 py-3.5 flex-shrink-0"
+        style={{ borderTop: '1px solid #e5e7eb', background: '#f8fafc' }}>
         {autoTranslateEnabled && (
           <span className="mr-auto text-[11px]" style={{ color: '#64748b' }}>
             {isZh ? '自动翻译: ' : 'Auto translate: '}
@@ -250,14 +250,14 @@ export default function EmailComposer({
         )}
         {onCancel && (
           <button onClick={onCancel}
-            className="px-4 py-2 rounded-lg text-sm border"
-            style={{ borderColor: '#e5e7eb', color: '#667781' }}>
+            className="px-4 py-2 rounded-full text-sm border"
+            style={{ borderColor: '#dbe3ea', color: '#64748b' }}>
             {isZh ? '取消' : 'Cancel'}
           </button>
         )}
         <button onClick={handleSend} disabled={sending || !to.trim() || !subject.trim()}
-          className="px-4 py-2 rounded-lg text-sm font-medium text-white disabled:opacity-50"
-          style={{ background: '#3b82f6' }}>
+          className="px-4 py-2 rounded-full text-sm font-medium text-white disabled:opacity-50"
+          style={{ background: '#2563eb' }}>
           {sending ? '...' : (isZh ? '发送' : (t('emailSend') || 'Send'))}
         </button>
       </div>

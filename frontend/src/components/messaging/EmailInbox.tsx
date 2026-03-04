@@ -432,17 +432,18 @@ export default function EmailInbox() {
   const visibleEmails = emails;
 
   return (
-    <div className="h-full flex" style={{ background: '#f0f2f5' }}>
+    <div className="h-full flex" style={{ background: '#eef2f6' }}>
       {/* Left: Email List */}
-      <div className="flex flex-col" style={{ width: 380, background: 'white', borderRight: '1px solid #e5e7eb' }}>
+      <div className="flex flex-col" style={{ width: 420, background: 'white', borderRight: '1px solid #dbe3ea' }}>
         {/* Folder tabs + compose */}
-        <div className="flex items-center gap-2 px-4 py-3 flex-shrink-0" style={{ borderBottom: '1px solid #e5e7eb' }}>
+        <div className="flex items-center gap-2 px-4 py-3 flex-shrink-0 flex-wrap" style={{ borderBottom: '1px solid #e5e7eb' }}>
           {(['inbox', 'todo', 'archived', 'sent'] as Folder[]).map((f) => (
             <button key={f} onClick={() => { setFolder(f); setPage(1); }}
-              className="px-3 py-1.5 rounded-lg text-xs font-medium transition-colors"
+              className="px-3 py-1.5 rounded-full text-[11px] font-medium transition-colors"
               style={{
-                background: folder === f ? '#e0e7ff' : 'transparent',
-                color: folder === f ? '#4338ca' : '#667781',
+                background: folder === f ? '#dbeafe' : '#f8fafc',
+                color: folder === f ? '#1d4ed8' : '#64748b',
+                border: `1px solid ${folder === f ? '#93c5fd' : '#e2e8f0'}`,
               }}>
               {f === 'inbox'
                 ? (isZh ? '收件箱' : (t('emailInbox') || 'Inbox'))
@@ -461,9 +462,9 @@ export default function EmailInbox() {
           <div className="flex-1" />
           <button
             onClick={() => setAutoTranslateEnabled(v => !v)}
-            className="text-[11px] px-2 py-1 rounded-lg border"
+            className="text-[11px] px-2.5 py-1 rounded-full border"
             style={{
-              borderColor: autoTranslateEnabled ? '#86efac' : '#e5e7eb',
+              borderColor: autoTranslateEnabled ? '#86efac' : '#dbe3ea',
               color: autoTranslateEnabled ? '#166534' : '#667781',
               background: autoTranslateEnabled ? '#f0fdf4' : 'white',
             }}
@@ -472,25 +473,25 @@ export default function EmailInbox() {
             {autoTranslateEnabled ? (isZh ? '自动翻译: 开' : 'Auto Translate: On') : (isZh ? '自动翻译: 关' : 'Auto Translate: Off')}
           </button>
           <button onClick={handleCompose}
-            className="px-3 py-1.5 rounded-lg text-xs font-medium text-white"
-            style={{ background: '#3b82f6' }}>
+            className="px-3 py-1.5 rounded-full text-[11px] font-medium text-white"
+            style={{ background: '#2563eb' }}>
             + {isZh ? '写邮件' : (t('emailCompose') || 'Compose')}
           </button>
           <button onClick={handleManualSync} disabled={syncing}
-            className="px-3 py-1.5 rounded-lg text-xs font-medium border disabled:opacity-60"
-            style={{ borderColor: '#e5e7eb', color: '#3b4a54' }}>
+            className="px-3 py-1.5 rounded-full text-[11px] font-medium border disabled:opacity-60"
+            style={{ borderColor: '#dbe3ea', color: '#334155', background: '#f8fafc' }}>
             {syncing ? (isZh ? '同步中...' : 'Syncing...') : (isZh ? '同步' : 'Sync')}
           </button>
           <button
             onClick={() => { setShowTemplateManager(true); loadTemplates(); }}
-            className="px-3 py-1.5 rounded-lg text-xs font-medium border"
-            style={{ borderColor: '#e5e7eb', color: '#3b4a54' }}
+            className="px-3 py-1.5 rounded-full text-[11px] font-medium border"
+            style={{ borderColor: '#dbe3ea', color: '#334155', background: '#f8fafc' }}
           >
             {isZh ? '模板' : 'Templates'}
           </button>
           <button
             onClick={() => { setShowSlaPanel(true); loadSlaItems(); }}
-            className="px-3 py-1.5 rounded-lg text-xs font-medium border"
+            className="px-3 py-1.5 rounded-full text-[11px] font-medium border"
             style={{ borderColor: '#fde68a', color: '#92400e', background: '#fffbeb' }}
           >
             SLA
@@ -498,12 +499,12 @@ export default function EmailInbox() {
         </div>
 
         {/* Search */}
-        <div className="px-3 py-2 flex-shrink-0 space-y-2">
+        <div className="px-3 py-2.5 flex-shrink-0 space-y-2" style={{ background: '#f8fafc', borderBottom: '1px solid #eef2f7' }}>
           <input type="text" value={search}
             onChange={(e) => { setSearch(e.target.value); setPage(1); }}
             placeholder={isZh ? '搜索主题、发件人、内容...' : 'Search emails...'}
-            className="w-full text-xs border rounded-lg px-3 py-2 outline-none"
-            style={{ borderColor: '#e5e7eb' }} />
+            className="w-full text-xs border rounded-xl px-3 py-2 outline-none"
+            style={{ borderColor: '#dbe3ea', background: 'white' }} />
           {(folder === 'inbox' || folder === 'todo') && (
             <label className="inline-flex items-center gap-2 text-[11px]" style={{ color: '#667781' }}>
               <input
@@ -527,7 +528,7 @@ export default function EmailInbox() {
         </div>
 
         {selectedIds.length > 0 && (
-          <div className="px-3 py-2 flex items-center gap-2 border-t border-b" style={{ borderColor: '#e5e7eb', background: '#f8fafc' }}>
+          <div className="px-3 py-2 flex items-center gap-2 border-b flex-wrap" style={{ borderColor: '#e5e7eb', background: '#f8fafc' }}>
             <span className="text-[11px] font-medium" style={{ color: '#334155' }}>
               {isZh ? `已选 ${selectedIds.length} 封` : `${selectedIds.length} selected`}
             </span>
@@ -619,10 +620,11 @@ export default function EmailInbox() {
               const ts = email.sent_at || email.received_at || email.created_at || '';
               return (
                 <div key={email.id}
-                  className="px-4 py-3 cursor-pointer transition-colors"
+                  className="px-4 py-3 cursor-pointer transition-colors hover:bg-[#f8fafc]"
                   style={{
-                    background: isActive ? '#e0e7ff' : 'white',
+                    background: isActive ? '#eef4ff' : 'white',
                     borderBottom: '1px solid #f3f4f6',
+                    borderLeft: isActive ? '3px solid #2563eb' : '3px solid transparent',
                   }}>
                   <div className="flex items-center gap-2 mb-1">
                     <input
@@ -633,9 +635,12 @@ export default function EmailInbox() {
                         setSelectedIds((prev) => e.target.checked ? [...prev, email.id] : prev.filter((id) => id !== email.id));
                       }}
                     />
-                    <span className="text-xs font-medium truncate flex-1"
+                    <span className="text-xs font-medium truncate flex-1 flex items-center gap-1.5"
                       onClick={() => handleSelectEmail(email)}
                       style={{ color: '#3b4a54', fontWeight: email.is_read === false ? 700 : 500 }}>
+                      {email.is_read === false && (
+                        <span className="inline-block w-1.5 h-1.5 rounded-full" style={{ background: '#3b82f6' }} />
+                      )}
                       {(folder === 'inbox' || folder === 'todo' || folder === 'archived')
                         ? (email.direction === 'outbound' ? (email.to_name || email.to_email) : (email.from_name || email.from_email))
                         : (folder === 'inbox'
@@ -704,7 +709,7 @@ export default function EmailInbox() {
       </div>
 
       {/* Right: Content */}
-      <div className="flex-1 flex flex-col min-w-0" style={{ background: 'white' }}>
+      <div className="flex-1 flex flex-col min-w-0" style={{ background: '#f8fafc' }}>
         {viewMode === 'list' && !selectedEmail && (
           <div className="flex-1 flex items-center justify-center">
             <div className="text-center">
