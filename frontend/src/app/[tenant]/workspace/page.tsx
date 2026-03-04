@@ -113,7 +113,6 @@ export default function WorkspacePage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const locale = useLocale();
-  const isZh = String(locale || '').toLowerCase().startsWith('zh');
   const tWorkspace = useTranslations('workspace');
   const tCommon = useTranslations('common');
 
@@ -169,6 +168,8 @@ export default function WorkspacePage() {
   const [editWsIcon, setEditWsIcon]     = useState('folder');
   const [editWsDesc, setEditWsDesc]     = useState('');
   const [deleteWs, setDeleteWs]         = useState<Workspace | null>(null);
+  const [pendingDeletePageIds, setPendingDeletePageIds] = useState<string[] | null>(null);
+  const [pendingDeleteText, setPendingDeleteText] = useState('');
 
   // Member management
   const [memberWs, setMemberWs]         = useState<Workspace | null>(null);
@@ -179,34 +180,21 @@ export default function WorkspacePage() {
 
   const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const homeLabels = isZh ? {
-    home: '工作区主页',
-    recent: '最近访问',
-    calendar: '日历管理',
-    todos: '工作区待办事项',
-    createCalendar: '新建日历页',
-    createTodo: '新建待办页',
-    open: '打开',
-    emptyRecent: '暂无最近访问页面',
-    emptyCalendar: '暂无日历相关页面',
-    emptyTodos: '暂无待办追踪页面',
-    loading: '加载中...',
-    today: '今天',
-  } : {
-    home: 'Workspace Home',
-    recent: 'Recent',
-    calendar: 'Calendar',
-    todos: 'Workspace To-dos',
-    createCalendar: 'New Calendar Page',
-    createTodo: 'New To-do Page',
-    open: 'Open',
-    emptyRecent: 'No recently visited pages',
-    emptyCalendar: 'No calendar-related pages',
-    emptyTodos: 'No task tracking pages',
-    loading: 'Loading...',
-    today: 'Today',
+  const homeLabels = {
+    home: tWorkspace('homeHome'),
+    recent: tWorkspace('homeRecent'),
+    calendar: tWorkspace('homeCalendar'),
+    todos: tWorkspace('homeTodos'),
+    createCalendar: tWorkspace('homeCreateCalendar'),
+    createTodo: tWorkspace('homeCreateTodo'),
+    open: tWorkspace('openPage'),
+    emptyRecent: tWorkspace('homeEmptyRecent'),
+    emptyCalendar: tWorkspace('homeEmptyCalendar'),
+    emptyTodos: tWorkspace('homeEmptyTodos'),
+    loading: tWorkspace('loadingMembers'),
+    today: tWorkspace('homeToday'),
   };
-  const opFailed = isZh ? '操作失败' : 'Operation failed';
+  const opFailed = tWorkspace('operationFailed');
 
   // ── Data loading ──────────────────────────────────────────────────────────
 
@@ -369,16 +357,16 @@ export default function WorkspacePage() {
     try {
       const now = new Date();
       const monthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
-      const calendarTitle = isZh ? `日历管理 ${monthKey}` : `Calendar ${monthKey}`;
-      const viewTitle = isZh ? '日历' : 'Calendar';
-      const fieldTitle = isZh ? '事件' : 'Event';
-      const fieldDate = isZh ? '日期' : 'Date';
-      const fieldOwner = isZh ? '负责人' : 'Owner';
-      const fieldStatus = isZh ? '状态' : 'Status';
-      const fieldNotes = isZh ? '备注' : 'Notes';
-      const statusPlanned = isZh ? '计划中' : 'Planned';
-      const statusInProgress = isZh ? '进行中' : 'In progress';
-      const statusDone = isZh ? '已完成' : 'Done';
+      const calendarTitle = tWorkspace('homeCalendarTitleWithMonth', { month: monthKey });
+      const viewTitle = tWorkspace('homeCalendar');
+      const fieldTitle = tWorkspace('homeCalendarFieldEvent');
+      const fieldDate = tWorkspace('homeCalendarFieldDate');
+      const fieldOwner = tWorkspace('homeCalendarFieldOwner');
+      const fieldStatus = tWorkspace('homeCalendarFieldStatus');
+      const fieldNotes = tWorkspace('homeCalendarFieldNotes');
+      const statusPlanned = tWorkspace('homeCalendarStatusPlanned');
+      const statusInProgress = tWorkspace('homeCalendarStatusInProgress');
+      const statusDone = tWorkspace('homeCalendarStatusDone');
       const page = await api.post('/api/workspace/pages', {
         workspace_id: activeWsId,
         title: calendarTitle,
@@ -412,7 +400,7 @@ export default function WorkspacePage() {
       await loadPages(activeWsId, 0, false);
       router.push(`/${tenant}/workspace/${page.id}`);
     } catch (err: any) {
-      toast.error(err?.message || (isZh ? '创建日历页面失败' : 'Failed to create calendar page'));
+      toast.error(err?.message || tWorkspace('homeCreateCalendarFailed'));
     }
   }
 
@@ -421,7 +409,7 @@ export default function WorkspacePage() {
     try {
       const page = await api.post('/api/workspace/pages', {
         workspace_id: activeWsId,
-        title: isZh ? '工作区待办' : 'Workspace To-dos',
+        title: tWorkspace('homeTodos'),
         icon: '✅',
         content: { _type: 'task_tracker', _tasks: [] },
       });
@@ -429,7 +417,7 @@ export default function WorkspacePage() {
       await loadPages(activeWsId, 0, false);
       router.push(`/${tenant}/workspace/${page.id}`);
     } catch (err: any) {
-      toast.error(err?.message || (isZh ? '创建待办页面失败' : 'Failed to create todo page'));
+      toast.error(err?.message || tWorkspace('homeCreateTodoFailed'));
     }
   }
 
@@ -446,25 +434,32 @@ export default function WorkspacePage() {
 
   async function deletePage(pageId: string) {
     setMenuPageId(null);
-    if (!confirm(tWorkspace('confirmDeletePage'))) return;
-    try {
-      await api.patch(`/api/workspace/pages/${pageId}`, { is_archived: true });
-      setPages(prev => prev.filter(p => p.id !== pageId));
-      setTotal(t => t - 1);
-      setSelectedIds(prev => { const n = new Set(prev); n.delete(pageId); return n; });
-    } catch (err: any) { toast.error(err?.message || opFailed); }
+    setPendingDeletePageIds([pageId]);
+    setPendingDeleteText(tWorkspace('confirmDeletePage'));
   }
 
-  async function deleteSelected() {
+  function deleteSelected() {
     if (selectedIds.size === 0) return;
-    if (!confirm(tWorkspace('confirmDeletePages', { n: selectedIds.size }))) return;
     const ids = Array.from(selectedIds);
+    setPendingDeletePageIds(ids);
+    setPendingDeleteText(tWorkspace('confirmDeletePages', { n: ids.length }));
+  }
+
+  async function confirmDeletePagesAction() {
+    if (!pendingDeletePageIds || pendingDeletePageIds.length === 0) return;
+    const ids = [...pendingDeletePageIds];
+    setPendingDeletePageIds(null);
     for (const id of ids) {
       try { await api.patch(`/api/workspace/pages/${id}`, { is_archived: true }); } catch {}
     }
-    setPages(prev => prev.filter(p => !selectedIds.has(p.id)));
+    const deletedSet = new Set(ids);
+    setPages(prev => prev.filter(p => !deletedSet.has(p.id)));
     setTotal(t => t - ids.length);
-    setSelectedIds(new Set());
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      ids.forEach(id => next.delete(id));
+      return next;
+    });
   }
 
   function copySelected() {
@@ -1209,7 +1204,7 @@ export default function WorkspacePage() {
                             onClose={() => setMenuPageId(null)}
                             onAddSubPage={() => createSubPage(page.id)}
                             onEnterFolder={() => { setMenuPageId(null); navigateToFolder(page); }}
-                            labels={{ open: tWorkspace('openPage'), enter: tWorkspace('enterFolder'), addSub: tWorkspace('addSubPage'), copy: tWorkspace('copyPage'), share: tWorkspace('sharePage'), delete: tWorkspace('deletePage') }}
+                            labels={{ open: tWorkspace('openPage'), enter: tWorkspace('enterFolder'), addSub: tWorkspace('addSubPage'), copy: tWorkspace('copyBtn'), share: tWorkspace('share'), delete: tWorkspace('deleteBtn') }}
                           />
                         )}
                       </div>
@@ -1275,7 +1270,7 @@ export default function WorkspacePage() {
                                 onClose={() => setMenuPageId(null)}
                                 onAddSubPage={() => createSubPage(page.id)}
                                 onEnterFolder={() => { setMenuPageId(null); navigateToFolder(page); }}
-                                labels={{ open: tWorkspace('openPage'), enter: tWorkspace('enterFolder'), addSub: tWorkspace('addSubPage'), copy: tWorkspace('copyPage'), share: tWorkspace('sharePage'), delete: tWorkspace('deletePage') }}
+                                labels={{ open: tWorkspace('openPage'), enter: tWorkspace('enterFolder'), addSub: tWorkspace('addSubPage'), copy: tWorkspace('copyBtn'), share: tWorkspace('share'), delete: tWorkspace('deleteBtn') }}
                               />
                             )}
                           </div>
@@ -1447,6 +1442,31 @@ export default function WorkspacePage() {
               style={{ color: 'var(--notion-text-muted)', border: '1px solid var(--notion-border)' }}>{tCommon('cancel')}</button>
             <button onClick={confirmDeleteWs} className="flex-1 py-2 text-sm rounded-lg font-medium text-white"
               style={{ background: '#dc2626' }}>{tCommon('delete')}</button>
+          </div>
+        </Modal>
+      )}
+
+      {/* ── Modals: Confirm delete page(s) ── */}
+      {pendingDeletePageIds && (
+        <Modal title={tCommon('delete')} onClose={() => setPendingDeletePageIds(null)}>
+          <p className="text-sm mb-4" style={{ color: 'var(--notion-text-muted)' }}>
+            {pendingDeleteText}
+          </p>
+          <div className="flex gap-2">
+            <button
+              onClick={() => setPendingDeletePageIds(null)}
+              className="flex-1 py-2 text-sm rounded-lg"
+              style={{ color: 'var(--notion-text-muted)', border: '1px solid var(--notion-border)' }}
+            >
+              {tCommon('cancel')}
+            </button>
+            <button
+              onClick={confirmDeletePagesAction}
+              className="flex-1 py-2 text-sm rounded-lg font-medium text-white"
+              style={{ background: '#dc2626' }}
+            >
+              {tCommon('delete')}
+            </button>
           </div>
         </Modal>
       )}

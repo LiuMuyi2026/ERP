@@ -1,9 +1,10 @@
 'use client';
 
-import { useEffect, useState, useRef, useCallback } from 'react';
+import { useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import { api } from '@/lib/api';
 import { useTranslations, useLocale } from 'next-intl';
 import { HandIcon } from '@/components/ui/HandIcon';
+import type { CSSProperties } from 'react';
 
 interface Template {
   id: string;
@@ -26,6 +27,39 @@ interface TemplateGalleryProps {
   onAppend?: (templateId: string, title: string) => void;
   useTemplateLabel?: string;
   appendTemplateLabel?: string;
+}
+
+type SortMode = 'recommended' | 'newest' | 'az';
+
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function HighlightText({
+  text,
+  query,
+  className,
+  style,
+}: {
+  text: string;
+  query: string;
+  className?: string;
+  style?: CSSProperties;
+}) {
+  const source = String(text || '');
+  const q = String(query || '').trim();
+  if (!q) return <span className={className} style={style}>{source}</span>;
+  const re = new RegExp(`(${escapeRegExp(q)})`, 'ig');
+  const parts = source.split(re);
+  return (
+    <span className={className} style={style}>
+      {parts.map((part, idx) => (
+        idx % 2 === 1
+          ? <mark key={idx} style={{ background: '#fef3c7', color: '#92400e', padding: '0 1px', borderRadius: 2 }}>{part}</mark>
+          : <span key={idx}>{part}</span>
+      ))}
+    </span>
+  );
 }
 
 const CATEGORY_ICONS: Record<string, string> = {
@@ -206,7 +240,7 @@ function BlankPageCard({ onBlank, t }: { onBlank: () => void; t: any }) {
 }
 
 // ── Template Card (grid view) ─────────────────────────────────────────────────
-function TemplateCard({ template, onSelect }: { template: Template; onSelect: (t: Template) => void }) {
+function TemplateCard({ template, onSelect, searchQuery }: { template: Template; onSelect: (t: Template) => void; searchQuery?: string }) {
   const gradient = CATEGORY_GRADIENTS[template.category] || CATEGORY_GRADIENTS.Custom;
   const bgColor = CATEGORY_BG[template.category] || CATEGORY_BG.Custom;
 
@@ -240,9 +274,13 @@ function TemplateCard({ template, onSelect }: { template: Template; onSelect: (t
 
       {/* Card body */}
       <div className="p-3 flex-1">
-        <div className="font-semibold text-sm mb-1 truncate" style={{ color: 'var(--notion-text)' }}>{template.title}</div>
+        <div className="font-semibold text-sm mb-1 truncate" style={{ color: 'var(--notion-text)' }}>
+          <HighlightText text={template.title} query={searchQuery || ''} />
+        </div>
         {template.description && (
-          <p className="text-xs line-clamp-2 leading-relaxed" style={{ color: 'var(--notion-text-muted)' }}>{template.description}</p>
+          <p className="text-xs line-clamp-2 leading-relaxed" style={{ color: 'var(--notion-text-muted)' }}>
+            <HighlightText text={template.description} query={searchQuery || ''} />
+          </p>
         )}
 
         {/* View count */}
@@ -299,6 +337,7 @@ export default function TemplateGallery({
   const [templates, setTemplates] = useState<Template[]>([]);
   const [loading, setLoading] = useState(false);
   const [activeFilter, setActiveFilter] = useState('All');
+  const [sortMode, setSortMode] = useState<SortMode>('recommended');
   const [search, setSearch] = useState('');
   const [selected, setSelected] = useState<Template | null>(null);
   const [deleting, setDeleting] = useState(false);
@@ -352,11 +391,16 @@ export default function TemplateGallery({
     page: 'Page',
     page_title: 'Page Title',
   };
+  const sortLabels: Record<SortMode, string> = {
+    recommended: tWorkspace('templateSortRecommended'),
+    newest: tWorkspace('templateSortNewest'),
+    az: tWorkspace('templateSortAz'),
+  };
 
   useEffect(() => {
     if (!open) return;
     setLoading(true);
-    setSearch(''); setSelected(null); setActiveFilter('All');
+    setSearch(''); setSelected(null); setActiveFilter('All'); setSortMode('recommended');
     api.get(`/api/workspace/templates?lang=${lang}`)
       .then(data => {
         const list = Array.isArray(data) ? data : [];
@@ -371,13 +415,6 @@ export default function TemplateGallery({
       .catch(() => {})
       .finally(() => setLoading(false));
   }, [open, lang]);
-
-  useEffect(() => {
-    if (!open) return;
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [open, onClose]);
 
   const handleSelect = useCallback((t: Template) => setSelected(t), []);
 
@@ -403,8 +440,6 @@ export default function TemplateGallery({
     } catch {} finally { setDeleting(false); }
   }
 
-  if (!open) return null;
-
   const userTemplates = templates.filter(t => t.source === 'user');
   const filteredList = templates
     .filter(t => {
@@ -413,9 +448,84 @@ export default function TemplateGallery({
       return true;
     })
     .filter(t => !search || t.title.toLowerCase().includes(search.toLowerCase()) || (t.description || '').toLowerCase().includes(search.toLowerCase()));
+  const sortedFilteredList = useMemo(() => {
+    const list = [...filteredList];
+    if (sortMode === 'newest') {
+      list.sort((a, b) => {
+        const ta = Date.parse(String(a.created_at || ''));
+        const tb = Date.parse(String(b.created_at || ''));
+        if (!Number.isNaN(tb) && !Number.isNaN(ta)) return tb - ta;
+        if (!Number.isNaN(tb)) return 1;
+        if (!Number.isNaN(ta)) return -1;
+        return String(a.title || '').localeCompare(String(b.title || ''), isZh ? 'zh-CN' : 'en', { sensitivity: 'base' });
+      });
+      return list;
+    }
+    if (sortMode === 'az') {
+      list.sort((a, b) => String(a.title || '').localeCompare(String(b.title || ''), isZh ? 'zh-CN' : 'en', { sensitivity: 'base' }));
+      return list;
+    }
+    list.sort((a, b) => {
+      if (a.source !== b.source) return a.source === 'builtin' ? -1 : 1;
+      return 0;
+    });
+    return list;
+  }, [filteredList, sortMode, isZh]);
 
   const categories = Array.from(new Set(templates.filter(t => t.source === 'builtin').map(t => t.category)));
+  const quickCategories = categories.slice(0, 6);
   const selectedVariables = selected ? extractTemplateVariables({ title: selected.title, content: selected.content, views: selected.default_views }) : [];
+  const selectedIndex = selected ? sortedFilteredList.findIndex(t => t.id === selected.id) : -1;
+
+  useEffect(() => {
+    if (!selected) return;
+    if (!sortedFilteredList.some(t => t.id === selected.id)) {
+      setSelected(null);
+    }
+  }, [sortedFilteredList, selected]);
+
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null;
+      const tag = target?.tagName;
+      const isTypingEl = !!target && (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || target.isContentEditable);
+      const isSearchInput = !!target && target === searchRef.current;
+
+      if (e.key === 'Escape') {
+        onClose();
+        return;
+      }
+      if (!sortedFilteredList.length) return;
+
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+        if (isTypingEl && !isSearchInput) return;
+        e.preventDefault();
+        const current = selected ? sortedFilteredList.findIndex(t => t.id === selected.id) : -1;
+        const base = current < 0 ? (e.key === 'ArrowDown' ? -1 : 0) : current;
+        const nextIndex = e.key === 'ArrowDown'
+          ? (base + 1) % sortedFilteredList.length
+          : (base - 1 + sortedFilteredList.length) % sortedFilteredList.length;
+        setSelected(sortedFilteredList[nextIndex]);
+        return;
+      }
+
+      if (e.key === 'Enter') {
+        if (isTypingEl && !isSearchInput) return;
+        if (selected) {
+          e.preventDefault();
+          onSelect(selected.id, selected.title);
+          onClose();
+        } else if (isSearchInput) {
+          setSelected(sortedFilteredList[0]);
+        }
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [open, onClose, onSelect, selected, sortedFilteredList]);
+
+  if (!open) return null;
 
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(2px)' }}
@@ -472,6 +582,11 @@ export default function TemplateGallery({
                 ref={searchRef}
                 value={search}
                 onChange={e => { setSearch(e.target.value); setSelected(null); }}
+                onKeyDown={e => {
+                  if (e.key === 'Enter' && sortedFilteredList.length > 0) {
+                    setSelected(sortedFilteredList[0]);
+                  }
+                }}
                 placeholder={tWorkspace('searchTemplates')}
                 className="flex-1 text-sm outline-none bg-transparent"
                 style={{ color: 'var(--notion-text)' }}
@@ -486,8 +601,19 @@ export default function TemplateGallery({
             </div>
 
             <div className="ml-auto flex items-center gap-3 flex-shrink-0">
+              <select
+                value={sortMode}
+                onChange={e => setSortMode(e.target.value as SortMode)}
+                className="text-xs px-2.5 py-1.5 rounded-lg outline-none"
+                style={{ border: '1px solid var(--notion-border)', color: 'var(--notion-text)', background: 'var(--notion-card-elevated, var(--notion-card, white))' }}
+                title={tWorkspace('templateSortLabel')}
+              >
+                <option value="recommended">{sortLabels.recommended}</option>
+                <option value="newest">{sortLabels.newest}</option>
+                <option value="az">{sortLabels.az}</option>
+              </select>
               <span className="text-xs" style={{ color: 'var(--notion-text-muted)' }}>
-                {tWorkspace('templateCount', { n: filteredList.length })}
+                {tWorkspace('templateCount', { n: sortedFilteredList.length })}
               </span>
               <button onClick={onClose} className="w-7 h-7 rounded-lg flex items-center justify-center transition-colors" style={{ color: 'var(--notion-text-muted)' }}
                 onMouseEnter={e => { e.currentTarget.style.background = 'var(--notion-hover)'; }}
@@ -498,6 +624,37 @@ export default function TemplateGallery({
                 </svg>
               </button>
             </div>
+          </div>
+          {/* Quick category chips */}
+          <div className="px-6 py-2 border-b flex items-center gap-2 overflow-x-auto" style={{ borderColor: 'var(--notion-border)', background: 'var(--notion-card-elevated, var(--notion-card, white))' }}>
+            <button
+              onClick={() => { setActiveFilter('All'); setSelected(null); }}
+              className="text-xs px-2.5 py-1 rounded-full whitespace-nowrap"
+              style={{
+                border: '1px solid var(--notion-border)',
+                background: activeFilter === 'All' ? 'var(--notion-active)' : 'transparent',
+                color: activeFilter === 'All' ? 'var(--notion-text)' : 'var(--notion-text-muted)',
+                fontWeight: activeFilter === 'All' ? 600 : 500,
+              }}
+            >
+              {tWorkspace('allTemplates')}
+            </button>
+            {quickCategories.map(cat => (
+              <button
+                key={cat}
+                onClick={() => { setActiveFilter(cat); setSelected(null); }}
+                className="text-xs px-2.5 py-1 rounded-full whitespace-nowrap inline-flex items-center gap-1.5"
+                style={{
+                  border: '1px solid var(--notion-border)',
+                  background: activeFilter === cat ? 'var(--notion-active)' : 'transparent',
+                  color: activeFilter === cat ? 'var(--notion-text)' : 'var(--notion-text-muted)',
+                  fontWeight: activeFilter === cat ? 600 : 500,
+                }}
+              >
+                <HandIcon name={CATEGORY_ICONS[cat] || 'clipboard'} size={11} />
+                {cat}
+              </button>
+            ))}
           </div>
 
           {/* Content: two-pane (grid/list + preview) */}
@@ -511,7 +668,7 @@ export default function TemplateGallery({
                   </svg>
                   {tCommon('loading')}
                 </div>
-              ) : filteredList.length === 0 ? (
+              ) : sortedFilteredList.length === 0 ? (
                 <div className="flex flex-col items-center justify-center h-48 gap-2">
                   <HandIcon name="magnifier" size={32} />
                   <p className="text-sm font-medium" style={{ color: 'var(--notion-text)' }}>
@@ -538,15 +695,15 @@ export default function TemplateGallery({
                         </div>
                         <div className="grid gap-4" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))' }}>
                           <BlankPageCard onBlank={() => { onClose(); onBlank?.(); }} t={tWorkspace} />
-                          {filteredList.filter(t => t.source === 'builtin').slice(0, 5).map(t => (
-                            <TemplateCard key={t.id} template={t} onSelect={handleSelect} />
+                          {sortedFilteredList.filter(t => t.source === 'builtin').slice(0, 5).map(t => (
+                            <TemplateCard key={t.id} template={t} onSelect={handleSelect} searchQuery={search} />
                           ))}
                         </div>
                       </div>
 
                       {/* By category */}
                       {categories.map(cat => {
-                        const catTemplates = filteredList.filter(t => t.source === 'builtin' && t.category === cat);
+                        const catTemplates = sortedFilteredList.filter(t => t.source === 'builtin' && t.category === cat);
                         if (!catTemplates.length) return null;
                         return (
                           <div key={cat} className="mb-8">
@@ -557,7 +714,7 @@ export default function TemplateGallery({
                             </div>
                             <div className="grid gap-4" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))' }}>
                               {catTemplates.map(t => (
-                                <TemplateCard key={t.id} template={t} onSelect={handleSelect} />
+                                <TemplateCard key={t.id} template={t} onSelect={handleSelect} searchQuery={search} />
                               ))}
                             </div>
                           </div>
@@ -565,7 +722,7 @@ export default function TemplateGallery({
                       })}
 
                       {/* User templates */}
-                      {filteredList.filter(t => t.source === 'user').length > 0 && (
+                      {sortedFilteredList.filter(t => t.source === 'user').length > 0 && (
                         <div className="mb-8">
                           <div className="flex items-center gap-2 mb-4">
                             <HandIcon name="file-cabinet" size={16} />
@@ -574,8 +731,8 @@ export default function TemplateGallery({
                             </h3>
                           </div>
                           <div className="grid gap-4" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))' }}>
-                            {filteredList.filter(t => t.source === 'user').map(t => (
-                              <TemplateCard key={t.id} template={t} onSelect={handleSelect} />
+                            {sortedFilteredList.filter(t => t.source === 'user').map(t => (
+                              <TemplateCard key={t.id} template={t} onSelect={handleSelect} searchQuery={search} />
                             ))}
                           </div>
                         </div>
@@ -592,20 +749,20 @@ export default function TemplateGallery({
                           <div>
                             <h2 className="text-base font-bold" style={{ color: 'var(--notion-text)' }}>{activeFilter}</h2>
                             <p className="text-xs" style={{ color: 'var(--notion-text-muted)' }}>
-                              {tWorkspace('templateCount', { n: filteredList.length })}
+                              {tWorkspace('templateCount', { n: sortedFilteredList.length })}
                             </p>
                           </div>
                         </div>
                       )}
                       {search && (
                         <p className="text-xs mb-4" style={{ color: 'var(--notion-text-muted)' }}>
-                          {tWorkspace('searchResultCount', { n: filteredList.length })} {search && `"${search}"`}
+                          {tWorkspace('searchResultCount', { n: sortedFilteredList.length })} {search && `"${search}"`}
                         </p>
                       )}
                       <div className="grid gap-4" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))' }}>
                         {!search && <BlankPageCard onBlank={() => { onClose(); onBlank?.(); }} t={tWorkspace} />}
-                        {filteredList.map(t => (
-                          <TemplateCard key={t.id} template={t} onSelect={handleSelect} />
+                        {sortedFilteredList.map(t => (
+                          <TemplateCard key={t.id} template={t} onSelect={handleSelect} searchQuery={search} />
                         ))}
                       </div>
                     </>
@@ -622,6 +779,42 @@ export default function TemplateGallery({
                   height: 140,
                   background: CATEGORY_GRADIENTS[selected.category] || CATEGORY_GRADIENTS.Custom,
                 }}>
+                  {sortedFilteredList.length > 1 && (
+                    <>
+                      <button
+                        onClick={() => {
+                          if (selectedIndex < 0) return;
+                          const prevIndex = (selectedIndex - 1 + sortedFilteredList.length) % sortedFilteredList.length;
+                          setSelected(sortedFilteredList[prevIndex]);
+                        }}
+                        className="absolute top-3 left-3 w-7 h-7 rounded-full flex items-center justify-center transition-colors"
+                        style={{ background: 'rgba(255,255,255,0.25)', color: 'white' }}
+                        onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.4)'; }}
+                        onMouseLeave={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.25)'; }}
+                        title={tWorkspace('templatePrev')}
+                      >
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                          <polyline points="15 18 9 12 15 6" />
+                        </svg>
+                      </button>
+                      <button
+                        onClick={() => {
+                          if (selectedIndex < 0) return;
+                          const nextIndex = (selectedIndex + 1) % sortedFilteredList.length;
+                          setSelected(sortedFilteredList[nextIndex]);
+                        }}
+                        className="absolute top-3 left-11 w-7 h-7 rounded-full flex items-center justify-center transition-colors"
+                        style={{ background: 'rgba(255,255,255,0.25)', color: 'white' }}
+                        onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.4)'; }}
+                        onMouseLeave={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.25)'; }}
+                        title={tWorkspace('templateNext')}
+                      >
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                          <polyline points="9 18 15 12 9 6" />
+                        </svg>
+                      </button>
+                    </>
+                  )}
                   <div className="absolute inset-0 flex items-end p-5">
                     <div>
                       <div className="text-4xl mb-2">{selected.icon}</div>
@@ -652,7 +845,7 @@ export default function TemplateGallery({
                       background: selected.source === 'builtin' ? '#e8f4fd' : '#f0fdf4',
                       color: selected.source === 'builtin' ? '#1d6fa8' : '#15803d',
                     }}>
-                      <span className="inline-flex items-center gap-1"><HandIcon name="sparkle-star" size={10} /> {selected.source === 'builtin' ? tWorkspace('builtIn') : tWorkspace('myTemplate')}</span>
+                      <span className="inline-flex items-center gap-1"><HandIcon name="sparkle-star" size={10} /> {selected.source === 'builtin' ? tWorkspace('builtIn') : tWorkspace('myTemplates')}</span>
                     </span>
                     {selected.creator_name && selected.source === 'user' && (
                       <span className="text-xs" style={{ color: 'var(--notion-text-muted)' }}>{isZh ? '作者' : 'by'} {selected.creator_name}</span>

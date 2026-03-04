@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useRef, useCallback } from 'react';
+import { useLocale } from 'next-intl';
 import { HandIcon } from '@/components/ui/HandIcon';
 
 export interface TableColumn {
@@ -22,21 +23,37 @@ interface InlineTableViewProps {
 // Notion-style status colors
 const STATUS_COLORS: Record<string, { bg: string; color: string }> = {
   'todo': { bg: '#f1f1ef', color: '#777' },
+  'to do': { bg: '#f1f1ef', color: '#777' },
+  '未开始': { bg: '#f1f1ef', color: '#777' },
+  '待办': { bg: '#f1f1ef', color: '#777' },
   'in progress': { bg: '#e8f3ff', color: '#2383e2' },
+  '进行中': { bg: '#e8f3ff', color: '#2383e2' },
   'done': { bg: '#e8f9ee', color: '#1c7f4c' },
+  '已完成': { bg: '#e8f9ee', color: '#1c7f4c' },
+  '完成': { bg: '#e8f9ee', color: '#1c7f4c' },
   'blocked': { bg: '#ffeeed', color: '#e03e3e' },
+  '阻塞': { bg: '#ffeeed', color: '#e03e3e' },
   'open': { bg: '#f1f1ef', color: '#777' },
   'fixed': { bg: '#e8f9ee', color: '#1c7f4c' },
   'closed': { bg: '#f1f1ef', color: '#777' },
   'planned': { bg: '#f8f3ff', color: '#9065b0' },
+  '计划中': { bg: '#f8f3ff', color: '#9065b0' },
   'high': { bg: '#ffeeed', color: '#e03e3e' },
+  '高': { bg: '#ffeeed', color: '#e03e3e' },
   'medium': { bg: '#fbf3db', color: '#b65e1a' },
+  '中': { bg: '#fbf3db', color: '#b65e1a' },
   'low': { bg: '#eefaf3', color: '#1c7f4c' },
+  '低': { bg: '#eefaf3', color: '#1c7f4c' },
   'critical': { bg: '#ffeeed', color: '#e03e3e' },
+  '紧急': { bg: '#ffeeed', color: '#e03e3e' },
   'research': { bg: '#e8f3ff', color: '#2383e2' },
+  '调研': { bg: '#e8f3ff', color: '#2383e2' },
   'review': { bg: '#fbf3db', color: '#b65e1a' },
+  '审核中': { bg: '#fbf3db', color: '#b65e1a' },
   'approved': { bg: '#e8f9ee', color: '#1c7f4c' },
+  '已批准': { bg: '#e8f9ee', color: '#1c7f4c' },
   'draft': { bg: '#f1f1ef', color: '#777' },
+  '草稿': { bg: '#f1f1ef', color: '#777' },
 };
 
 function StatusCell({ value }: { value: string }) {
@@ -54,17 +71,38 @@ function StatusCell({ value }: { value: string }) {
 }
 
 export default function InlineTableView({ columns, rows, onRowsChange }: InlineTableViewProps) {
+  const isZh = String(useLocale() || '').toLowerCase().startsWith('zh');
+  const text = {
+    emptyCell: isZh ? '空' : 'Empty',
+    noEntries: isZh ? '暂无数据，点击' : 'No entries yet, click',
+    addRowHint: isZh ? '+ 新建行' : '+ New row',
+    toAdd: isZh ? '新增一行' : 'to add one',
+    deleteRow: isZh ? '删除行' : 'Delete row',
+    newRow: isZh ? '新建行' : 'New row',
+    row: isZh ? '行' : 'row',
+    rows: isZh ? '行' : 'rows',
+  };
   const [editing, setEditing] = useState<{ rowIdx: number; colKey: string } | null>(null);
   const [hoveredRow, setHoveredRow] = useState<number | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
+  const buildEmptyRow = useCallback((): TableRow => {
+    const row: TableRow = {};
+    columns.forEach(col => { row[col.key] = ''; });
+    return row;
+  }, [columns]);
+
   const isStatusCol = (col: TableColumn) =>
     col.type === 'status' || /status|priority|severity/i.test(col.key + col.title);
 
-  const startEdit = useCallback((rowIdx: number, colKey: string) => {
+  const focusCell = useCallback((rowIdx: number, colKey: string) => {
     setEditing({ rowIdx, colKey });
     setTimeout(() => { inputRef.current?.focus(); inputRef.current?.select(); }, 30);
   }, []);
+
+  const startEdit = useCallback((rowIdx: number, colKey: string) => {
+    focusCell(rowIdx, colKey);
+  }, [focusCell]);
 
   const commitEdit = useCallback((rowIdx: number, colKey: string, value: string) => {
     const updated = rows.map((row, i) => i === rowIdx ? { ...row, [colKey]: value } : row);
@@ -72,11 +110,42 @@ export default function InlineTableView({ columns, rows, onRowsChange }: InlineT
     setEditing(null);
   }, [rows, onRowsChange]);
 
+  const commitAndMove = useCallback((
+    rowIdx: number,
+    colIdx: number,
+    value: string,
+    direction: 'forward' | 'backward',
+  ) => {
+    if (!columns[colIdx]) return;
+    let updatedRows = rows.map((row, i) =>
+      i === rowIdx ? { ...row, [columns[colIdx].key]: value } : row,
+    );
+
+    let nextRow = rowIdx;
+    let nextCol = direction === 'forward' ? colIdx + 1 : colIdx - 1;
+    if (nextCol >= columns.length) {
+      nextCol = 0;
+      nextRow += 1;
+    } else if (nextCol < 0) {
+      nextCol = columns.length - 1;
+      nextRow -= 1;
+    }
+
+    if (nextRow >= updatedRows.length) {
+      updatedRows = [...updatedRows, buildEmptyRow()];
+    }
+
+    onRowsChange(updatedRows);
+    if (nextRow >= 0 && columns[nextCol]) {
+      focusCell(nextRow, columns[nextCol].key);
+    } else {
+      setEditing(null);
+    }
+  }, [rows, columns, buildEmptyRow, onRowsChange, focusCell]);
+
   const addRow = useCallback(() => {
-    const emptyRow: TableRow = {};
-    columns.forEach(col => { emptyRow[col.key] = ''; });
-    onRowsChange([...rows, emptyRow]);
-  }, [rows, columns, onRowsChange]);
+    onRowsChange([...rows, buildEmptyRow()]);
+  }, [rows, buildEmptyRow, onRowsChange]);
 
   const deleteRow = useCallback((rowIdx: number) => {
     onRowsChange(rows.filter((_, i) => i !== rowIdx));
@@ -123,7 +192,7 @@ export default function InlineTableView({ columns, rows, onRowsChange }: InlineT
                 <td colSpan={columns.length + 1} style={{ padding: '24px 14px', textAlign: 'center', color: 'var(--notion-text-muted)', fontSize: 13 }}>
                   <div className="flex flex-col items-center gap-2">
                     <HandIcon name="clipboard" size={24} />
-                    <span>No entries yet — click <strong>+ New row</strong> to add one</span>
+                    <span>{text.noEntries} <strong>{text.addRowHint}</strong> {text.toAdd}</span>
                   </div>
                 </td>
               </tr>
@@ -157,7 +226,14 @@ export default function InlineTableView({ columns, rows, onRowsChange }: InlineT
                             autoFocus
                             onBlur={e => commitEdit(rowIdx, col.key, e.target.value)}
                             onKeyDown={e => {
-                              if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); commitEdit(rowIdx, col.key, (e.target as HTMLInputElement).value); }
+                              if (e.key === 'Enter') {
+                                e.preventDefault();
+                                commitAndMove(rowIdx, ci, (e.target as HTMLInputElement).value, 'forward');
+                              }
+                              if (e.key === 'Tab') {
+                                e.preventDefault();
+                                commitAndMove(rowIdx, ci, (e.target as HTMLInputElement).value, e.shiftKey ? 'backward' : 'forward');
+                              }
                               if (e.key === 'Escape') setEditing(null);
                             }}
                             style={{
@@ -178,7 +254,7 @@ export default function InlineTableView({ columns, rows, onRowsChange }: InlineT
                                 fontSize: 14, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
                                 fontStyle: row[col.key] ? 'normal' : 'italic', opacity: row[col.key] ? 1 : 0.4,
                               }}>
-                                {row[col.key] || 'Empty'}
+                                {row[col.key] || text.emptyCell}
                               </span>
                             )}
                           </div>
@@ -197,7 +273,7 @@ export default function InlineTableView({ columns, rows, onRowsChange }: InlineT
                         padding: '4px', borderRadius: 4, color: 'var(--notion-text-muted)',
                         display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto',
                       }}
-                      title="Delete row"
+                      title={text.deleteRow}
                       onMouseEnter={e => { e.currentTarget.style.color = '#dc2626'; e.currentTarget.style.background = '#fef2f2'; }}
                       onMouseLeave={e => { e.currentTarget.style.color = 'var(--notion-text-muted)'; e.currentTarget.style.background = 'transparent'; }}
                     >
@@ -225,11 +301,11 @@ export default function InlineTableView({ columns, rows, onRowsChange }: InlineT
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
             <line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" />
           </svg>
-          New row
+          {text.newRow}
         </button>
         {rows.length > 0 && (
           <span className="text-xs" style={{ color: 'var(--notion-text-muted)' }}>
-            {rows.length} {rows.length === 1 ? 'row' : 'rows'}
+            {rows.length} {rows.length === 1 ? text.row : text.rows}
           </span>
         )}
       </div>

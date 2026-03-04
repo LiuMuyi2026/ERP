@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { api } from '@/lib/api';
 import { useTranslations } from 'next-intl';
 import { HandIcon } from '@/components/ui/HandIcon';
@@ -119,22 +119,31 @@ export default function SharePanel({ pageId, pageTitle, onClose }: SharePanelPro
   const [members, setMembers] = useState<Member[]>([]);
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
   const [selectedWorkspaceId, setSelectedWorkspaceId] = useState<string>('');
+  const [savedWorkspaceId, setSavedWorkspaceId] = useState<string>('');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [saveStatus, setSaveStatus] = useState<'idle' | 'saved' | 'error'>('idle');
   const [copied, setCopied] = useState(false);
+  const readyToAutoSaveRef = useRef(false);
+  const saveStatusTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const pageUrl = typeof window !== 'undefined' ? window.location.href : '';
 
   useEffect(() => {
     async function load() {
+      readyToAutoSaveRef.current = false;
       setLoading(true);
       try {
+        let workspaceFromPermissions = '';
+
         // Load sharing config
         try {
           const data = await api.get(`/api/workspace/pages/${pageId}/sharing`);
           if (data?.permissions) {
             setPermissions(data.permissions);
-            if (data.permissions.workspace_id) setSelectedWorkspaceId(data.permissions.workspace_id);
+            if (data.permissions.workspace_id) {
+              workspaceFromPermissions = data.permissions.workspace_id;
+            }
           }
           if (data?.members) setMembers(data.members);
         } catch {}
@@ -150,26 +159,39 @@ export default function SharePanel({ pageId, pageTitle, onClose }: SharePanelPro
         try {
           const treeData = await api.get('/api/workspace/sidebar/tree');
           if (Array.isArray(treeData)) {
-            setWorkspaces(treeData.map((ws: any) => ({ id: ws.id, name: ws.name, icon: ws.icon })));
-            if (!selectedWorkspaceId && treeData.length > 0) setSelectedWorkspaceId(treeData[0].id);
+            const workspaceList = treeData.map((ws: any) => ({ id: ws.id, name: ws.name, icon: ws.icon }));
+            setWorkspaces(workspaceList);
+            const defaultWorkspaceId = workspaceFromPermissions || workspaceList[0]?.id || '';
+            setSelectedWorkspaceId(defaultWorkspaceId);
+            setSavedWorkspaceId(defaultWorkspaceId);
           }
         } catch {}
       } finally {
         setLoading(false);
+        readyToAutoSaveRef.current = true;
       }
     }
     load();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pageId]);
 
-  async function save(updated: PermissionsData) {
+  async function save(updated: PermissionsData, workspaceIdOverride?: string) {
+    const workspaceId = workspaceIdOverride ?? selectedWorkspaceId;
     setSaving(true);
+    setSaveStatus('idle');
     try {
       await api.patch(`/api/workspace/pages/${pageId}/sharing`, {
-        permissions: { ...updated, workspace_id: selectedWorkspaceId || undefined },
+        permissions: { ...updated, workspace_id: workspaceId || undefined },
       });
-    } catch {}
-    finally { setSaving(false); }
+      setSavedWorkspaceId(workspaceId || '');
+      setSaveStatus('saved');
+    } catch {
+      setSaveStatus('error');
+    } finally {
+      setSaving(false);
+      if (saveStatusTimerRef.current) clearTimeout(saveStatusTimerRef.current);
+      saveStatusTimerRef.current = setTimeout(() => setSaveStatus('idle'), 1800);
+    }
   }
 
   function setDefault(p: Permission) {
@@ -197,6 +219,19 @@ export default function SharePanel({ pageId, pageTitle, onClose }: SharePanelPro
     });
   }
 
+  useEffect(() => {
+    if (!readyToAutoSaveRef.current) return;
+    if (!selectedWorkspaceId || selectedWorkspaceId === savedWorkspaceId) return;
+    save(permissions, selectedWorkspaceId);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedWorkspaceId]);
+
+  useEffect(() => {
+    return () => {
+      if (saveStatusTimerRef.current) clearTimeout(saveStatusTimerRef.current);
+    };
+  }, []);
+
   return (
     <div className="fixed inset-0 z-[100] flex" onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
       {/* Overlay */}
@@ -211,11 +246,27 @@ export default function SharePanel({ pageId, pageTitle, onClose }: SharePanelPro
           <div className="flex items-center gap-2">
             <HandIcon name="link" size={16} />
             <h2 className="text-sm font-semibold" style={{ color: 'var(--notion-text)' }}>
-              {pageTitle ? t('shareTitleWithPage', { title: pageTitle }) : t('shareTitle')}
+              {pageTitle ? t('shareTitleWithPage', { title: pageTitle }) : t('share')}
             </h2>
           </div>
           <div className="flex items-center gap-2">
             {saving && <span className="text-xs" style={{ color: '#9B9A97' }}>{t('savingText')}</span>}
+            {!saving && saveStatus === 'saved' && (
+              <span
+                className="text-xs px-2 py-0.5 rounded-full"
+                style={{ color: '#0f766e', background: '#ecfdf5', border: '1px solid #a7f3d0' }}
+              >
+                {t('shareSavedStatus')}
+              </span>
+            )}
+            {!saving && saveStatus === 'error' && (
+              <span
+                className="text-xs px-2 py-0.5 rounded-full"
+                style={{ color: '#b91c1c', background: '#fef2f2', border: '1px solid #fecaca' }}
+              >
+                {t('shareSaveFailedStatus')}
+              </span>
+            )}
             <button onClick={onClose}
               className="p-1.5 rounded-lg transition-colors"
               style={{ color: 'var(--notion-text-muted)' }}
@@ -246,7 +297,7 @@ export default function SharePanel({ pageId, pageTitle, onClose }: SharePanelPro
                   color: copied ? '#0F9D58' : '#7c3aed',
                 }}
               >
-                {copied ? t('linkCopied') : t('copyLink')}
+                {copied ? t('copied') : t('copyBtn')}
               </button>
             </div>
           </div>
@@ -300,7 +351,7 @@ export default function SharePanel({ pageId, pageTitle, onClose }: SharePanelPro
 
             {!loading && members.length === 0 && (
               <div className="py-8 text-center">
-                <p className="text-sm" style={{ color: '#9B9A97' }}>{t('noMembersYet')}</p>
+                <p className="text-sm" style={{ color: '#9B9A97' }}>{t('noMembers')}</p>
                 <p className="text-xs mt-1" style={{ color: '#9B9A97' }}>
                   {t('inviteHint')}
                 </p>
@@ -324,7 +375,7 @@ export default function SharePanel({ pageId, pageTitle, onClose }: SharePanelPro
                         {member.email}
                         {member.role === 'admin' && (
                           <span className="ml-1.5 px-1.5 py-0.5 rounded text-[9px] font-medium"
-                            style={{ background: '#ede9fe', color: '#7c3aed' }}>{t('adminBadge')}</span>
+                            style={{ background: '#ede9fe', color: '#7c3aed' }}>{t('admin')}</span>
                         )}
                       </p>
                     </div>

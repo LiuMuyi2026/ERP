@@ -5,6 +5,7 @@ import { useTranslations, useLocale } from 'next-intl';
 import { LangCode } from '@/lib/locale';
 import { HandIcon } from '@/components/ui/HandIcon';
 import { api, getApiUrl, getAuthHeaders } from '@/lib/api';
+import toast from 'react-hot-toast';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 export type RecordingState = 'idle' | 'recording' | 'paused' | 'done';
@@ -245,49 +246,44 @@ export default function VoiceMemoView({
 }: VoiceMemoViewProps) {
   const lang = useLocale();
   const t = useTranslations('workspace');
-  const isZh = String(lang).startsWith('zh');
   const uiText = {
-    saveToNotes: isZh ? '保存到笔记' : 'Save To Notes',
-    exportMd: isZh ? '导出 Markdown' : 'Export MD',
-    createTaskPage: isZh ? '生成任务页' : 'Create Task Page',
-    creating: isZh ? '创建中...' : 'Creating...',
-    noActionItems: isZh ? '没有可转换的行动项。' : 'No action items to create tasks from.',
-    cannotResolveWorkspace: isZh ? '无法获取工作区信息' : 'Cannot resolve workspace',
-    taskPageCreated: isZh ? '任务页已创建。' : 'Task page created.',
-    createTaskFailed: isZh ? '创建任务页失败' : 'Failed to create task page',
-    exportScopeSummary: isZh ? '仅总结' : 'Summary Only',
-    exportScopeFull: isZh ? '完整（含转写）' : 'Full (With Transcript)',
-    asSubpage: isZh ? '作为当前页子页面' : 'Create As Subpage',
-    applyTemplate: isZh ? '应用模板骨架' : 'Apply Template Scaffold',
-    usingCheckedItems: isZh ? '仅使用已勾选项创建任务页' : 'Use checked items only',
-    quickTemplates: isZh ? '快捷模板' : 'Quick Templates',
-    insertTemplate: isZh ? '插入模板' : 'Insert Template',
-    replaceTemplate: isZh ? '替换为模板' : 'Replace Notes',
-    savedTemplateButtons: isZh ? '已保存模板按钮' : 'Saved Template Buttons',
-    addCurrentAsButton: isZh ? '将当前模板加入按钮' : 'Pin Current Template',
-    runningTemplate: isZh ? '应用中...' : 'Applying...',
-    manageTemplateError: isZh ? '模板按钮操作失败' : 'Template button operation failed',
-    renameTemplateButton: isZh ? '重命名模板按钮' : 'Rename template button',
-    moveLeft: isZh ? '左移' : 'Move left',
-    moveRight: isZh ? '右移' : 'Move right',
-    setDefault: isZh ? '设为默认' : 'Set default',
-    defaultTemplate: isZh ? '默认' : 'Default',
+    saveToNotes: t('vmSaveToNotes'),
+    exportMd: t('vmExportMd'),
+    createTaskPage: t('vmCreateTaskPage'),
+    creating: t('vmCreating'),
+    noActionItems: t('vmNoActionItems'),
+    cannotResolveWorkspace: t('vmCannotResolveWorkspace'),
+    taskPageCreated: t('vmTaskPageCreated'),
+    createTaskFailed: t('vmCreateTaskFailed'),
+    exportScopeSummary: t('vmExportScopeSummary'),
+    exportScopeFull: t('vmExportScopeFull'),
+    asSubpage: t('vmAsSubpage'),
+    applyTemplate: t('vmApplyTemplate'),
+    usingCheckedItems: t('vmUsingCheckedItems'),
+    quickTemplates: t('vmQuickTemplates'),
+    insertTemplate: t('vmInsertTemplate'),
+    replaceTemplate: t('vmReplaceTemplate'),
+    savedTemplateButtons: t('vmSavedTemplateButtons'),
+    addCurrentAsButton: t('vmAddCurrentAsButton'),
+    runningTemplate: t('vmRunningTemplate'),
+    manageTemplateError: t('vmManageTemplateError'),
+    renameTemplateButton: t('vmRenameTemplateButton'),
+    dragToReorder: t('vmDragToReorder'),
+    moveLeft: t('vmMoveLeft'),
+    moveRight: t('vmMoveRight'),
+    setDefault: t('vmSetDefault'),
+    defaultTemplate: t('vmDefaultTemplate'),
+    deleteTemplateButton: t('vmDeleteTemplateButton'),
+    cancel: t('cancel'),
+    save: t('save'),
   };
-  const templateOptions: Array<{ id: SummaryTemplateId; label: string }> = isZh
-    ? [
-        { id: 'general', label: '通用' },
-        { id: 'meeting', label: '会议纪要' },
-        { id: 'sales', label: '销售沟通' },
-        { id: 'interview', label: '面试评估' },
-        { id: 'brainstorm', label: '头脑风暴' },
-      ]
-    : [
-        { id: 'general', label: 'General' },
-        { id: 'meeting', label: 'Meeting' },
-        { id: 'sales', label: 'Sales' },
-        { id: 'interview', label: 'Interview' },
-        { id: 'brainstorm', label: 'Brainstorm' },
-      ];
+  const templateOptions: Array<{ id: SummaryTemplateId; label: string }> = [
+    { id: 'general', label: t('vmTemplateOptionGeneral') },
+    { id: 'meeting', label: t('vmTemplateOptionMeeting') },
+    { id: 'sales', label: t('vmTemplateOptionSales') },
+    { id: 'interview', label: t('vmTemplateOptionInterview') },
+    { id: 'brainstorm', label: t('vmTemplateOptionBrainstorm') },
+  ];
 
   // ── Core state ────────────────────────────────────────────────────────────
   const [recState, setRecState]         = useState<RecordingState>('idle');
@@ -307,13 +303,15 @@ export default function VoiceMemoView({
   const [creatingTaskPage, setCreatingTaskPage] = useState(false);
   const [exportScope, setExportScope] = useState<'summary' | 'full'>('full');
   const [createAsSubpage, setCreateAsSubpage] = useState(true);
-  const [sourcePageTitle, setSourcePageTitle] = useState('Voice Memo');
+  const [sourcePageTitle, setSourcePageTitle] = useState(t('vmVoiceMemoTitle'));
   const [sourceWorkspaceId, setSourceWorkspaceId] = useState<string | null>(null);
   const [templateButtons, setTemplateButtons] = useState<PageTemplateButton[]>([]);
   const [runningTemplateButtonId, setRunningTemplateButtonId] = useState<string | null>(null);
   const [addingTemplateButton, setAddingTemplateButton] = useState(false);
   const [reorderingTemplateButtonId, setReorderingTemplateButtonId] = useState<string | null>(null);
   const [draggingTemplateButtonId, setDraggingTemplateButtonId] = useState<string | null>(null);
+  const [renameTemplateButton, setRenameTemplateButton] = useState<PageTemplateButton | null>(null);
+  const [renameTemplateButtonValue, setRenameTemplateButtonValue] = useState('');
 
   // Checked action items
   const [checkedItems, setCheckedItems] = useState<Set<number>>(new Set(initialCheckedItems || []));
@@ -908,7 +906,7 @@ ${t('vmSummaryPromptFormat')}
     const summary = summaryDataRef.current;
     const items = summary?.actionItems || [];
     if (!items.length) {
-      alert(uiText.noActionItems);
+      toast.error(uiText.noActionItems);
       return;
     }
     const checkedIndexes = Array.from(checkedItemsRef.current.values())
@@ -937,7 +935,7 @@ ${t('vmSummaryPromptFormat')}
       const created = await api.post('/api/workspace/pages', {
         workspace_id: workspaceId,
         parent_page_id: createAsSubpage ? pageId : null,
-        title: `${sourcePageTitle || 'Voice Memo'} - Action Items`,
+        title: `${sourcePageTitle || t('vmVoiceMemoTitle')} - ${t('vmActionItemsPageSuffix')}`,
         icon: '✅',
         content: {
           _type: 'task_tracker',
@@ -950,9 +948,9 @@ ${t('vmSummaryPromptFormat')}
         window.location.href = `/${tenant}/workspace/${created.id}`;
         return;
       }
-      alert(uiText.taskPageCreated);
+      toast.success(uiText.taskPageCreated);
     } catch (err: any) {
-      alert(err?.message || uiText.createTaskFailed);
+      toast.error(err?.message || uiText.createTaskFailed);
     } finally {
       setCreatingTaskPage(false);
     }
@@ -971,7 +969,7 @@ ${t('vmSummaryPromptFormat')}
       });
       setTemplateButtons(prev => [...prev, created as PageTemplateButton]);
     } catch (err: any) {
-      alert(err?.message || uiText.manageTemplateError);
+      toast.error(err?.message || uiText.manageTemplateError);
     } finally {
       setAddingTemplateButton(false);
     }
@@ -988,7 +986,7 @@ ${t('vmSummaryPromptFormat')}
         hydrateFromVoiceMemoContent(content);
       }
     } catch (err: any) {
-      alert(err?.message || uiText.manageTemplateError);
+      toast.error(err?.message || uiText.manageTemplateError);
     } finally {
       setRunningTemplateButtonId(null);
     }
@@ -996,15 +994,23 @@ ${t('vmSummaryPromptFormat')}
 
   async function renameVoiceTemplateButton(button: PageTemplateButton) {
     if (onContentChange) return;
-    const next = window.prompt(uiText.renameTemplateButton, button.label);
-    if (next == null) return;
-    const trimmed = next.trim();
-    if (!trimmed || trimmed === button.label) return;
+    setRenameTemplateButton(button);
+    setRenameTemplateButtonValue(button.label);
+  }
+
+  async function submitRenameVoiceTemplateButton() {
+    if (onContentChange || !renameTemplateButton) return;
+    const trimmed = renameTemplateButtonValue.trim();
+    if (!trimmed || trimmed === renameTemplateButton.label) {
+      setRenameTemplateButton(null);
+      return;
+    }
     try {
-      const updated = await api.patch(`/api/workspace/pages/${pageId}/template-buttons/${button.id}`, { label: trimmed });
-      setTemplateButtons(prev => prev.map(b => b.id === button.id ? { ...b, label: (updated?.label || trimmed) } : b));
+      const updated = await api.patch(`/api/workspace/pages/${pageId}/template-buttons/${renameTemplateButton.id}`, { label: trimmed });
+      setTemplateButtons(prev => prev.map(b => b.id === renameTemplateButton.id ? { ...b, label: (updated?.label || trimmed) } : b));
+      setRenameTemplateButton(null);
     } catch (err: any) {
-      alert(err?.message || uiText.manageTemplateError);
+      toast.error(err?.message || uiText.manageTemplateError);
     }
   }
 
@@ -1014,7 +1020,7 @@ ${t('vmSummaryPromptFormat')}
       await api.delete(`/api/workspace/pages/${pageId}/template-buttons/${buttonId}`);
       setTemplateButtons(prev => prev.filter(b => b.id !== buttonId));
     } catch (err: any) {
-      alert(err?.message || uiText.manageTemplateError);
+      toast.error(err?.message || uiText.manageTemplateError);
     }
   }
 
@@ -1036,7 +1042,7 @@ ${t('vmSummaryPromptFormat')}
       });
     } catch (err: any) {
       setTemplateButtons(current);
-      alert(err?.message || uiText.manageTemplateError);
+      toast.error(err?.message || uiText.manageTemplateError);
     } finally {
       setReorderingTemplateButtonId(null);
     }
@@ -1053,7 +1059,7 @@ ${t('vmSummaryPromptFormat')}
       });
     } catch (err: any) {
       setTemplateButtons(current);
-      alert(err?.message || uiText.manageTemplateError);
+      toast.error(err?.message || uiText.manageTemplateError);
     } finally {
       setReorderingTemplateButtonId(null);
     }
@@ -1305,7 +1311,7 @@ ${t('vmSummaryPromptFormat')}
                           background: draggingTemplateButtonId === btn.id ? 'var(--notion-hover)' : 'var(--notion-card, white)',
                           color: 'var(--notion-text-muted)',
                         }}
-                        title="Drag to reorder"
+                        title={uiText.dragToReorder}
                       >
                         ⋮⋮
                       </button>
@@ -1400,7 +1406,7 @@ ${t('vmSummaryPromptFormat')}
                           background: 'var(--notion-card, white)',
                           color: '#b91c1c',
                         }}
-                        title="Delete"
+                        title={uiText.deleteTemplateButton}
                       >
                         ×
                       </button>
@@ -1663,7 +1669,7 @@ ${t('vmSummaryPromptFormat')}
                         border: '1px solid var(--notion-border)', borderRadius: 8, padding: '5px 8px',
                         fontSize: 12, color: 'var(--notion-text)', background: 'var(--notion-card, white)',
                       }}
-                      title="Summary template"
+                      title={t('vmSummaryTemplateLabel')}
                     >
                       {templateOptions.map(opt => (
                         <option key={opt.id} value={opt.id}>{opt.label}</option>
@@ -1685,7 +1691,7 @@ ${t('vmSummaryPromptFormat')}
                         border: '1px solid var(--notion-border)', borderRadius: 8, padding: '5px 8px',
                         fontSize: 12, color: 'var(--notion-text)', background: 'var(--notion-card, white)',
                       }}
-                      title="Export scope"
+                      title={t('vmExportScopeLabel')}
                     >
                       <option value="summary">{uiText.exportScopeSummary}</option>
                       <option value="full">{uiText.exportScopeFull}</option>
@@ -1788,6 +1794,89 @@ ${t('vmSummaryPromptFormat')}
           </div>
         )}
       </div>
+
+      {renameTemplateButton && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            zIndex: 320,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            background: 'rgba(0,0,0,0.45)',
+          }}
+          onClick={(e) => { if (e.target === e.currentTarget) setRenameTemplateButton(null); }}
+        >
+          <div
+            style={{
+              width: 360,
+              borderRadius: 14,
+              padding: 18,
+              background: 'var(--notion-card, white)',
+              border: '1px solid var(--notion-border)',
+              boxShadow: '0 24px 64px rgba(0,0,0,0.32)',
+            }}
+          >
+            <h3 style={{ margin: 0, fontSize: 14, fontWeight: 700, color: 'var(--notion-text)' }}>
+              {uiText.renameTemplateButton}
+            </h3>
+            <input
+              autoFocus
+              value={renameTemplateButtonValue}
+              onChange={(e) => setRenameTemplateButtonValue(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') submitRenameVoiceTemplateButton();
+                if (e.key === 'Escape') setRenameTemplateButton(null);
+              }}
+              style={{
+                marginTop: 12,
+                width: '100%',
+                border: '1px solid var(--notion-border)',
+                borderRadius: 10,
+                padding: '10px 12px',
+                fontSize: 13,
+                color: 'var(--notion-text)',
+                background: 'var(--notion-bg)',
+                outline: 'none',
+              }}
+            />
+            <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
+              <button
+                onClick={() => setRenameTemplateButton(null)}
+                style={{
+                  flex: 1,
+                  borderRadius: 10,
+                  padding: '8px 10px',
+                  border: '1px solid var(--notion-border)',
+                  background: 'transparent',
+                  color: 'var(--notion-text-muted)',
+                  fontSize: 13,
+                  cursor: 'pointer',
+                }}
+              >
+                {uiText.cancel}
+              </button>
+              <button
+                onClick={submitRenameVoiceTemplateButton}
+                style={{
+                  flex: 1,
+                  borderRadius: 10,
+                  padding: '8px 10px',
+                  border: 'none',
+                  background: '#7c3aed',
+                  color: 'white',
+                  fontSize: 13,
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                }}
+              >
+                {uiText.save}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

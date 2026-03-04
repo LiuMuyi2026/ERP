@@ -2410,6 +2410,13 @@ class AiAnalysisBody(BaseModel):
     language: Optional[str] = None
 
 
+class AiTranslateBody(BaseModel):
+    text: str
+    target_language: str
+    source_language: Optional[str] = None
+    mode: Optional[str] = "incoming"  # incoming | outgoing
+
+
 def _extract_json_object(raw: str) -> Optional[dict]:
     """Best-effort JSON object extraction from model output."""
     if not raw:
@@ -2443,6 +2450,92 @@ def _extract_json_object(raw: str) -> Optional[dict]:
         except Exception:
             return None
     return None
+
+
+def _normalize_language_code(code: str) -> str:
+    v = (code or "").strip().lower().replace("_", "-")
+    if not v:
+        return "en"
+    if v in ("zh", "zh-cn", "zh-hans"):
+        return "zh-CN"
+    if v in ("zh-tw", "zh-hk", "zh-hant"):
+        return "zh-TW"
+    if v.startswith("en"):
+        return "en"
+    if v.startswith("es"):
+        return "es"
+    if v.startswith("pt"):
+        return "pt"
+    if v.startswith("it"):
+        return "it"
+    if v.startswith("ja"):
+        return "ja"
+    if v.startswith("fr"):
+        return "fr"
+    if v.startswith("de"):
+        return "de"
+    if v.startswith("ru"):
+        return "ru"
+    if v.startswith("ar"):
+        return "ar"
+    return v.split("-")[0]
+
+
+@router.post("/ai/translate")
+async def ai_translate(body: AiTranslateBody, ctx: dict = Depends(get_current_user_with_tenant)):
+    db = ctx["db"]
+    tenant_slug = ctx.get("tenant_slug")
+    source_hint = _normalize_language_code(body.source_language or "")
+    target = _normalize_language_code(body.target_language)
+    text_input = (body.text or "").strip()
+    if not text_input:
+        raise HTTPException(status_code=400, detail="text is required")
+    if not target:
+        raise HTTPException(status_code=400, detail="target_language is required")
+
+    prompt = f"""You are a translation engine for business chat.
+Detect the source language for the input text. Then translate into the target language.
+Return STRICT JSON only, without markdown:
+{{
+  "source_language": "language code like en/es/zh-CN/zh-TW",
+  "target_language": "language code",
+  "translated_text": "translated string",
+  "is_translated": true
+}}
+
+Rules:
+- Preserve names, numbers, product codes, URLs, emails exactly when possible.
+- Keep concise chat tone suitable for WhatsApp.
+- If source and target are effectively the same language, keep original text and set is_translated to false.
+- source_language hint: {source_hint}
+- target_language: {target}
+- mode: {body.mode or "incoming"}
+
+Input:
+{text_input}
+"""
+    try:
+        raw = await generate_text_for_tenant(db, tenant_slug, prompt)
+        parsed = _extract_json_object(raw) or {}
+        detected = _normalize_language_code(str(parsed.get("source_language") or source_hint or ""))
+        translated = str(parsed.get("translated_text") or "").strip() or text_input
+        parsed_target = _normalize_language_code(str(parsed.get("target_language") or target))
+        same_lang = detected == parsed_target
+        is_translated = bool(parsed.get("is_translated"))
+        if same_lang and translated == text_input:
+            is_translated = False
+        elif not is_translated:
+            is_translated = translated != text_input
+        return {
+            "source_language": detected or source_hint or "unknown",
+            "target_language": parsed_target or target,
+            "translated_text": translated,
+            "original_text": text_input,
+            "is_translated": is_translated,
+        }
+    except Exception as e:
+        logger.error("AI translate failed: %s", e)
+        raise HTTPException(status_code=500, detail="AI translation failed")
 
 
 @router.post("/ai/analyze")

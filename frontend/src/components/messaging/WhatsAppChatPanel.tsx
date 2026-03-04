@@ -27,6 +27,14 @@ type Message = {
   created_by_name?: string;
 };
 
+type MessageTranslation = {
+  translatedText: string;
+  sourceLanguage: string;
+  targetLanguage: string;
+  isTranslated: boolean;
+  error?: string;
+};
+
 interface WhatsAppChatPanelProps {
   contactId?: string;
   leadId?: string;
@@ -72,6 +80,38 @@ function groupByDate(messages: Message[]) {
     groups[groups.length - 1].messages.push(msg);
   }
   return groups;
+}
+
+function normalizeLanguageCode(value?: string) {
+  const v = (value || '').trim().toLowerCase().replace('_', '-');
+  if (!v) return 'en';
+  if (v === 'zh' || v === 'zh-cn' || v === 'zh-hans') return 'zh-CN';
+  if (v === 'zh-tw' || v === 'zh-hk' || v === 'zh-hant') return 'zh-TW';
+  if (v.startsWith('en')) return 'en';
+  if (v.startsWith('es')) return 'es';
+  if (v.startsWith('pt')) return 'pt';
+  if (v.startsWith('it')) return 'it';
+  if (v.startsWith('ja')) return 'ja';
+  if (v.startsWith('fr')) return 'fr';
+  if (v.startsWith('de')) return 'de';
+  if (v.startsWith('ru')) return 'ru';
+  if (v.startsWith('ar')) return 'ar';
+  return v.split('-')[0];
+}
+
+function guessLanguageFromPhone(phone?: string) {
+  const p = (phone || '').replace(/\s+/g, '');
+  if (p.startsWith('+86')) return 'zh-CN';
+  if (p.startsWith('+852') || p.startsWith('+853') || p.startsWith('+886')) return 'zh-TW';
+  if (p.startsWith('+81')) return 'ja';
+  if (p.startsWith('+34') || p.startsWith('+52') || p.startsWith('+54') || p.startsWith('+57') || p.startsWith('+56') || p.startsWith('+51') || p.startsWith('+58')) return 'es';
+  if (p.startsWith('+55')) return 'pt';
+  if (p.startsWith('+39')) return 'it';
+  if (p.startsWith('+33')) return 'fr';
+  if (p.startsWith('+49')) return 'de';
+  if (p.startsWith('+7')) return 'ru';
+  if (p.startsWith('+20') || p.startsWith('+966') || p.startsWith('+971')) return 'ar';
+  return 'en';
 }
 
 const REACTION_EMOJIS = ['👍', '❤️', '😂', '😮', '😢', '🙏'];
@@ -144,6 +184,13 @@ export default function WhatsAppChatPanel({
     noProductsFound: '未找到商品',
     product: '商品',
     typeMessageTitle: '輸入訊息',
+    autoTranslate: '自動翻譯',
+    autoTranslatedLabel: '自動翻譯',
+    originalTextLabel: '原文',
+    translating: '翻譯中...',
+    translateFailed: '翻譯失敗',
+    targetLanguage: '目標語言',
+    recipientLanguage: '對方語言',
   } : isZhHans ? {
     aiSuggest: 'AI 建议',
     summarize: '摘要',
@@ -196,6 +243,13 @@ export default function WhatsAppChatPanel({
     noProductsFound: '暂无商品',
     product: '商品',
     typeMessageTitle: '输入消息',
+    autoTranslate: '自动翻译',
+    autoTranslatedLabel: '自动翻译',
+    originalTextLabel: '原文',
+    translating: '翻译中...',
+    translateFailed: '翻译失败',
+    targetLanguage: '目标语言',
+    recipientLanguage: '对方语言',
   } : {
     aiSuggest: 'AI Suggest',
     summarize: 'Summarize',
@@ -248,6 +302,13 @@ export default function WhatsAppChatPanel({
     noProductsFound: 'No products found',
     product: 'Product',
     typeMessageTitle: 'Type a message',
+    autoTranslate: 'Auto Translate',
+    autoTranslatedLabel: 'Auto translated',
+    originalTextLabel: 'Original',
+    translating: 'Translating...',
+    translateFailed: 'Translation failed',
+    targetLanguage: 'Target',
+    recipientLanguage: 'Recipient',
   };
   const aiActions: { key: AiAction; label: string; icon: string; color: string }[] = [
     { key: 'suggest_reply', label: L.aiSuggest, icon: 'sparkle', color: '#8b5cf6' },
@@ -261,6 +322,10 @@ export default function WhatsAppChatPanel({
   const [loadError, setLoadError] = useState<string | null>(null);
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
+  const [autoTranslateEnabled, setAutoTranslateEnabled] = useState(false);
+  const [messageTranslations, setMessageTranslations] = useState<Record<string, MessageTranslation>>({});
+  const [translatingIds, setTranslatingIds] = useState<Record<string, boolean>>({});
+  const [recipientLanguageHint, setRecipientLanguageHint] = useState('en');
   const bottomRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const [hasMore, setHasMore] = useState(false);
@@ -402,6 +467,8 @@ export default function WhatsAppChatPanel({
   const effectiveContactId = contactId || resolvedContactId;
   const params = useParams();
   const tenantSlug = params?.tenant as string || '';
+  const userTargetLanguage = normalizeLanguageCode(locale);
+  const translatePrefKey = `wa_auto_translate_${tenantSlug || 'default'}`;
 
   // Quick create lead from chat panel
   async function handleQuickCreateLead() {
@@ -498,6 +565,29 @@ export default function WhatsAppChatPanel({
     return () => clearInterval(iv);
   }, [effectiveContactId, leadId]);
 
+  useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem(translatePrefKey);
+      if (raw === '1') setAutoTranslateEnabled(true);
+      if (raw === '0') setAutoTranslateEnabled(false);
+    } catch {
+      // ignore localStorage errors
+    }
+  }, [translatePrefKey]);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(translatePrefKey, autoTranslateEnabled ? '1' : '0');
+    } catch {
+      // ignore localStorage errors
+    }
+  }, [autoTranslateEnabled, translatePrefKey]);
+
+  useEffect(() => {
+    if (!conversation?.phone_number) return;
+    setRecipientLanguageHint(guessLanguageFromPhone(conversation.phone_number));
+  }, [conversation?.phone_number]);
+
   // Auto-scroll only when new messages arrive at the end (not on history load)
   const prevMsgCountRef = useRef(0);
   useEffect(() => {
@@ -579,6 +669,66 @@ export default function WhatsAppChatPanel({
     api.post(`/api/whatsapp/conversations/${effectiveContactId}/typing`, { type }).catch(() => {});
   }, [effectiveContactId]);
 
+  const translateWithAi = useCallback(async (
+    text: string,
+    targetLanguage: string,
+    sourceLanguage?: string,
+    mode: 'incoming' | 'outgoing' = 'incoming',
+  ): Promise<MessageTranslation> => {
+    const resp: any = await api.post('/api/whatsapp/ai/translate', {
+      text,
+      target_language: targetLanguage,
+      source_language: sourceLanguage,
+      mode,
+    });
+    return {
+      translatedText: String(resp?.translated_text || text),
+      sourceLanguage: normalizeLanguageCode(String(resp?.source_language || sourceLanguage || '')),
+      targetLanguage: normalizeLanguageCode(String(resp?.target_language || targetLanguage)),
+      isTranslated: Boolean(resp?.is_translated),
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!autoTranslateEnabled) return;
+    const nonTextTypes = new Set(['document', 'poll', 'buttons', 'list', 'contact', 'location', 'voice_note', 'sticker', 'call']);
+    const pending = messages.filter((msg) =>
+      msg.direction === 'inbound'
+      && !!msg.content?.trim()
+      && !nonTextTypes.has(msg.message_type)
+      && !messageTranslations[msg.id]
+      && !translatingIds[msg.id],
+    );
+    if (pending.length === 0) return;
+    pending.forEach((msg) => {
+      setTranslatingIds((prev) => ({ ...prev, [msg.id]: true }));
+      translateWithAi(msg.content || '', userTargetLanguage, undefined, 'incoming')
+        .then((translated) => {
+          setMessageTranslations((prev) => ({ ...prev, [msg.id]: translated }));
+          if (translated.sourceLanguage) setRecipientLanguageHint(translated.sourceLanguage);
+        })
+        .catch(() => {
+          setMessageTranslations((prev) => ({
+            ...prev,
+            [msg.id]: {
+              translatedText: msg.content || '',
+              sourceLanguage: 'unknown',
+              targetLanguage: userTargetLanguage,
+              isTranslated: false,
+              error: 'translate_failed',
+            },
+          }));
+        })
+        .finally(() => {
+          setTranslatingIds((prev) => {
+            const next = { ...prev };
+            delete next[msg.id];
+            return next;
+          });
+        });
+    });
+  }, [messages, autoTranslateEnabled, messageTranslations, translatingIds, translateWithAi, userTargetLanguage]);
+
   function handleInputChange(val: string) {
     setInput(val);
     // Detect `/` at start for slash command template picker
@@ -606,6 +756,21 @@ export default function WhatsAppChatPanel({
     if ((!input.trim() && !attachFile) || !effectiveContactId) return;
     setSending(true);
     try {
+      const rawInput = input.trim();
+      let outgoingContent = rawInput;
+      if (rawInput && autoTranslateEnabled) {
+        const inferredRecipientLanguage = normalizeLanguageCode(recipientLanguageHint || guessLanguageFromPhone(conversation?.phone_number));
+        try {
+          const translated = await translateWithAi(rawInput, inferredRecipientLanguage, userTargetLanguage, 'outgoing');
+          if (translated.isTranslated && translated.translatedText.trim()) {
+            outgoingContent = translated.translatedText.trim();
+          }
+          if (translated.targetLanguage) setRecipientLanguageHint(translated.targetLanguage);
+        } catch {
+          toast.error(L.translateFailed);
+        }
+      }
+
       let media_url: string | undefined;
       let media_mime_type: string | undefined;
       let filename: string | undefined;
@@ -624,12 +789,12 @@ export default function WhatsAppChatPanel({
       }
 
       await api.post(`/api/whatsapp/conversations/${effectiveContactId}/send`, {
-        content: input.trim(),
+        content: outgoingContent,
         message_type,
         media_url,
         media_mime_type,
         filename,
-        caption: attachFile ? input.trim() : undefined,
+        caption: attachFile ? outgoingContent : undefined,
         reply_to_message_id: replyTo?.id || undefined,
       });
       setInput('');
@@ -2011,9 +2176,42 @@ export default function WhatsAppChatPanel({
 
                       {/* Text content (not for special types) */}
                       {msg.content && !['document', 'poll', 'buttons', 'list', 'contact', 'location', 'voice_note', 'sticker', 'call'].includes(msg.message_type) && (
-                        <p className="text-sm whitespace-pre-wrap" style={{ color: 'var(--notion-text)', lineHeight: 1.5 }}>
-                          {msg.content}
-                        </p>
+                        (() => {
+                          const translation = messageTranslations[msg.id];
+                          const showTranslated = autoTranslateEnabled && !isOut && !!translation && !translation.error;
+                          if (showTranslated) {
+                            return (
+                              <div className="space-y-1">
+                                <div className="flex items-center gap-1.5">
+                                  <span className="text-[9px] px-1.5 py-0.5 rounded-full font-semibold" style={{ background: '#ede9fe', color: '#6d28d9' }}>
+                                    {L.autoTranslatedLabel}
+                                  </span>
+                                  <span className="text-[9px]" style={{ color: 'var(--notion-text-muted)' }}>
+                                    {translation.sourceLanguage} → {translation.targetLanguage}
+                                  </span>
+                                </div>
+                                <p className="text-sm whitespace-pre-wrap" style={{ color: 'var(--notion-text)', lineHeight: 1.5 }}>
+                                  {translation.translatedText}
+                                </p>
+                                <p className="text-[11px] whitespace-pre-wrap" style={{ color: 'var(--notion-text-muted)', lineHeight: 1.5 }}>
+                                  {L.originalTextLabel}: {msg.content}
+                                </p>
+                              </div>
+                            );
+                          }
+                          if (autoTranslateEnabled && !isOut && translatingIds[msg.id]) {
+                            return (
+                              <p className="text-xs italic" style={{ color: 'var(--notion-text-muted)' }}>
+                                {L.translating}
+                              </p>
+                            );
+                          }
+                          return (
+                            <p className="text-sm whitespace-pre-wrap" style={{ color: 'var(--notion-text)', lineHeight: 1.5 }}>
+                              {msg.content}
+                            </p>
+                          );
+                        })()
                       )}
 
                       {/* Footer: time + status + edited */}
@@ -2160,9 +2358,30 @@ export default function WhatsAppChatPanel({
 
       {/* ── Send bar ── */}
       {effectiveContactId && (
-        <form onSubmit={sendMessage}
-          className="px-3 py-2 flex items-center gap-2"
-          style={{ background: '#f0f2f5' }}>
+        <>
+          <div className="px-3 pt-2 pb-1 flex items-center justify-between" style={{ background: '#f0f2f5' }}>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setAutoTranslateEnabled(v => !v)}
+                className="relative inline-flex h-6 w-11 items-center rounded-full transition-colors"
+                style={{ background: autoTranslateEnabled ? '#10b981' : '#cbd5e1' }}
+                title={L.autoTranslate}
+              >
+                <span
+                  className="inline-block h-5 w-5 transform rounded-full bg-white transition-transform"
+                  style={{ transform: autoTranslateEnabled ? 'translateX(22px)' : 'translateX(2px)' }}
+                />
+              </button>
+              <span className="text-xs font-medium" style={{ color: '#3b4a54' }}>{L.autoTranslate}</span>
+            </div>
+            <span className="text-[11px]" style={{ color: '#64748b' }}>
+              {L.targetLanguage}: {userTargetLanguage} | {L.recipientLanguage}: {normalizeLanguageCode(recipientLanguageHint)}
+            </span>
+          </div>
+          <form onSubmit={sendMessage}
+            className="px-3 py-2 flex items-center gap-2"
+            style={{ background: '#f0f2f5' }}>
           <input ref={fileInputRef} type="file" className="hidden"
             onChange={e => { if (e.target.files?.[0]) { setAttachFile(e.target.files[0]); setShowAttachMenu(false); } }} />
 
@@ -2276,7 +2495,8 @@ export default function WhatsAppChatPanel({
               )}
             </>
           )}
-        </form>
+          </form>
+        </>
       )}
 
       {/* ── Forward dialog ── */}

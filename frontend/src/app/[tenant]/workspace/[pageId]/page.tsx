@@ -1516,7 +1516,7 @@ export default function PageView() {
 
             <div className="space-y-4">
               <div>
-                <label className="text-xs font-medium block mb-1.5" style={{ color: 'var(--notion-text)' }}>{tWorkspace('titleLabel')}</label>
+                <label className="text-xs font-medium block mb-1.5" style={{ color: 'var(--notion-text)' }}>{tWorkspace('colTitle')}</label>
                 <input
                   value={templateTitle}
                   onChange={e => setTemplateTitle(e.target.value)}
@@ -1526,7 +1526,7 @@ export default function PageView() {
                 />
               </div>
               <div>
-                <label className="text-xs font-medium block mb-1.5" style={{ color: 'var(--notion-text)' }}>{tWorkspace('descLabel')}</label>
+                <label className="text-xs font-medium block mb-1.5" style={{ color: 'var(--notion-text)' }}>{tWorkspace('description')}</label>
                 <textarea
                   value={templateDesc}
                   onChange={e => setTemplateDesc(e.target.value)}
@@ -1537,7 +1537,7 @@ export default function PageView() {
                 />
               </div>
               <div>
-                <label className="text-xs font-medium block mb-2" style={{ color: 'var(--notion-text)' }}>{tWorkspace('categoryLabel')}</label>
+                <label className="text-xs font-medium block mb-2" style={{ color: 'var(--notion-text)' }}>{tWorkspace('categoriesLabel')}</label>
                 <div className="grid grid-cols-4 gap-1.5">
                   {TEMPLATE_CATEGORIES.map(cat => (
                     <button key={cat} onClick={() => setTemplateCategory(cat)}
