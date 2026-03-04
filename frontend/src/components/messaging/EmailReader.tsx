@@ -50,6 +50,7 @@ interface EmailReaderProps {
 function normalizeLanguageCode(value?: string) {
   const v = (value || '').trim().toLowerCase().replace('_', '-');
   if (!v) return 'en';
+  if (v === 'zh-tw' || v === 'zh-hk' || v === 'zh-hant') return 'zh-TW';
   if (v.startsWith('zh')) return 'zh-CN';
   return v.split('-')[0];
 }
@@ -121,7 +122,7 @@ export default function EmailReader({
       if (!cancelled) setTranslating(false);
     });
     return () => { cancelled = true; };
-  }, [email.id, autoTranslateEnabled, bodyPlain, userTargetLanguage]);
+  }, [email.id, autoTranslateEnabled, bodyPlain, userTargetLanguage, isZh]);
 
   return (
     <div className="flex flex-col h-full" style={{ background: 'white' }}>

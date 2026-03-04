@@ -35,6 +35,7 @@ type TranslationReview = {
 function normalizeLanguageCode(value?: string) {
   const v = (value || '').trim().toLowerCase().replace('_', '-');
   if (!v) return 'en';
+  if (v === 'zh-tw' || v === 'zh-hk' || v === 'zh-hant') return 'zh-TW';
   if (v.startsWith('zh')) return 'zh-CN';
   if (v.startsWith('ja')) return 'ja';
   if (v.startsWith('es')) return 'es';
