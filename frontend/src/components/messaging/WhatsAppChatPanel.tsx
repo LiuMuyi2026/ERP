@@ -380,6 +380,7 @@ export default function WhatsAppChatPanel({
 
   // Typing indicator
   const typingTimer = useRef<NodeJS.Timeout | null>(null);
+  const lastReadAtRef = useRef(0);
 
   // Resolved contactId (when opened via leadId, resolve from messages)
   const [resolvedContactId, setResolvedContactId] = useState<string | undefined>(contactId);
@@ -497,12 +498,23 @@ export default function WhatsAppChatPanel({
   const [wsTyping, setWsTyping] = useState(false);
 
   useEffect(() => {
-    if (typeof window === 'undefined') return;
-    const mq = window.matchMedia('(max-width: 768px)');
-    const update = () => setIsMobile(mq.matches);
-    update();
-    mq.addEventListener('change', update);
-    return () => mq.removeEventListener('change', update);
+    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return;
+    let cleanup: (() => void) | undefined;
+    try {
+      const mq = window.matchMedia('(max-width: 768px)');
+      const update = () => setIsMobile(mq.matches);
+      update();
+      if (typeof mq.addEventListener === 'function') {
+        mq.addEventListener('change', update);
+        cleanup = () => mq.removeEventListener('change', update);
+      } else if (typeof (mq as any).addListener === 'function') {
+        (mq as any).addListener(update);
+        cleanup = () => (mq as any).removeListener(update);
+      }
+    } catch {
+      setIsMobile(false);
+    }
+    return () => cleanup?.();
   }, []);
 
   useEffect(() => {
@@ -514,11 +526,15 @@ export default function WhatsAppChatPanel({
     if (!vv) return;
     const update = () => setViewportHeight(Math.round(vv.height));
     update();
-    vv.addEventListener('resize', update);
-    vv.addEventListener('scroll', update);
+    if (typeof vv.addEventListener === 'function') {
+      vv.addEventListener('resize', update);
+      vv.addEventListener('scroll', update);
+    }
     return () => {
-      vv.removeEventListener('resize', update);
-      vv.removeEventListener('scroll', update);
+      if (typeof vv.removeEventListener === 'function') {
+        vv.removeEventListener('resize', update);
+        vv.removeEventListener('scroll', update);
+      }
     };
   }, [isMobile]);
 
@@ -583,12 +599,25 @@ export default function WhatsAppChatPanel({
     }
   }
 
+  async function safeMarkConversationRead() {
+    if (!effectiveContactId) return;
+    const now = Date.now();
+    // Prevent high-frequency read calls when socket pushes bursts.
+    if (now - lastReadAtRef.current < 1200) return;
+    lastReadAtRef.current = now;
+    try {
+      await api.post(`/api/whatsapp/conversations/${effectiveContactId}/read`, {});
+    } catch {
+      // Some backends return 400 for transient/merged conversation ids.
+      // Swallow to keep chat panel stable.
+    }
+  }
+
   // ── Mark read on open + initial load ──
   useEffect(() => {
     loadMessages();
     if (effectiveContactId) {
-      api.post(`/api/whatsapp/conversations/${effectiveContactId}/read`, {}).catch(() => {});
-      api.post(`/api/whatsapp/conversations/${effectiveContactId}/subscribe-presence`, {}).catch(() => {});
+      safeMarkConversationRead();
     }
     // Fallback: poll every 30s as safety net (WS is primary)
     const iv = setInterval(() => { loadMessages(); }, 30_000);
@@ -652,7 +681,9 @@ export default function WhatsAppChatPanel({
           return [...prev, { id: m.id || m.wa_message_id, ...m }];
         });
         // Auto mark read since this chat is open
-        api.post(`/api/whatsapp/conversations/${effectiveContactId}/read`, {}).catch(() => {});
+        if (m?.direction !== 'outbound') {
+          safeMarkConversationRead();
+        }
       }
     }));
 
