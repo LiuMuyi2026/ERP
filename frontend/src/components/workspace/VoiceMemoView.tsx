@@ -246,6 +246,7 @@ export default function VoiceMemoView({
 }: VoiceMemoViewProps) {
   const lang = useLocale();
   const t = useTranslations('workspace');
+  const tc = useTranslations('common');
   const uiText = {
     saveToNotes: t('vmSaveToNotes'),
     exportMd: t('vmExportMd'),
@@ -275,7 +276,7 @@ export default function VoiceMemoView({
     defaultTemplate: t('vmDefaultTemplate'),
     deleteTemplateButton: t('vmDeleteTemplateButton'),
     cancel: t('cancel'),
-    save: t('save'),
+    save: tc('save'),
   };
   const templateOptions: Array<{ id: SummaryTemplateId; label: string }> = [
     { id: 'general', label: t('vmTemplateOptionGeneral') },

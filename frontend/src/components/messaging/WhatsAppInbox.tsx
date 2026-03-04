@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import Image from 'next/image';
 import { api } from '@/lib/api';
 import { useWhatsAppSocket } from '@/lib/useWhatsAppSocket';
 import { useDesktopNotifications } from '@/lib/useDesktopNotifications';
@@ -91,7 +92,7 @@ function AccountSettingsPanel({ accountId }: { accountId: string }) {
     if (expanded && !settings) {
       api.get(`/api/whatsapp/accounts/${accountId}/settings`).then(setSettings).catch(() => setSettings({}));
     }
-  }, [expanded]);
+  }, [expanded, accountId, settings]);
 
   async function saveSetting(key: string, value: any) {
     setSaving(true);
@@ -148,7 +149,7 @@ function WebhookConfigPanel({ accountId }: { accountId: string }) {
     if (expanded && !config) {
       api.get(`/api/whatsapp/admin/accounts/${accountId}/webhook`).then(d => { setConfig(d); setUrl(d?.url || ''); }).catch(() => setConfig({}));
     }
-  }, [expanded]);
+  }, [expanded, accountId, config]);
 
   async function saveWebhook(updates: any) {
     setSaving(true);
@@ -205,7 +206,7 @@ function AccountCatalogPanel({ accountId }: { accountId: string }) {
         .then(d => setProducts(Array.isArray(d) ? d : (d?.data || d?.products || [])))
         .catch(() => setProducts([]));
     }
-  }, [expanded]);
+  }, [expanded, accountId, products]);
 
   return (
     <div className="mt-2">
@@ -223,7 +224,14 @@ function AccountCatalogPanel({ accountId }: { accountId: string }) {
               {products.map((product: any, idx: number) => (
                 <div key={idx} className="flex gap-2 p-1.5 rounded border" style={{ borderColor: 'var(--notion-border)' }}>
                   {product.productImage?.imageUrl && (
-                    <img src={product.productImage.imageUrl} alt="" className="w-8 h-8 rounded object-cover flex-shrink-0" />
+                    <Image
+                      src={product.productImage.imageUrl}
+                      alt=""
+                      width={32}
+                      height={32}
+                      unoptimized
+                      className="w-8 h-8 rounded object-cover flex-shrink-0"
+                    />
                   )}
                   <div className="min-w-0 flex-1">
                     <p className="text-[10px] font-medium truncate" style={{ color: 'var(--notion-text)' }}>{product.name || product.title || 'Product'}</p>
@@ -612,7 +620,7 @@ export default function WhatsAppInbox() {
     finally { setBatchLinking(false); }
   }
 
-  async function loadData() {
+  const loadData = useCallback(async () => {
     setLoading(true);
     try {
       const params = new URLSearchParams();
@@ -633,14 +641,14 @@ export default function WhatsAppInbox() {
       setLabels(Array.isArray(lbls) ? lbls : []);
     } catch { /* all errors handled per-request above */ }
     finally { setLoading(false); }
-  }
+  }, [filterAccount, filterGroup, filterLabel, filterLeadStatus, filterAssigned]);
 
   // Load users list for assigned_to filter
   useEffect(() => {
     api.get('/api/admin/users-lite').then(d => setAllUsers(Array.isArray(d) ? d : (d?.items || []))).catch(() => {});
   }, []);
 
-  useEffect(() => { loadData(); }, [filterAccount, filterGroup, filterLabel, filterLeadStatus, filterAssigned]);
+  useEffect(() => { loadData(); }, [loadData]);
 
   // ── WebSocket real-time updates ──
   const { on: onWsEvent } = useWhatsAppSocket();
@@ -685,7 +693,7 @@ export default function WhatsAppInbox() {
     }));
 
     return () => unsubs.forEach((u) => u());
-  }, [onWsEvent, selectedContact]);
+  }, [onWsEvent, selectedContact, loadData]);
 
   // ── Desktop notifications ──
   const handleNotificationClick = useCallback((contactId: string) => {
@@ -1007,7 +1015,14 @@ export default function WhatsAppInbox() {
                   <div className="w-12 h-12 rounded-full flex items-center justify-center text-white text-sm font-bold flex-shrink-0 overflow-hidden"
                     style={{ background: conv.is_group ? '#00a884' : '#dfe5e7' }}>
                     {conv.profile_pic_url ? (
-                      <img src={conv.profile_pic_url} alt="" className="w-full h-full object-cover" />
+                      <Image
+                        src={conv.profile_pic_url}
+                        alt=""
+                        fill
+                        unoptimized
+                        sizes="48px"
+                        className="object-cover"
+                      />
                     ) : conv.is_group ? (
                       <svg viewBox="0 0 212 212" width="48" height="48"><path fill="white" d="M106 0C47.5 0 0 47.5 0 106s47.5 106 106 106 106-47.5 106-106S164.5 0 106 0zm-30 80c11 0 20 9 20 20s-9 20-20 20-20-9-20-20 9-20 20-20zm60 0c11 0 20 9 20 20s-9 20-20 20-20-9-20-20 9-20 20-20zM46 160c.2-13 26-20 30-20s29.8 7 30 20zm60 0c.2-13 26-20 30-20s29.8 7 30 20z"/></svg>
                     ) : (
@@ -1265,7 +1280,14 @@ export default function WhatsAppInbox() {
             <p className="text-xs mb-4" style={{ color: 'var(--notion-text-muted)' }}>Open WhatsApp on your phone &rarr; Settings &rarr; Linked Devices &rarr; Link a Device</p>
             <div className="mx-auto w-64 h-64 rounded-lg overflow-hidden mb-4 flex items-center justify-center" style={{ background: 'white' }}>
               {qrData.qr ? (
-                <img src={qrData.qr} alt="QR Code" className="w-full h-full object-contain" />
+                <Image
+                  src={qrData.qr}
+                  alt="QR Code"
+                  width={256}
+                  height={256}
+                  unoptimized
+                  className="w-full h-full object-contain"
+                />
               ) : qrError ? (
                 <div className="flex flex-col items-center gap-2 px-4">
                   <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#dc2626" strokeWidth="1.5" strokeLinecap="round">
