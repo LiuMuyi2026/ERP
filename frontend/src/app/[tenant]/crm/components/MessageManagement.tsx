@@ -5,6 +5,7 @@ import { api } from '@/lib/api';
 import { HandIcon } from '@/components/ui/HandIcon';
 import SlideOver from '@/components/ui/SlideOver';
 import { useTranslations } from 'next-intl';
+import { relTime, absTime } from './wa-helpers';
 
 /* ------------------------------------------------------------------ */
 /* Types                                                               */
@@ -69,29 +70,7 @@ function getCH(t: any): CHConfig {
 /* Helpers                                                             */
 /* ------------------------------------------------------------------ */
 
-function relTime(ts: string) {
-  if (!ts) return '';
-  try {
-    const diff = Date.now() - new Date(ts).getTime();
-    const m = Math.floor(diff / 60000);
-    if (m < 1) return 'just now';
-    if (m < 60) return `${m}m`;
-    const h = Math.floor(m / 60);
-    if (h < 24) return `${h}h`;
-    const d = Math.floor(h / 24);
-    if (d < 7) return `${d}d`;
-    return new Date(ts).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
-  } catch { return ''; }
-}
-
-function absTime(ts: string) {
-  try {
-    return new Date(ts).toLocaleString(undefined, {
-      year: 'numeric', month: '2-digit', day: '2-digit',
-      hour: '2-digit', minute: '2-digit',
-    });
-  } catch { return ''; }
-}
+// relTime and absTime imported from wa-helpers
 
 function dateLabel(ts: string) {
   try {

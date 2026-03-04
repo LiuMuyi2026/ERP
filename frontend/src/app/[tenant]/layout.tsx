@@ -8,6 +8,7 @@ import CommandPalette from '@/components/ui/CommandPalette';
 import { ThemeProvider } from '@/lib/theme';
 import GlobalAIToolbar from '@/components/layout/GlobalAIToolbar';
 import { getAuthSnapshot, refreshProfile } from '@/lib/auth';
+import { Toaster } from 'react-hot-toast';
 
 export default function TenantLayout({ children }: { children: React.ReactNode }) {
   const params = useParams();
@@ -129,6 +130,7 @@ export default function TenantLayout({ children }: { children: React.ReactNode }
       </div>
 
       <CommandPalette open={cmdOpen} onClose={() => setCmdOpen(false)} tenant={tenant} />
+      <Toaster position="top-center" />
     </div>
     </ThemeProvider>
   );

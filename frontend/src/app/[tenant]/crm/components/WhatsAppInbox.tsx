@@ -5,10 +5,12 @@ import { api } from '@/lib/api';
 import { useWhatsAppSocket } from '@/lib/useWhatsAppSocket';
 import { useDesktopNotifications } from '@/lib/useDesktopNotifications';
 import { useTranslations } from 'next-intl';
+import toast from 'react-hot-toast';
 import SlideOver from '@/components/ui/SlideOver';
 import WhatsAppChatPanel from './WhatsAppChatPanel';
+import { relTime, WA_STATUS_COLORS } from './wa-helpers';
 
-// ── Types (shared with WhatsAppDashboard) ──────────────────────────────────
+// ── Types ──────────────────────────────────
 type Conversation = {
   id: string;
   wa_account_id: string;
@@ -65,24 +67,7 @@ type WaAccount = {
 };
 type WaLabel = { id: string; wa_label_id: string; name?: string; color?: string };
 
-function relativeTime(iso?: string): string {
-  if (!iso) return '';
-  const diff = Date.now() - new Date(iso).getTime();
-  const mins = Math.floor(diff / 60000);
-  if (mins < 1) return 'just now';
-  if (mins < 60) return `${mins}m`;
-  const hrs = Math.floor(mins / 60);
-  if (hrs < 24) return `${hrs}h`;
-  const days = Math.floor(hrs / 24);
-  if (days < 7) return `${days}d`;
-  return new Date(iso).toLocaleDateString();
-}
-
-const ACCOUNT_STATUS_STYLE: Record<string, { bg: string; text: string }> = {
-  connected: { bg: '#dcfce7', text: '#15803d' },
-  disconnected: { bg: '#fef2f2', text: '#dc2626' },
-  pending_qr: { bg: '#fef9c3', text: '#a16207' },
-};
+// relTime and WA_STATUS_COLORS imported from wa-helpers
 
 const statusColors: Record<string, { bg: string; text: string }> = {
   new: { bg: '#dbeafe', text: '#1d4ed8' },
@@ -111,7 +96,7 @@ function AccountSettingsPanel({ accountId }: { accountId: string }) {
     try {
       await api.put(`/api/whatsapp/accounts/${accountId}/settings`, { [key]: value });
       setSettings((prev: any) => ({ ...prev, [key]: value }));
-    } catch {}
+    } catch (e: any) { console.error('updateSetting:', e); toast.error('Failed to update setting'); }
     finally { setSaving(false); }
   }
 
@@ -165,7 +150,7 @@ function WebhookConfigPanel({ accountId }: { accountId: string }) {
 
   async function saveWebhook(updates: any) {
     setSaving(true);
-    try { const r = await api.put(`/api/whatsapp/admin/accounts/${accountId}/webhook`, updates); setConfig(r); } catch {}
+    try { const r = await api.put(`/api/whatsapp/admin/accounts/${accountId}/webhook`, updates); setConfig(r); } catch (e: any) { console.error('saveWebhook:', e); toast.error('Failed to save webhook config'); }
     finally { setSaving(false); }
   }
 
@@ -296,14 +281,14 @@ function LinkContactModal({ contact, onClose, onLinked }: {
         await api.post(`/api/whatsapp/contacts/${contact.id}/link-account`, { account_id: targetId });
       }
       onLinked();
-    } catch (e: any) { alert(e.message || 'Link failed'); }
+    } catch (e: any) { toast.error(e.message || 'Link failed'); }
     finally { setLinking(false); }
   }
 
   async function handleUnlink() {
     setLinking(true);
     try { await api.post(`/api/whatsapp/contacts/${contact.id}/unlink`, {}); onLinked(); }
-    catch (e: any) { alert(e.message || 'Unlink failed'); }
+    catch (e: any) { toast.error(e.message || 'Unlink failed'); }
     finally { setLinking(false); }
   }
 
@@ -491,7 +476,7 @@ export default function WhatsAppInbox() {
       // Start QR polling regardless — bridge may need time to initialize
       pollQR(result.id);
       loadData();
-    } catch (e: any) { alert(e.message || 'Failed to create account'); }
+    } catch (e: any) { toast.error(e.message || 'Failed to create account'); }
     finally { setCreatingAccount(false); }
   }
 
@@ -546,15 +531,15 @@ export default function WhatsAppInbox() {
       if (result.status === 'pending_qr' || result.ok) {
         pollQR(accountId);
       } else if (result.status === 'bridge_unavailable') {
-        alert(result.error || 'WhatsApp Bridge unavailable — check Evolution API');
+        toast.error(result.error || 'WhatsApp Bridge unavailable — check Evolution API');
       }
-    } catch (e: any) { alert(e.message || 'Reconnect failed'); }
+    } catch (e: any) { toast.error(e.message || 'Reconnect failed'); }
   }
 
   async function disconnectAccount(accountId: string) {
     if (!confirm('Disconnect this WhatsApp account?')) return;
     try { await api.delete(`/api/whatsapp/accounts/${accountId}`); loadData(); }
-    catch (e: any) { alert(e.message || 'Disconnect failed'); }
+    catch (e: any) { toast.error(e.message || 'Disconnect failed'); }
   }
 
   function handleSelectContact(conv: Conversation) {
@@ -600,7 +585,7 @@ export default function WhatsAppInbox() {
     try {
       const res: any = await api.post(`/api/whatsapp/contacts/${conv.id}/pin`, {});
       setConversations(prev => prev.map(c => c.id === conv.id ? { ...c, is_pinned: res.is_pinned } : c));
-    } catch {}
+    } catch (e: any) { console.error('handlePin:', e); toast.error('Failed to pin'); }
     setCtxMenu(null);
   }
 
@@ -608,7 +593,7 @@ export default function WhatsAppInbox() {
     try {
       const res: any = await api.post(`/api/whatsapp/contacts/${conv.id}/mute`, {});
       setConversations(prev => prev.map(c => c.id === conv.id ? { ...c, is_muted: res.is_muted } : c));
-    } catch {}
+    } catch (e: any) { console.error('handleMute:', e); toast.error('Failed to mute'); }
     setCtxMenu(null);
   }
 
@@ -754,7 +739,7 @@ export default function WhatsAppInbox() {
                       </span>
                       <div className="flex items-center gap-1.5 flex-shrink-0">
                         <span className="text-[12px]" style={{ color: hasUnread ? '#00a884' : '#667781' }}>
-                          {relativeTime(conv.last_message_at)}
+                          {relTime(conv.last_message_at)}
                         </span>
                       </div>
                     </div>
@@ -895,7 +880,7 @@ export default function WhatsAppInbox() {
             ) : (
               <div className="space-y-2">
                 {accounts.map(acc => {
-                  const st = ACCOUNT_STATUS_STYLE[acc.status || 'disconnected'] || ACCOUNT_STATUS_STYLE.disconnected;
+                  const st = WA_STATUS_COLORS[acc.status || 'disconnected'] || WA_STATUS_COLORS.disconnected;
                   return (
                     <div key={acc.id} className="rounded-lg px-4 py-3 border" style={{ borderColor: 'var(--notion-border)' }}>
                       <div className="flex items-center justify-between mb-1">
@@ -930,14 +915,14 @@ export default function WhatsAppInbox() {
                         {acc.status === 'connected' && (
                           <>
                             <button onClick={async () => {
-                              try { const r = await api.post(`/api/whatsapp/accounts/${acc.id}/sync-chats`, {}); alert(`Synced ${r.synced} chats`); loadData(); } catch {}
+                              try { const r = await api.post(`/api/whatsapp/accounts/${acc.id}/sync-chats`, {}); toast.success(`Synced ${r.synced} chats`); loadData(); } catch (e) { console.error('sync-chats:', e); }
                             }} className="text-xs px-3 py-1 rounded font-medium" style={{ background: '#e0f2f1', color: '#00796b' }}>Sync Chats</button>
                             <button onClick={async () => {
-                              try { const r = await api.post(`/api/whatsapp/accounts/${acc.id}/sync-contacts`, {}); alert(`Synced ${r.synced} contacts`); loadData(); } catch {}
+                              try { const r = await api.post(`/api/whatsapp/accounts/${acc.id}/sync-contacts`, {}); toast.success(`Synced ${r.synced} contacts`); loadData(); } catch (e) { console.error('sync-contacts:', e); }
                             }} className="text-xs px-3 py-1 rounded font-medium" style={{ background: '#e8eaf6', color: '#3f51b5' }}>Sync Contacts</button>
                             <button onClick={async () => {
                               if (!confirm('Restart this instance?')) return;
-                              try { await api.post(`/api/whatsapp/accounts/${acc.id}/restart`, {}); alert('Instance restarted'); loadData(); } catch {}
+                              try { await api.post(`/api/whatsapp/accounts/${acc.id}/restart`, {}); toast.success('Instance restarted'); loadData(); } catch (e) { console.error('restart:', e); }
                             }} className="text-xs px-3 py-1 rounded font-medium" style={{ background: '#fff3e0', color: '#e65100' }}>Restart</button>
                           </>
                         )}

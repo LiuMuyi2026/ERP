@@ -4,6 +4,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { api } from '@/lib/api';
 import { useWhatsAppSocket } from '@/lib/useWhatsAppSocket';
 import { HandIcon } from '@/components/ui/HandIcon';
+import toast from 'react-hot-toast';
 
 type Reaction = { reactor_jid: string; emoji: string };
 
@@ -94,6 +95,7 @@ export default function WhatsAppChatPanel({
 }: WhatsAppChatPanelProps) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -270,6 +272,7 @@ export default function WhatsAppChatPanel({
       } else {
         data = [];
       }
+      setLoadError(null);
       setHasMore(more);
       if (olderPage) {
         // Prepend older messages, preserve scroll position
@@ -284,7 +287,13 @@ export default function WhatsAppChatPanel({
       } else {
         setMessages(data);
       }
-    } catch { if (!olderPage) setMessages([]); }
+    } catch (err: any) {
+      console.error('[WhatsAppChat] loadMessages failed:', err?.message || err);
+      if (!olderPage) {
+        setMessages([]);
+        setLoadError(err?.message || '无法加载消息');
+      }
+    }
     finally {
       if (olderPage) setLoadingMore(false);
       else setLoading(false);
@@ -444,7 +453,7 @@ export default function WhatsAppChatPanel({
       setReplyTo(null);
       sendTyping('paused');
       loadMessages();
-    } catch {}
+    } catch (e: any) { console.error('sendMessage:', e); toast.error('Failed to send message'); }
     finally { setSending(false); }
   }
 
@@ -454,7 +463,7 @@ export default function WhatsAppChatPanel({
     try {
       await api.post(`/api/whatsapp/conversations/${effectiveContactId}/messages/${msg.id}/react`, { emoji });
       loadMessages();
-    } catch {}
+    } catch (e: any) { console.error('handleReaction:', e); toast.error('Failed to react'); }
     setMenuMsg(null);
   }
 
@@ -464,7 +473,7 @@ export default function WhatsAppChatPanel({
     try {
       await api.delete(`/api/whatsapp/conversations/${effectiveContactId}/messages/${msg.id}`);
       loadMessages();
-    } catch {}
+    } catch (e: any) { console.error('handleDelete:', e); toast.error('Failed to delete message'); }
     setMenuMsg(null);
   }
 
@@ -476,7 +485,7 @@ export default function WhatsAppChatPanel({
       setEditingMsg(null);
       setEditInput('');
       loadMessages();
-    } catch {}
+    } catch (e: any) { console.error('handleEditSubmit:', e); toast.error('Failed to edit message'); }
   }
 
   // ── Forward ──
@@ -485,7 +494,7 @@ export default function WhatsAppChatPanel({
     try {
       const contacts = await api.get('/api/whatsapp/conversations');
       setForwardContacts(Array.isArray(contacts) ? contacts : []);
-    } catch { setForwardContacts([]); }
+    } catch (e: any) { console.error('openForwardDialog:', e); setForwardContacts([]); }
   }
 
   async function handleForward(targetContactId: string) {
@@ -494,7 +503,7 @@ export default function WhatsAppChatPanel({
       await api.post(`/api/whatsapp/conversations/${effectiveContactId}/messages/${forwardMsg.id}/forward`, {
         target_contact_id: targetContactId,
       });
-    } catch {}
+    } catch (e: any) { console.error('handleForward:', e); toast.error('Failed to forward message'); }
     setForwardMsg(null);
   }
 
@@ -512,7 +521,7 @@ export default function WhatsAppChatPanel({
       setPollOptions(['', '']);
       setPollMultiple(false);
       loadMessages();
-    } catch {}
+    } catch (e: any) { console.error('handleSendPoll:', e); toast.error('Failed to send poll'); }
   }
 
   // ── Disappearing ──
@@ -521,7 +530,7 @@ export default function WhatsAppChatPanel({
     try {
       await api.post(`/api/whatsapp/conversations/${effectiveContactId}/disappearing`, { duration });
       setCurrentDisappearing(duration);
-    } catch {}
+    } catch (e: any) { console.error('handleDisappearing:', e); toast.error('Failed to update disappearing setting'); }
     setShowDisappearing(false);
   }
 
@@ -558,7 +567,7 @@ export default function WhatsAppChatPanel({
     try {
       const data = await api.get(`/api/whatsapp/contacts/${effectiveContactId}/crm-context`);
       setCrmContext(data);
-    } catch { setCrmContext(null); }
+    } catch (e: any) { console.error('loadCrmContext:', e); setCrmContext(null); }
     finally { setCrmLoading(false); }
   }
 
@@ -567,7 +576,7 @@ export default function WhatsAppChatPanel({
     try {
       await api.post(`/api/whatsapp/contacts/${effectiveContactId}/update-lead-status`, { status });
       if (crmContext?.lead) setCrmContext({ ...crmContext, lead: { ...crmContext.lead, status } });
-    } catch (e: any) { alert(e.message || 'Failed to update status'); }
+    } catch (e: any) { console.error('updateLeadStatus:', e); toast.error(e.message || 'Failed to update status'); }
   }
 
   // ── Send Buttons ──
@@ -582,7 +591,7 @@ export default function WhatsAppChatPanel({
       setBtnTitle(''); setBtnDesc(''); setBtnFooter('');
       setBtnButtons([{ id: '1', text: '' }]);
       loadMessages();
-    } catch {}
+    } catch (e: any) { console.error('handleSendButtons:', e); toast.error('Failed to send buttons'); }
   }
 
   // ── Send List ──
@@ -601,7 +610,7 @@ export default function WhatsAppChatPanel({
       setListTitle(''); setListDesc(''); setListBtnText(''); setListFooter('');
       setListSections([{ title: '', rows: [{ title: '', description: '', row_id: '1' }] }]);
       loadMessages();
-    } catch {}
+    } catch (e: any) { console.error('handleSendList:', e); toast.error('Failed to send list'); }
   }
 
   // ── Template selector ──
@@ -609,7 +618,7 @@ export default function WhatsAppChatPanel({
     try {
       const data = await api.get('/api/whatsapp/templates');
       setTemplates(Array.isArray(data) ? data : []);
-    } catch { setTemplates([]); }
+    } catch (e: any) { console.error('loadTemplates:', e); setTemplates([]); }
   }
 
   function handleSelectTemplate(tpl: any) {
@@ -635,7 +644,7 @@ export default function WhatsAppChatPanel({
     try {
       await api.post(`/api/whatsapp/conversations/${effectiveContactId}/block`, { block: newBlocked });
       setIsBlocked(newBlocked);
-    } catch {}
+    } catch (e: any) { console.error('handleBlock:', e); toast.error('Failed to update block status'); }
   }
 
   // ── Search messages ──
@@ -645,7 +654,7 @@ export default function WhatsAppChatPanel({
       const data = await api.get(`/api/whatsapp/search?q=${encodeURIComponent(searchQuery)}&contact_id=${effectiveContactId}`);
       setSearchResults(Array.isArray(data) ? data : []);
       setSearchIdx(0);
-    } catch { setSearchResults([]); }
+    } catch (e: any) { console.error('handleSearch:', e); setSearchResults([]); }
   }
 
   // ── Group info ──
@@ -654,11 +663,11 @@ export default function WhatsAppChatPanel({
     try {
       const meta = await api.get(`/api/whatsapp/groups/${effectiveContactId}/metadata`);
       setGroupMeta(meta);
-    } catch {}
+    } catch (e: any) { console.error('loadGroupInfo metadata:', e); }
     try {
       const inv = await api.get(`/api/whatsapp/groups/${effectiveContactId}/invite-code`);
       setInviteCode(inv.inviteCode || inv.code || '');
-    } catch {}
+    } catch (e: any) { console.error('loadGroupInfo invite:', e); }
     loadGroupParticipants();
   }
 
@@ -672,7 +681,7 @@ export default function WhatsAppChatPanel({
       setShowContactModal(false);
       setContactCardName(''); setContactCardPhone('');
       loadMessages();
-    } catch {}
+    } catch (e: any) { console.error('handleSendContact:', e); toast.error('Failed to send contact'); }
   }
 
   // ── 4.2 Send location ──
@@ -686,7 +695,7 @@ export default function WhatsAppChatPanel({
       setShowLocationModal(false);
       setLocLat(''); setLocLng(''); setLocName(''); setLocAddress('');
       loadMessages();
-    } catch {}
+    } catch (e: any) { console.error('handleSendLocation:', e); toast.error('Failed to send location'); }
   }
 
   // ── 4.3 Voice recording ──
@@ -701,7 +710,7 @@ export default function WhatsAppChatPanel({
       setIsRecording(true);
       setRecordDuration(0);
       recordTimerRef.current = setInterval(() => setRecordDuration(d => d + 1), 1000);
-    } catch {}
+    } catch (e: any) { console.error('startRecording:', e); toast.error('Failed to access microphone'); }
   }
 
   async function stopRecordingAndSend() {
@@ -719,7 +728,7 @@ export default function WhatsAppChatPanel({
             audio_url: uploadRes.media_url,
           });
           loadMessages();
-        } catch {}
+        } catch (e: any) { console.error('sendVoiceNote:', e); toast.error('Failed to send voice note'); }
         recorder.stream.getTracks().forEach(t => t.stop());
         setIsRecording(false);
         setRecordDuration(0);
@@ -750,7 +759,7 @@ export default function WhatsAppChatPanel({
       const res = await api.post(`/api/whatsapp/conversations/${effectiveContactId}/sync-history`, { count: 100 });
       setSyncCount(res.imported || 0);
       loadMessages();
-    } catch {}
+    } catch (e: any) { console.error('handleSyncHistory:', e); toast.error('Failed to sync history'); }
     finally { setSyncing(false); }
   }
 
@@ -760,19 +769,19 @@ export default function WhatsAppChatPanel({
     try {
       await api.post(`/api/whatsapp/conversations/${effectiveContactId}/messages/${msgId}/download-media`, {});
       loadMessages();
-    } catch {}
+    } catch (e: any) { console.error('handleDownloadMedia:', e); toast.error('Failed to download media'); }
   }
 
   // ── 4.5 Mark unread ──
   async function handleMarkUnread() {
     if (!effectiveContactId) return;
-    try { await api.post(`/api/whatsapp/conversations/${effectiveContactId}/mark-unread`, {}); } catch {}
+    try { await api.post(`/api/whatsapp/conversations/${effectiveContactId}/mark-unread`, {}); } catch (e: any) { console.error('handleMarkUnread:', e); }
   }
 
   // ── 4.5 Delete chat ──
   async function handleDeleteChat() {
     if (!effectiveContactId || !confirm('Delete this entire chat? This action cannot be undone.')) return;
-    try { await api.delete(`/api/whatsapp/conversations/${effectiveContactId}/delete-chat`); } catch {}
+    try { await api.delete(`/api/whatsapp/conversations/${effectiveContactId}/delete-chat`); } catch (e: any) { console.error('handleDeleteChat:', e); toast.error('Failed to delete chat'); }
   }
 
   // ── 4.5 Fetch profile ──
@@ -782,7 +791,7 @@ export default function WhatsAppChatPanel({
     try {
       const data = await api.get(`/api/whatsapp/conversations/${effectiveContactId}/profile`);
       setProfileData(data);
-    } catch { setProfileData(null); }
+    } catch (e: any) { console.error('handleFetchProfile:', e); setProfileData(null); }
   }
 
   // ── 5.5 Call ──
@@ -791,7 +800,7 @@ export default function WhatsAppChatPanel({
     try {
       await api.post(`/api/whatsapp/conversations/${effectiveContactId}/call`, { is_video: isVideo });
       loadMessages();
-    } catch {}
+    } catch (e: any) { console.error('handleCall:', e); toast.error('Failed to initiate call'); }
     setShowCallMenu(false);
   }
 
@@ -801,7 +810,7 @@ export default function WhatsAppChatPanel({
     try {
       await api.delete(`/api/whatsapp/groups/${effectiveContactId}/leave`);
       setShowGroupInfo(false);
-    } catch {}
+    } catch (e: any) { console.error('handleLeaveGroup:', e); toast.error('Failed to leave group'); }
   }
 
   async function handleRevokeInvite() {
@@ -809,7 +818,7 @@ export default function WhatsAppChatPanel({
     try {
       const result = await api.post(`/api/whatsapp/groups/${effectiveContactId}/revoke-invite`, {});
       setInviteCode(result.inviteCode || result.code || '');
-    } catch {}
+    } catch (e: any) { console.error('handleRevokeInvite:', e); toast.error('Failed to revoke invite'); }
   }
 
   async function openGroupInviteModal() {
@@ -817,7 +826,7 @@ export default function WhatsAppChatPanel({
     try {
       const contacts = await api.get('/api/whatsapp/conversations?is_group=false');
       setGroupInviteContacts(Array.isArray(contacts) ? contacts : []);
-    } catch { setGroupInviteContacts([]); }
+    } catch (e: any) { console.error('openGroupInviteModal:', e); setGroupInviteContacts([]); }
   }
 
   async function handleSendGroupInvite(inviteeContactId: string) {
@@ -827,17 +836,17 @@ export default function WhatsAppChatPanel({
         invitee_contact_id: inviteeContactId,
       });
       setShowGroupInviteModal(false);
-    } catch {}
+    } catch (e: any) { console.error('handleSendGroupInvite:', e); toast.error('Failed to send invite'); }
   }
 
   async function handleGroupSetting(action: string) {
     if (!effectiveContactId) return;
-    try { await api.put(`/api/whatsapp/groups/${effectiveContactId}/settings`, { action }); } catch {}
+    try { await api.put(`/api/whatsapp/groups/${effectiveContactId}/settings`, { action }); } catch (e: any) { console.error('handleGroupSetting:', e); toast.error('Failed to update group setting'); }
   }
 
   async function handleGroupEphemeral(expiration: number) {
     if (!effectiveContactId) return;
-    try { await api.put(`/api/whatsapp/groups/${effectiveContactId}/ephemeral`, { expiration }); } catch {}
+    try { await api.put(`/api/whatsapp/groups/${effectiveContactId}/ephemeral`, { expiration }); } catch (e: any) { console.error('handleGroupEphemeral:', e); toast.error('Failed to update ephemeral setting'); }
   }
 
   async function loadGroupParticipants() {
@@ -845,7 +854,7 @@ export default function WhatsAppChatPanel({
     try {
       const data = await api.get(`/api/whatsapp/groups/${effectiveContactId}/participants`);
       setGroupParticipants(Array.isArray(data) ? data : (data?.participants || []));
-    } catch { setGroupParticipants([]); }
+    } catch (e: any) { console.error('loadGroupParticipants:', e); setGroupParticipants([]); }
   }
 
   // ── 5.4 Catalog ──
@@ -855,7 +864,7 @@ export default function WhatsAppChatPanel({
     try {
       const data = await api.get(`/api/whatsapp/conversations/${effectiveContactId}/catalog`);
       setCatalogData(Array.isArray(data) ? data : (data?.data || data?.products || []));
-    } catch { setCatalogData([]); }
+    } catch (e: any) { console.error('loadCatalog:', e); setCatalogData([]); }
   }
 
   // ── Find quoted message ──
@@ -1117,7 +1126,7 @@ export default function WhatsAppChatPanel({
                 {effectiveContactId && !isGroup && (
                   <button onClick={async () => {
                     setShowMoreMenu(false);
-                    try { await api.post(`/api/whatsapp/conversations/${effectiveContactId}/sync-profile`, {}); } catch {}
+                    try { await api.post(`/api/whatsapp/conversations/${effectiveContactId}/sync-profile`, {}); } catch (e: any) { console.error('syncProfile:', e); toast.error('Failed to sync profile'); }
                   }}
                     className="flex items-center gap-3 w-full text-left px-4 py-2.5 text-[13px] hover:bg-gray-50" style={{ color: '#3b4a54' }}>
                     <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="m21 15-5-5L5 21"/></svg>
@@ -1540,6 +1549,12 @@ export default function WhatsAppChatPanel({
         onClick={() => { setMenuMsg(null); setShowDisappearing(false); setShowMoreMenu(false); setShowCallMenu(false); setShowAttachMenu(false); }}>
         {loading ? (
           <div className="text-center text-sm py-8" style={{ color: 'var(--notion-text-muted)' }}>Loading messages...</div>
+        ) : loadError ? (
+          <div className="text-center py-12">
+            <p className="text-sm" style={{ color: '#dc2626' }}>加载消息失败: {loadError}</p>
+            <button onClick={() => loadMessages()} className="mt-2 text-xs px-3 py-1.5 rounded-lg"
+              style={{ background: '#f0f2f5', color: '#111b21' }}>重试</button>
+          </div>
         ) : messages.length === 0 ? (
           <div className="text-center py-12">
             <p className="text-sm" style={{ color: 'var(--notion-text-muted)' }}>No messages yet</p>

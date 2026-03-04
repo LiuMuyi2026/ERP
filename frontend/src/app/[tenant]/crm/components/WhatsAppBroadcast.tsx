@@ -3,6 +3,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { api } from '@/lib/api';
 import { useWhatsAppSocket } from '@/lib/useWhatsAppSocket';
+import toast from 'react-hot-toast';
 
 type Broadcast = {
   id: string;
@@ -132,7 +133,7 @@ export default function WhatsAppBroadcast() {
       });
       setShowCreate(false);
       loadBroadcasts();
-    } catch (e: any) { alert(e.message || 'Failed to create broadcast'); }
+    } catch (e: any) { toast.error(e.message || 'Failed to create broadcast'); }
     finally { setSending(false); }
   }
 
@@ -141,7 +142,7 @@ export default function WhatsAppBroadcast() {
     try {
       await api.post(`/api/whatsapp/broadcasts/${id}/send`, {});
       loadBroadcasts();
-    } catch (e: any) { alert(e.message || 'Failed to send broadcast'); }
+    } catch (e: any) { toast.error(e.message || 'Failed to send broadcast'); }
   }
 
   const filteredConvos = useMemo(() => {
