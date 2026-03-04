@@ -32,9 +32,11 @@ app = FastAPI(
 
 _cors_origins = settings.cors_origin_list
 _cors_wildcard = "*" in _cors_origins
+logger.info("CORS allow_origins: %s", _cors_origins)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"] if _cors_wildcard else _cors_origins,
+    allow_origin_regex=None if _cors_wildcard else r"^https://[a-z0-9-]+\.onrender\.com$",
     allow_credentials=not _cors_wildcard,
     allow_methods=["*"],
     allow_headers=["*"],

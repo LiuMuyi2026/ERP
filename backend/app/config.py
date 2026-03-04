@@ -1,6 +1,7 @@
 from pydantic_settings import BaseSettings
 from typing import Optional
 import logging
+from urllib.parse import urlparse
 
 logger = logging.getLogger(__name__)
 
@@ -65,9 +66,46 @@ class Settings(BaseSettings):
 
     @property
     def cors_origin_list(self) -> list[str]:
-        origins = [o.strip() for o in self.cors_origins.split(",") if o.strip()]
-        if "*" in origins:
+        raw_origins = [o.strip() for o in self.cors_origins.split(",") if o.strip()]
+        if "*" in raw_origins:
             return ["*"]
+
+        def normalize(origin: str) -> str:
+            # Normalize trailing slash and whitespace-only artifacts.
+            return origin.strip().rstrip("/")
+
+        origins: list[str] = []
+        seen = set()
+        for item in raw_origins:
+            v = normalize(item)
+            if not v:
+                continue
+            if v not in seen:
+                origins.append(v)
+                seen.add(v)
+
+        # Also trust APP_BASE_URL's origin if provided.
+        app_base = normalize(self.app_base_url or "")
+        if app_base:
+            p = urlparse(app_base)
+            if p.scheme and p.netloc:
+                base_origin = f"{p.scheme}://{p.netloc}"
+                if base_origin not in seen:
+                    origins.append(base_origin)
+                    seen.add(base_origin)
+
+        # Safe fallback for this deployment to avoid accidental CORS lockout.
+        fallback_origins = [
+            "https://nexus-frontend-5thy.onrender.com",
+            "http://localhost:3000",
+            "http://localhost:3001",
+            "http://localhost:3002",
+        ]
+        for item in fallback_origins:
+            if item not in seen:
+                origins.append(item)
+                seen.add(item)
+
         return origins
 
     @property
