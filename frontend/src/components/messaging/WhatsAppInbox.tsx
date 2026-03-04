@@ -72,6 +72,15 @@ type WaAccount = {
 type WaLabel = { id: string; wa_label_id: string; name?: string; color?: string };
 
 // relTime and WA_STATUS_COLORS imported from wa-helpers
+function isSafeImageSrc(src?: string): boolean {
+  if (!src) return false;
+  return (
+    src.startsWith('http://') ||
+    src.startsWith('https://') ||
+    src.startsWith('data:image/') ||
+    src.startsWith('/')
+  );
+}
 
 const statusColors: Record<string, { bg: string; text: string }> = {
   new: { bg: '#dbeafe', text: '#1d4ed8' },
@@ -224,7 +233,7 @@ function AccountCatalogPanel({ accountId }: { accountId: string }) {
             <div className="space-y-1 max-h-[200px] overflow-y-auto">
               {products.map((product: any, idx: number) => (
                 <div key={idx} className="flex gap-2 p-1.5 rounded border" style={{ borderColor: 'var(--notion-border)' }}>
-                  {product.productImage?.imageUrl && (
+                  {isSafeImageSrc(product.productImage?.imageUrl) && (
                     <Image
                       src={product.productImage.imageUrl}
                       alt=""
@@ -916,7 +925,7 @@ export default function WhatsAppInbox() {
   }
 
   return (
-    <div className="flex h-full" style={{ background: '#eae6df' }}>
+    <div className="flex h-full min-h-0 w-full min-w-0" style={{ background: '#eae6df' }}>
       {/* ── Left Panel: Contact List ── */}
       <div className="flex flex-col h-full flex-shrink-0" style={{ width: 380, borderRight: '1px solid #d1d7db', background: 'white' }}>
         {/* Header bar — WhatsApp green */}
@@ -1072,9 +1081,9 @@ export default function WhatsAppInbox() {
                   {/* Avatar */}
                   <div className="w-12 h-12 rounded-full flex items-center justify-center text-white text-sm font-bold flex-shrink-0 overflow-hidden"
                     style={{ background: conv.is_group ? '#00a884' : '#dfe5e7' }}>
-                    {conv.profile_pic_url ? (
+                    {isSafeImageSrc(conv.profile_pic_url) ? (
                       <Image
-                        src={conv.profile_pic_url}
+                        src={conv.profile_pic_url as string}
                         alt=""
                         fill
                         unoptimized
@@ -1343,7 +1352,7 @@ export default function WhatsAppInbox() {
             <h3 className="font-semibold mb-2 text-base" style={{ color: 'var(--notion-text)' }}>Scan QR Code</h3>
             <p className="text-xs mb-4" style={{ color: 'var(--notion-text-muted)' }}>Open WhatsApp on your phone &rarr; Settings &rarr; Linked Devices &rarr; Link a Device</p>
             <div className="mx-auto w-64 h-64 rounded-lg overflow-hidden mb-4 flex items-center justify-center" style={{ background: 'white' }}>
-              {qrData.qr ? (
+              {isSafeImageSrc(qrData.qr) ? (
                 <Image
                   src={qrData.qr}
                   alt="QR Code"
@@ -1358,6 +1367,13 @@ export default function WhatsAppInbox() {
                     <circle cx="12" cy="12" r="10"/><path d="M12 8v4m0 4h.01"/>
                   </svg>
                   <p className="text-xs text-center" style={{ color: '#dc2626' }}>{qrError}</p>
+                </div>
+              ) : qrData.qr ? (
+                <div className="flex flex-col items-center gap-2 px-4">
+                  <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#dc2626" strokeWidth="1.5" strokeLinecap="round">
+                    <circle cx="12" cy="12" r="10"/><path d="M12 8v4m0 4h.01"/>
+                  </svg>
+                  <p className="text-xs text-center" style={{ color: '#dc2626' }}>Invalid QR image format</p>
                 </div>
               ) : (
                 <div className="flex flex-col items-center gap-2">
