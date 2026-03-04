@@ -106,6 +106,12 @@ export default function EmailInbox() {
     setEmailPrefs(loadEmailUiPrefs(tenantSlug));
   }, [tenantSlug]);
 
+  useEffect(() => {
+    const refreshPrefs = () => setEmailPrefs(loadEmailUiPrefs(tenantSlug));
+    window.addEventListener('focus', refreshPrefs);
+    return () => window.removeEventListener('focus', refreshPrefs);
+  }, [tenantSlug]);
+
   const loadUnreadCount = useCallback(async () => {
     try {
       const data = await api.get('/api/email/unread-count');

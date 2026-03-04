@@ -89,6 +89,7 @@ export default function EmailReader({
   const [translatedText, setTranslatedText] = useState('');
   const [sourceLanguage, setSourceLanguage] = useState('');
   const [translating, setTranslating] = useState(false);
+  const [translateError, setTranslateError] = useState('');
 
   const bodyPlain = email.body_text || stripHtml(email.body_html);
 
@@ -96,6 +97,7 @@ export default function EmailReader({
     if (!autoTranslateEnabled || !bodyPlain.trim()) {
       setTranslatedText('');
       setSourceLanguage('');
+      setTranslateError('');
       return;
     }
     let cancelled = false;
@@ -109,10 +111,12 @@ export default function EmailReader({
       const translated = String(resp?.translated_text || '').trim();
       setTranslatedText(translated);
       setSourceLanguage(String(resp?.source_language || ''));
+      setTranslateError('');
     }).catch(() => {
       if (cancelled) return;
       setTranslatedText('');
       setSourceLanguage('');
+      setTranslateError(isZh ? '自动翻译失败，请检查 AI 配置或稍后重试。' : 'Auto-translation failed. Check AI provider settings and try again.');
     }).finally(() => {
       if (!cancelled) setTranslating(false);
     });
@@ -180,6 +184,11 @@ export default function EmailReader({
               : translatedText
               ? `Auto translated (${sourceLanguage || 'auto'} → ${normalizeLanguageCode(userTargetLanguage)})`
               : 'Auto translate enabled'}
+          </div>
+        )}
+        {autoTranslateEnabled && translateError && (
+          <div className="mb-3 rounded-xl px-3 py-2 text-xs" style={{ background: '#fef2f2', color: '#b91c1c', border: '1px solid #fecaca' }}>
+            {translateError}
           </div>
         )}
         {autoTranslateEnabled && translatedText && (
