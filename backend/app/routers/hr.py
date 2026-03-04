@@ -5,6 +5,7 @@ from pydantic import BaseModel, field_validator
 from typing import Optional
 from app.deps import get_current_user_with_tenant
 from app.services.auth import get_password_hash
+from app.services.tenant_limits import ensure_tenant_user_capacity
 from app.utils.sql import build_update_clause, parse_date
 import uuid
 
@@ -410,6 +411,7 @@ async def list_staff(ctx: dict = Depends(get_current_user_with_tenant)):
 async def create_staff(body: StaffCreate, ctx: dict = Depends(get_current_user_with_tenant)):
     """Create a user account and employee record atomically."""
     db = ctx["db"]
+    await ensure_tenant_user_capacity(db, ctx["tenant_slug"])
     user_id = str(uuid.uuid4())
     hashed = get_password_hash(body.password)
 

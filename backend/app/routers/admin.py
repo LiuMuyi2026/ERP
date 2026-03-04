@@ -9,6 +9,7 @@ from typing import Optional, List
 
 from app.deps import get_current_user_with_tenant, require_admin_with_tenant
 from app.services.auth import get_password_hash
+from app.services.tenant_limits import ensure_tenant_user_capacity
 from app.utils.sql import build_update_clause
 from app.utils.crypto import encrypt_api_key
 
@@ -147,6 +148,7 @@ async def invite_user(body: InviteUser, ctx: dict = Depends(get_current_user_wit
 
     # Use default password if none provided
     plain_pw = body.password.strip() if body.password.strip() else DEFAULT_PASSWORD
+    await ensure_tenant_user_capacity(ctx["db"], ctx["tenant_slug"])
 
     db = ctx["db"]
     user_id = str(uuid.uuid4())

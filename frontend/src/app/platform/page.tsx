@@ -16,6 +16,8 @@ export default function PlatformDashboard() {
   const [usage, setUsage] = useState<any>(null);
   const [showAIConfig, setShowAIConfig] = useState<any>(null); // Stores the tenant object being configured
   const [aiForm, setAIForm] = useState({ ai_provider: 'gemini', ai_model: 'gemini-2.0-flash', ai_api_key: '' });
+  const [showUserLimitConfig, setShowUserLimitConfig] = useState<any>(null);
+  const [userLimitValue, setUserLimitValue] = useState('');
 
   useEffect(() => {
     try {
@@ -130,7 +132,7 @@ export default function PlatformDashboard() {
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
             <thead><tr className="border-b">
-              {['Name', 'Slug', 'Status', 'Schema', 'Created', 'AI', ''].map(h => (
+              {['Name', 'Slug', 'Users', 'Status', 'Schema', 'Created', 'AI', ''].map(h => (
                 <th key={h} className="text-left p-4 text-sm font-medium text-gray-500">{h}</th>
               ))}
             </tr></thead>
@@ -139,6 +141,19 @@ export default function PlatformDashboard() {
                 <tr key={t.id} className="border-b last:border-0 hover:bg-gray-50">
                   <td className="p-4 font-medium">{t.name}</td>
                   <td className="p-4 text-sm text-gray-600 font-mono">{t.slug}</td>
+                  <td className="p-4">
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs text-gray-600">
+                        {t.active_user_count ?? 0}{t.user_limit ? ` / ${t.user_limit}` : ' / ∞'}
+                      </span>
+                      <button
+                        onClick={() => { setShowUserLimitConfig(t); setUserLimitValue(t.user_limit ? String(t.user_limit) : ''); }}
+                        className="text-[11px] text-indigo-600 hover:text-indigo-800"
+                      >
+                        Limit
+                      </button>
+                    </div>
+                  </td>
                   <td className="p-4">
                     <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${t.is_active ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
                       {t.is_active ? 'Active' : 'Disabled'}
@@ -234,6 +249,53 @@ export default function PlatformDashboard() {
                 className="flex-1 py-2 bg-indigo-600 text-white rounded-lg text-sm font-bold hover:bg-indigo-700 shadow-md"
               >
                 Save Changes
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* User Limit Modal */}
+      {showUserLimitConfig && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl p-6 w-full max-w-sm shadow-2xl">
+            <h3 className="font-bold text-gray-900">User Limit</h3>
+            <p className="text-xs text-gray-500 mt-1">
+              {showUserLimitConfig.name} ({showUserLimitConfig.slug})
+            </p>
+            <p className="text-xs text-gray-500 mt-2">
+              Current active users: {showUserLimitConfig.active_user_count ?? 0}
+            </p>
+            <div className="mt-4">
+              <label className="block text-[10px] font-black uppercase tracking-widest text-gray-400 mb-1">Max Active Users</label>
+              <input
+                type="number"
+                min={1}
+                placeholder="Leave blank for unlimited"
+                value={userLimitValue}
+                onChange={e => setUserLimitValue(e.target.value)}
+                className="w-full px-3 py-2 border rounded-lg text-sm outline-none focus:ring-2 focus:ring-indigo-500/20"
+              />
+            </div>
+            <div className="flex gap-2 mt-6">
+              <button
+                onClick={() => setShowUserLimitConfig(null)}
+                className="flex-1 py-2 border border-gray-200 text-gray-600 rounded-lg text-sm font-bold hover:bg-gray-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={async () => {
+                  try {
+                    const payload = { user_limit: userLimitValue.trim() ? Number(userLimitValue) : null };
+                    await api.patch(`/api/platform/tenants/${showUserLimitConfig.id}/user-limit`, payload);
+                    const fresh = await api.get('/api/platform/tenants');
+                    setTenants(fresh);
+                    setShowUserLimitConfig(null);
+                  } catch (err: any) { alert(err.message); }
+                }}
+                className="flex-1 py-2 bg-indigo-600 text-white rounded-lg text-sm font-bold hover:bg-indigo-700 shadow-md"
+              >
+                Save
               </button>
             </div>
           </div>

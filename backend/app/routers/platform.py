@@ -27,6 +27,10 @@ class TenantAIConfig(BaseModel):
     ai_api_key: str | None = None
 
 
+class TenantUserLimitUpdate(BaseModel):
+    user_limit: int | None = None  # null = unlimited
+
+
 @router.get("/analytics/ai-usage")
 async def get_ai_usage_analytics(
     tenant_id: str | None = None,
@@ -118,9 +122,49 @@ async def update_tenant_ai_config(
 @router.get("/tenants")
 async def list_tenants(db: AsyncSession = Depends(get_db), _: dict = Depends(require_platform_admin)):
     result = await db.execute(
-        text("SELECT id, name, slug, is_active, schema_provisioned, crm_enabled, hr_enabled, accounting_enabled, inventory_enabled, created_at FROM platform.tenants ORDER BY created_at DESC")
+        text("SELECT id, name, slug, is_active, schema_provisioned, crm_enabled, hr_enabled, accounting_enabled, inventory_enabled, user_limit, created_at FROM platform.tenants ORDER BY created_at DESC")
     )
-    return [dict(row._mapping) for row in result.fetchall()]
+    tenants = [dict(row._mapping) for row in result.fetchall()]
+
+    enriched = []
+    for tenant in tenants:
+        active_users = 0
+        total_users = 0
+        try:
+            await safe_set_search_path(db, tenant["slug"])
+            total_users = int((await db.execute(text("SELECT COUNT(*) FROM users"))).scalar() or 0)
+            active_users = int((await db.execute(text("SELECT COUNT(*) FROM users WHERE COALESCE(is_active, TRUE) = TRUE"))).scalar() or 0)
+        except Exception:
+            active_users = 0
+            total_users = 0
+        finally:
+            await db.execute(text("SET search_path TO platform, public"))
+
+        tenant["active_user_count"] = active_users
+        tenant["total_user_count"] = total_users
+        enriched.append(tenant)
+    return enriched
+
+
+@router.patch("/tenants/{tenant_id}/user-limit")
+async def update_tenant_user_limit(
+    tenant_id: str,
+    body: TenantUserLimitUpdate,
+    db: AsyncSession = Depends(get_db),
+    _: dict = Depends(require_platform_admin),
+):
+    if body.user_limit is not None and body.user_limit < 1:
+        raise HTTPException(status_code=400, detail="user_limit must be >= 1 or null")
+
+    result = await db.execute(
+        text("UPDATE platform.tenants SET user_limit = :lim, updated_at = NOW() WHERE id = :id RETURNING id"),
+        {"lim": body.user_limit, "id": tenant_id},
+    )
+    row = result.fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Tenant not found")
+    await db.commit()
+    return {"status": "updated", "user_limit": body.user_limit}
 
 
 @router.post("/tenants")

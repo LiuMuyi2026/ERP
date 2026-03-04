@@ -56,6 +56,7 @@ async def init_db():
                 hr_enabled BOOLEAN DEFAULT TRUE,
                 accounting_enabled BOOLEAN DEFAULT TRUE,
                 inventory_enabled BOOLEAN DEFAULT TRUE,
+                user_limit INTEGER,
                 email_enabled BOOLEAN DEFAULT FALSE,
                 smtp_host VARCHAR(255),
                 smtp_port INTEGER DEFAULT 587,
@@ -108,6 +109,7 @@ async def init_db():
         await conn.execute(text("ALTER TABLE platform.tenants ADD COLUMN IF NOT EXISTS ai_provider VARCHAR(30) DEFAULT 'gemini'"))
         await conn.execute(text("ALTER TABLE platform.tenants ADD COLUMN IF NOT EXISTS ai_model VARCHAR(120) DEFAULT 'gemini-2.0-flash'"))
         await conn.execute(text("ALTER TABLE platform.tenants ADD COLUMN IF NOT EXISTS ai_api_key TEXT"))
+        await conn.execute(text("ALTER TABLE platform.tenants ADD COLUMN IF NOT EXISTS user_limit INTEGER"))
         await conn.execute(text("ALTER TABLE platform.tenants ADD COLUMN IF NOT EXISTS email_enabled BOOLEAN DEFAULT FALSE"))
         await conn.execute(text("ALTER TABLE platform.tenants ADD COLUMN IF NOT EXISTS smtp_host VARCHAR(255)"))
         await conn.execute(text("ALTER TABLE platform.tenants ADD COLUMN IF NOT EXISTS smtp_port INTEGER DEFAULT 587"))
