@@ -39,9 +39,9 @@ class EmployeeUpdate(BaseModel):
     currency: Optional[str] = None
     status: Optional[str] = None
 
-    @field_validator("salary", mode="before")
+    @field_validator("salary", "start_date", mode="before")
     @classmethod
-    def coerce_salary(cls, v):
+    def coerce_empty_to_none(cls, v):
         if v == "" or v is None:
             return None
         return v

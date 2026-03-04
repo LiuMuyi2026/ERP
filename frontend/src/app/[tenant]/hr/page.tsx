@@ -651,6 +651,7 @@ export default function HRPage() {
       else payload.salary = Number(payload.salary);
       if (payload.position_id === '') payload.position_id = null;
       if (payload.department_id === '') payload.department_id = null;
+      if (payload.start_date === '') payload.start_date = null;
       await api.patch(`/api/hr/employees/${selectedEmployee.id}`, payload);
       const posName = positions.find((p: any) => p.id === editForm.position_id)?.name || selectedEmployee.position_name || '';
       const deptName = departments.find((d: any) => d.id === editForm.department_id)?.name || selectedEmployee.department_name || '';
@@ -1696,6 +1697,7 @@ export default function HRPage() {
                       position_id: selectedEmployee.position_id || null,
                       department_id: selectedEmployee.department_id || null,
                       employment_type: selectedEmployee.employment_type || 'full_time',
+                      start_date: selectedEmployee.start_date ? selectedEmployee.start_date.slice(0, 10) : '',
                       salary: selectedEmployee.salary ?? '',
                       currency: selectedEmployee.currency || 'USD',
                       status: selectedEmployee.status || 'active',
@@ -1822,8 +1824,15 @@ export default function HRPage() {
                     </div>
                   </div>
 
-                  {/* Salary */}
+                  {/* Start Date + Salary */}
                   <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs mb-1" style={{ color: '#9B9A97' }}>{tHr('startDate')}</label>
+                      <input type="date" value={editForm.start_date || ''}
+                        onChange={e => setEditForm({ ...editForm, start_date: e.target.value })}
+                        className="w-full px-3 py-2 rounded-xl text-sm outline-none"
+                        style={{ border: '1px solid var(--notion-border)', color: 'var(--notion-text)' }} />
+                    </div>
                     <div>
                       <label className="block text-xs mb-1" style={{ color: '#9B9A97' }}>{tHr('labelSalary')}</label>
                       <input type="number" value={editForm.salary ?? ''}
@@ -1831,6 +1840,10 @@ export default function HRPage() {
                         className="w-full px-3 py-2 rounded-xl text-sm outline-none"
                         style={{ border: '1px solid var(--notion-border)', color: 'var(--notion-text)' }} />
                     </div>
+                  </div>
+
+                  {/* Currency */}
+                  <div className="grid grid-cols-2 gap-3">
                     <div>
                       <label className="block text-xs mb-1" style={{ color: '#9B9A97' }}>{tHr('labelCurrency')}</label>
                       <select value={editForm.currency}
