@@ -1484,7 +1484,7 @@ function CustomersTab() {
       <div style={{ marginTop: 16 }}>
         <div style={{ display: 'flex', gap: 24, minHeight: 400 }}>
           {/* Leaflet Map */}
-          <div style={{ flex: 3, borderRadius: 12, border: '1px solid var(--notion-border)', overflow: 'hidden' }}>
+          <div style={{ flex: 3, borderRadius: 12, border: '1px solid var(--notion-border)', overflow: 'hidden', position: 'relative', zIndex: 1 }}>
             <CustomerMap
               countryStats={countryStats}
               selectedCountry={mapSelectedCountry}

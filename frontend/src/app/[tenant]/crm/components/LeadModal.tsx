@@ -224,7 +224,7 @@ export default function LeadModal({ users, onClose, onSave, isLeadContext, custo
   }
 
   return (
-    <div className="fixed inset-0 z-[200] flex" style={{ background: 'rgba(0,0,0,0.45)', backdropFilter: 'blur(3px)' }}>
+    <div className="fixed inset-0 z-[4000] flex" style={{ background: 'rgba(0,0,0,0.45)', backdropFilter: 'blur(3px)', isolation: 'isolate' }}>
       <div className="ml-auto h-full flex flex-col bg-white overflow-hidden" style={{ width: 680, boxShadow: '-4px 0 24px rgba(0,0,0,0.12)' }}>
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 flex-shrink-0" style={{ borderBottom: '1px solid var(--notion-border)' }}>

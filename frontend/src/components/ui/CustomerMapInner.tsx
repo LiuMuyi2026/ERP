@@ -1,7 +1,6 @@
 'use client';
 
-import { useEffect } from 'react';
-import { MapContainer, TileLayer, CircleMarker, Tooltip, useMap } from 'react-leaflet';
+import { MapContainer, TileLayer, CircleMarker, Tooltip } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
 
 // Coordinate lookup for ~40 major trade countries
@@ -130,19 +129,6 @@ function getColor(count: number): string {
   return '#2563eb';
 }
 
-// Sub-component to fit bounds when data changes
-function FitBounds({ coords }: { coords: [number, number][] }) {
-  const map = useMap();
-  useEffect(() => {
-    if (coords.length > 0) {
-      const L = require('leaflet');
-      const bounds = L.latLngBounds(coords.map(([lat, lng]) => [lat, lng]));
-      map.fitBounds(bounds, { padding: [40, 40], maxZoom: 5 });
-    }
-  }, [coords, map]);
-  return null;
-}
-
 export default function CustomerMapInner({ countryStats, selectedCountry, onSelectCountry }: Props) {
   const maxCount = Math.max(...countryStats.map(s => s.count), 1);
 
@@ -154,25 +140,25 @@ export default function CustomerMapInner({ countryStats, selectedCountry, onSele
     })
     .filter(Boolean) as (CountryStat & { lat: number; lng: number })[];
 
-  const fitCoords: [number, number][] = markers.map(m => [m.lat, m.lng]);
-
   return (
     <MapContainer
       center={[20, 10]}
       zoom={2}
-      style={{ width: '100%', height: '100%', minHeight: 350, background: '#f8fafc' }}
+      minZoom={2}
+      maxZoom={2}
+      style={{ width: '100%', height: '100%', minHeight: 350, background: '#f8fafc', position: 'relative', zIndex: 1 }}
       scrollWheelZoom={false}
       doubleClickZoom={false}
       touchZoom={false}
       boxZoom={false}
       keyboard={false}
+      dragging={false}
       zoomControl={false}
     >
       <TileLayer
         attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
         url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
       />
-      {fitCoords.length > 0 && <FitBounds coords={fitCoords} />}
       {markers.map(m => {
         const isSelected = selectedCountry === m.country;
         return (
