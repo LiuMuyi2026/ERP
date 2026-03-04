@@ -1367,6 +1367,33 @@ TENANT_MIGRATION_DDL = [
     "CREATE INDEX IF NOT EXISTS idx_emails_message_id ON emails(message_id_header)",
     # Prevent duplicate inbound emails from webhook retries
     "CREATE UNIQUE INDEX IF NOT EXISTS idx_emails_unique_msg_id ON emails(message_id_header) WHERE message_id_header IS NOT NULL AND message_id_header != ''",
+    # Email workflow fields
+    "ALTER TABLE emails ADD COLUMN IF NOT EXISTS mailbox_state VARCHAR(20) DEFAULT 'inbox'",
+    "ALTER TABLE emails ADD COLUMN IF NOT EXISTS follow_up_state VARCHAR(20) DEFAULT 'none'",
+    "ALTER TABLE emails ADD COLUMN IF NOT EXISTS follow_up_at TIMESTAMPTZ",
+    "ALTER TABLE emails ADD COLUMN IF NOT EXISTS assigned_to UUID",
+    "UPDATE emails SET mailbox_state = 'inbox' WHERE mailbox_state IS NULL",
+    "UPDATE emails SET follow_up_state = 'none' WHERE follow_up_state IS NULL",
+    "CREATE INDEX IF NOT EXISTS idx_emails_mailbox_state ON emails(mailbox_state, created_at DESC)",
+    "CREATE INDEX IF NOT EXISTS idx_emails_follow_up_state ON emails(follow_up_state, follow_up_at)",
+    "CREATE INDEX IF NOT EXISTS idx_emails_assigned_to ON emails(assigned_to)",
+
+    # Email templates
+    """CREATE TABLE IF NOT EXISTS email_templates (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        name VARCHAR(255) NOT NULL,
+        category VARCHAR(50) DEFAULT 'general',
+        locale VARCHAR(20) DEFAULT 'en',
+        subject VARCHAR(500) NOT NULL,
+        body_text TEXT NOT NULL,
+        is_active BOOLEAN DEFAULT TRUE,
+        is_deleted BOOLEAN DEFAULT FALSE,
+        created_by UUID,
+        created_at TIMESTAMPTZ DEFAULT NOW(),
+        updated_at TIMESTAMPTZ
+    )""",
+    "CREATE INDEX IF NOT EXISTS idx_email_templates_active ON email_templates(is_active, is_deleted, created_at DESC)",
+    "CREATE INDEX IF NOT EXISTS idx_email_templates_locale ON email_templates(locale, category)",
 
     # Add lead_id to messages table for customer linking
     "ALTER TABLE messages ADD COLUMN IF NOT EXISTS lead_id UUID",

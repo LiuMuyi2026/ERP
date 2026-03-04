@@ -30,14 +30,38 @@ type EmailItem = {
   sent_at?: string;
   received_at?: string;
   created_at?: string;
+  mailbox_state?: 'inbox' | 'archived';
+  follow_up_state?: 'none' | 'pending' | 'done';
+  follow_up_at?: string;
+  assigned_to?: string;
+  assigned_user_name?: string;
 };
 
-type Folder = 'inbox' | 'sent';
+type Folder = 'inbox' | 'sent' | 'todo' | 'archived';
 type ViewMode = 'list' | 'read' | 'compose' | 'reply';
+type EmailTemplate = {
+  id: string;
+  name: string;
+  category?: string;
+  locale?: string;
+  subject: string;
+  body_text: string;
+  is_active?: boolean;
+};
+type SlaItem = {
+  id: string;
+  thread_id?: string;
+  subject?: string;
+  from_email: string;
+  from_name?: string;
+  created_at?: string;
+  lead_name?: string;
+};
 
 export default function EmailInbox() {
   const t = useTranslations('msgCenter');
   const locale = useLocale();
+  const isZh = locale.toLowerCase().startsWith('zh');
   const params = useParams();
   const tenantSlug = params?.tenant as string || '';
   const translatePrefKey = `wa_auto_translate_${tenantSlug || 'default'}`;
@@ -49,6 +73,7 @@ export default function EmailInbox() {
   const [search, setSearch] = useState('');
   const [unreadOnly, setUnreadOnly] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
 
   const [selectedEmail, setSelectedEmail] = useState<EmailItem | null>(null);
   const [viewMode, setViewMode] = useState<ViewMode>('list');
@@ -62,6 +87,20 @@ export default function EmailInbox() {
   const [showThread, setShowThread] = useState(false);
   const [loadingThread, setLoadingThread] = useState(false);
   const [syncing, setSyncing] = useState(false);
+  const [allUsers, setAllUsers] = useState<{ id: string; full_name?: string; email?: string }[]>([]);
+  const [batchAssignUser, setBatchAssignUser] = useState('');
+  const [unlinkedOnly, setUnlinkedOnly] = useState(false);
+  const [showTemplateManager, setShowTemplateManager] = useState(false);
+  const [templateLoading, setTemplateLoading] = useState(false);
+  const [templates, setTemplates] = useState<EmailTemplate[]>([]);
+  const [editingTemplateId, setEditingTemplateId] = useState<string | null>(null);
+  const [tplName, setTplName] = useState('');
+  const [tplCategory, setTplCategory] = useState('general');
+  const [tplSubject, setTplSubject] = useState('');
+  const [tplBody, setTplBody] = useState('');
+  const [showSlaPanel, setShowSlaPanel] = useState(false);
+  const [slaLoading, setSlaLoading] = useState(false);
+  const [slaItems, setSlaItems] = useState<SlaItem[]>([]);
 
   useEffect(() => {
     try {
@@ -93,12 +132,32 @@ export default function EmailInbox() {
   const loadEmails = useCallback(async () => {
     setLoading(true);
     try {
-      const endpoint = folder === 'inbox' ? '/api/email/inbox' : '/api/email/sent';
+      let endpoint = '/api/email/inbox';
       const params = new URLSearchParams({ page: String(page), page_size: '50' });
+      if (folder === 'sent') endpoint = '/api/email/sent';
       if (search) params.set('search', search);
+      if (folder === 'inbox') {
+        params.set('mailbox_state', 'inbox');
+        if (unreadOnly) params.set('unread_only', '1');
+        if (unlinkedOnly) params.set('unlinked_only', '1');
+      } else if (folder === 'todo') {
+        params.set('include_outbound', '1');
+        params.set('mailbox_state', 'inbox');
+        params.set('follow_up_only', '1');
+        if (unreadOnly) params.set('unread_only', '1');
+        if (unlinkedOnly) params.set('unlinked_only', '1');
+      } else if (folder === 'archived') {
+        params.set('include_outbound', '1');
+        params.set('mailbox_state', 'archived');
+        if (unreadOnly) params.set('unread_only', '1');
+        if (unlinkedOnly) params.set('unlinked_only', '1');
+      } else if (folder === 'sent') {
+        params.set('mailbox_state', 'inbox');
+      }
       const data = await api.get(`${endpoint}?${params}`);
       setEmails(data.items || []);
       setTotal(data.total || 0);
+      setSelectedIds([]);
       if (folder === 'inbox') await loadUnreadCount();
     } catch (e: any) {
       console.error('loadEmails:', e);
@@ -107,10 +166,15 @@ export default function EmailInbox() {
     } finally {
       setLoading(false);
     }
-  }, [folder, page, search, loadUnreadCount]);
+  }, [folder, page, search, loadUnreadCount, unreadOnly, unlinkedOnly]);
 
   useEffect(() => { loadEmails(); }, [loadEmails]);
   useEffect(() => { loadUnreadCount(); }, [loadUnreadCount]);
+  useEffect(() => {
+    api.get('/api/admin/users-lite')
+      .then((d) => setAllUsers(Array.isArray(d) ? d : (d?.items || [])))
+      .catch(() => setAllUsers([]));
+  }, []);
 
   async function handleSelectEmail(email: EmailItem) {
     try {
@@ -164,10 +228,10 @@ export default function EmailInbox() {
   async function linkToLead(emailId: string, leadId: string) {
     try {
       await api.patch(`/api/email/${emailId}/link`, { lead_id: leadId });
-      toast.success('Linked');
+      toast.success(isZh ? '已关联客户' : 'Linked');
       setLinkingEmail(null);
       loadEmails();
-    } catch { toast.error('Failed to link'); }
+    } catch { toast.error(isZh ? '关联失败' : 'Failed to link'); }
   }
 
   async function handleMarkRead() {
@@ -177,15 +241,15 @@ export default function EmailInbox() {
       setSelectedEmail((prev) => prev ? { ...prev, is_read: true } : prev);
       setEmails((prev) => prev.map((it) => it.id === selectedEmail.id ? { ...it, is_read: true } : it));
       setUnreadCount((prev) => Math.max(0, prev - 1));
-      toast.success('Marked as read');
+      toast.success(isZh ? '已标记为已读' : 'Marked as read');
     } catch {
-      toast.error('Failed to mark as read');
+      toast.error(isZh ? '标记失败' : 'Failed to mark as read');
     }
   }
 
   async function handleDeleteEmail() {
     if (!selectedEmail) return;
-    if (!confirm('Delete this email?')) return;
+    if (!confirm(isZh ? '确认删除这封邮件吗？' : 'Delete this email?')) return;
     try {
       await api.delete(`/api/email/${selectedEmail.id}`);
       setEmails((prev) => prev.filter((it) => it.id !== selectedEmail.id));
@@ -194,9 +258,141 @@ export default function EmailInbox() {
       }
       setSelectedEmail(null);
       setViewMode('list');
-      toast.success('Email deleted');
+      toast.success(isZh ? '邮件已删除' : 'Email deleted');
     } catch {
-      toast.error('Failed to delete email');
+      toast.error(isZh ? '删除失败' : 'Failed to delete email');
+    }
+  }
+
+  async function updateEmailState(emailId: string, patch: Record<string, any>) {
+    await api.patch(`/api/email/${emailId}/state`, patch);
+    await loadEmails();
+  }
+
+  async function handleBatchState(patch: Record<string, any>) {
+    if (selectedIds.length === 0) return;
+    try {
+      await api.post('/api/email/batch/state', { email_ids: selectedIds, ...patch });
+      setSelectedIds([]);
+      await loadEmails();
+      await loadUnreadCount();
+      toast.success(isZh ? '批量操作已完成' : 'Batch action completed');
+    } catch {
+      toast.error(isZh ? '批量操作失败' : 'Batch action failed');
+    }
+  }
+
+  async function loadTemplates() {
+    setTemplateLoading(true);
+    try {
+      const data = await api.get('/api/email/manage/templates?active_only=0');
+      setTemplates(Array.isArray(data) ? data : []);
+    } catch {
+      setTemplates([]);
+      toast.error(isZh ? '模板加载失败' : 'Failed to load templates');
+    } finally {
+      setTemplateLoading(false);
+    }
+  }
+
+  function resetTemplateForm() {
+    setEditingTemplateId(null);
+    setTplName('');
+    setTplCategory('general');
+    setTplSubject('');
+    setTplBody('');
+  }
+
+  async function saveTemplate() {
+    if (!tplName.trim() || !tplSubject.trim() || !tplBody.trim()) {
+      toast.error(isZh ? '模板名称、主题、正文不能为空' : 'Template fields are required');
+      return;
+    }
+    try {
+      const payload = {
+        name: tplName.trim(),
+        category: tplCategory,
+        locale,
+        subject: tplSubject.trim(),
+        body_text: tplBody,
+        is_active: true,
+      };
+      if (editingTemplateId) {
+        await api.put(`/api/email/manage/templates/${editingTemplateId}`, payload);
+      } else {
+        await api.post('/api/email/manage/templates', payload);
+      }
+      await loadTemplates();
+      resetTemplateForm();
+      toast.success(isZh ? '模板已保存' : 'Template saved');
+    } catch {
+      toast.error(isZh ? '保存失败' : 'Failed to save template');
+    }
+  }
+
+  async function deleteTemplate(id: string) {
+    if (!confirm(isZh ? '确认删除该模板吗？' : 'Delete this template?')) return;
+    try {
+      await api.delete(`/api/email/manage/templates/${id}`);
+      await loadTemplates();
+      if (editingTemplateId === id) resetTemplateForm();
+      toast.success(isZh ? '模板已删除' : 'Template deleted');
+    } catch {
+      toast.error(isZh ? '删除失败' : 'Failed to delete template');
+    }
+  }
+
+  async function loadSlaItems() {
+    setSlaLoading(true);
+    try {
+      const data = await api.get('/api/email/sla/overdue?hours=24&limit=200');
+      setSlaItems(Array.isArray(data) ? data : []);
+    } catch {
+      setSlaItems([]);
+      toast.error(isZh ? 'SLA 列表加载失败' : 'Failed to load SLA data');
+    } finally {
+      setSlaLoading(false);
+    }
+  }
+
+  async function triggerSlaNotify() {
+    try {
+      const data = await api.post('/api/email/sla/notify?hours=24&limit=200', {});
+      toast.success(isZh ? `已发送 ${data?.notified || 0} 条提醒` : `Sent ${data?.notified || 0} reminders`);
+    } catch {
+      toast.error(isZh ? '提醒发送失败' : 'Failed to send reminders');
+    }
+  }
+
+  async function handleArchiveCurrent(archived: boolean) {
+    if (!selectedEmail) return;
+    try {
+      await updateEmailState(selectedEmail.id, { mailbox_state: archived ? 'archived' : 'inbox' });
+      if (archived && folder !== 'archived') {
+        setSelectedEmail(null);
+        setViewMode('list');
+      }
+      toast.success(isZh ? (archived ? '已归档' : '已移回收件箱') : (archived ? 'Archived' : 'Moved to inbox'));
+    } catch {
+      toast.error(isZh ? '操作失败' : 'Action failed');
+    }
+  }
+
+  async function handleSetFollowUp(pending: boolean) {
+    if (!selectedEmail) return;
+    try {
+      await updateEmailState(selectedEmail.id, {
+        follow_up_state: pending ? 'pending' : 'none',
+        follow_up_at: pending ? new Date().toISOString() : '',
+      });
+      setSelectedEmail((prev) => prev ? {
+        ...prev,
+        follow_up_state: pending ? 'pending' : 'none',
+        follow_up_at: pending ? new Date().toISOString() : undefined,
+      } : prev);
+      toast.success(isZh ? (pending ? '已设为待跟进' : '已清除待跟进') : (pending ? 'Follow-up set' : 'Follow-up cleared'));
+    } catch {
+      toast.error(isZh ? '操作失败' : 'Action failed');
     }
   }
 
@@ -208,7 +404,7 @@ export default function EmailInbox() {
       const data = await api.get(`/api/email/thread/${selectedEmail.thread_id}`);
       setThreadItems(Array.isArray(data?.emails) ? data.emails : []);
     } catch {
-      toast.error('Failed to load thread');
+      toast.error(isZh ? '会话加载失败' : 'Failed to load thread');
       setThreadItems([]);
     } finally {
       setLoadingThread(false);
@@ -219,23 +415,21 @@ export default function EmailInbox() {
     setSyncing(true);
     try {
       await api.post('/api/email/imap/sync', {});
-      toast.success('Email sync started');
+      toast.success(isZh ? '邮件同步已开始' : 'Email sync started');
       loadEmails();
     } catch (e: any) {
       const msg = String(e?.message || '');
       if (msg.includes('403') || msg.toLowerCase().includes('permission')) {
-        toast.error('Only admin can trigger manual sync');
+        toast.error(isZh ? '仅管理员可手动同步' : 'Only admin can trigger manual sync');
       } else {
-        toast.error('Manual sync unavailable');
+        toast.error(isZh ? '暂时无法手动同步' : 'Manual sync unavailable');
       }
     } finally {
       setSyncing(false);
     }
   }
 
-  const visibleEmails = unreadOnly && folder === 'inbox'
-    ? emails.filter((email) => email.is_read === false)
-    : emails;
+  const visibleEmails = emails;
 
   return (
     <div className="h-full flex" style={{ background: '#f0f2f5' }}>
@@ -243,19 +437,25 @@ export default function EmailInbox() {
       <div className="flex flex-col" style={{ width: 380, background: 'white', borderRight: '1px solid #e5e7eb' }}>
         {/* Folder tabs + compose */}
         <div className="flex items-center gap-2 px-4 py-3 flex-shrink-0" style={{ borderBottom: '1px solid #e5e7eb' }}>
-          {(['inbox', 'sent'] as Folder[]).map((f) => (
+          {(['inbox', 'todo', 'archived', 'sent'] as Folder[]).map((f) => (
             <button key={f} onClick={() => { setFolder(f); setPage(1); }}
               className="px-3 py-1.5 rounded-lg text-xs font-medium transition-colors"
               style={{
                 background: folder === f ? '#e0e7ff' : 'transparent',
                 color: folder === f ? '#4338ca' : '#667781',
               }}>
-              {f === 'inbox' ? (t('emailInbox') || 'Inbox') : (t('emailSent') || 'Sent')}
+              {f === 'inbox'
+                ? (isZh ? '收件箱' : (t('emailInbox') || 'Inbox'))
+                : f === 'todo'
+                ? (isZh ? '待跟进' : 'Need Follow-up')
+                : f === 'archived'
+                ? (isZh ? '已归档' : 'Archived')
+                : (isZh ? '已发送' : (t('emailSent') || 'Sent'))}
             </button>
           ))}
           {folder === 'inbox' && (
             <span className="text-[10px] px-2 py-0.5 rounded-full" style={{ background: '#e0f2fe', color: '#0369a1' }}>
-              Unread {unreadCount}
+              {isZh ? `未读 ${unreadCount}` : `Unread ${unreadCount}`}
             </span>
           )}
           <div className="flex-1" />
@@ -269,17 +469,31 @@ export default function EmailInbox() {
             }}
             title={`Auto Translate (${locale})`}
           >
-            {autoTranslateEnabled ? 'Auto Translate On' : 'Auto Translate Off'}
+            {autoTranslateEnabled ? (isZh ? '自动翻译: 开' : 'Auto Translate: On') : (isZh ? '自动翻译: 关' : 'Auto Translate: Off')}
           </button>
           <button onClick={handleCompose}
             className="px-3 py-1.5 rounded-lg text-xs font-medium text-white"
             style={{ background: '#3b82f6' }}>
-            + {t('emailCompose') || 'Compose'}
+            + {isZh ? '写邮件' : (t('emailCompose') || 'Compose')}
           </button>
           <button onClick={handleManualSync} disabled={syncing}
             className="px-3 py-1.5 rounded-lg text-xs font-medium border disabled:opacity-60"
             style={{ borderColor: '#e5e7eb', color: '#3b4a54' }}>
-            {syncing ? 'Syncing...' : 'Sync'}
+            {syncing ? (isZh ? '同步中...' : 'Syncing...') : (isZh ? '同步' : 'Sync')}
+          </button>
+          <button
+            onClick={() => { setShowTemplateManager(true); loadTemplates(); }}
+            className="px-3 py-1.5 rounded-lg text-xs font-medium border"
+            style={{ borderColor: '#e5e7eb', color: '#3b4a54' }}
+          >
+            {isZh ? '模板' : 'Templates'}
+          </button>
+          <button
+            onClick={() => { setShowSlaPanel(true); loadSlaItems(); }}
+            className="px-3 py-1.5 rounded-lg text-xs font-medium border"
+            style={{ borderColor: '#fde68a', color: '#92400e', background: '#fffbeb' }}
+          >
+            SLA
           </button>
         </div>
 
@@ -287,30 +501,116 @@ export default function EmailInbox() {
         <div className="px-3 py-2 flex-shrink-0 space-y-2">
           <input type="text" value={search}
             onChange={(e) => { setSearch(e.target.value); setPage(1); }}
-            placeholder="Search emails..."
+            placeholder={isZh ? '搜索主题、发件人、内容...' : 'Search emails...'}
             className="w-full text-xs border rounded-lg px-3 py-2 outline-none"
             style={{ borderColor: '#e5e7eb' }} />
-          {folder === 'inbox' && (
+          {(folder === 'inbox' || folder === 'todo') && (
             <label className="inline-flex items-center gap-2 text-[11px]" style={{ color: '#667781' }}>
               <input
                 type="checkbox"
                 checked={unreadOnly}
                 onChange={(e) => setUnreadOnly(e.target.checked)}
               />
-              Unread only
+              {isZh ? '仅看未读' : 'Unread only'}
+            </label>
+          )}
+          {(folder === 'inbox' || folder === 'todo' || folder === 'archived') && (
+            <label className="inline-flex items-center gap-2 text-[11px] ml-3" style={{ color: '#667781' }}>
+              <input
+                type="checkbox"
+                checked={unlinkedOnly}
+                onChange={(e) => setUnlinkedOnly(e.target.checked)}
+              />
+              {isZh ? '仅看未关联客户' : 'Unlinked only'}
             </label>
           )}
         </div>
 
+        {selectedIds.length > 0 && (
+          <div className="px-3 py-2 flex items-center gap-2 border-t border-b" style={{ borderColor: '#e5e7eb', background: '#f8fafc' }}>
+            <span className="text-[11px] font-medium" style={{ color: '#334155' }}>
+              {isZh ? `已选 ${selectedIds.length} 封` : `${selectedIds.length} selected`}
+            </span>
+            <button
+              onClick={() => setSelectedIds([])}
+              className="text-[11px] px-2 py-1 rounded border"
+              style={{ borderColor: '#e5e7eb', color: '#64748b' }}
+            >
+              {isZh ? '取消选择' : 'Clear Select'}
+            </button>
+            <button
+              onClick={async () => {
+                try {
+                  await Promise.all(selectedIds.map((id) => api.patch(`/api/email/${id}/read`, {})));
+                  setSelectedIds([]);
+                  await loadEmails();
+                  await loadUnreadCount();
+                  toast.success(isZh ? '已批量标记已读' : 'Marked as read');
+                } catch {
+                  toast.error(isZh ? '操作失败' : 'Action failed');
+                }
+              }}
+              className="text-[11px] px-2 py-1 rounded border"
+              style={{ borderColor: '#e5e7eb', color: '#334155' }}
+            >
+              {isZh ? '标记已读' : 'Mark Read'}
+            </button>
+            <button
+              onClick={() => handleBatchState({ mailbox_state: 'archived' })}
+              className="text-[11px] px-2 py-1 rounded border"
+              style={{ borderColor: '#e5e7eb', color: '#334155' }}
+            >
+              {isZh ? '归档' : 'Archive'}
+            </button>
+            <button
+              onClick={() => handleBatchState({ follow_up_state: 'pending' })}
+              className="text-[11px] px-2 py-1 rounded border"
+              style={{ borderColor: '#fcd34d', color: '#92400e', background: '#fffbeb' }}
+            >
+              {isZh ? '设为待跟进' : 'Set Follow-up'}
+            </button>
+            <button
+              onClick={() => handleBatchState({ follow_up_state: 'none', follow_up_at: '' })}
+              className="text-[11px] px-2 py-1 rounded border"
+              style={{ borderColor: '#e5e7eb', color: '#64748b' }}
+            >
+              {isZh ? '清除待跟进' : 'Clear Follow-up'}
+            </button>
+            {allUsers.length > 0 && (
+              <>
+                <select
+                  value={batchAssignUser}
+                  onChange={(e) => setBatchAssignUser(e.target.value)}
+                  className="text-[11px] px-2 py-1 rounded border outline-none"
+                  style={{ borderColor: '#e5e7eb', color: '#334155', background: 'white' }}
+                >
+                  <option value="">{isZh ? '选择负责人' : 'Select owner'}</option>
+                  {allUsers.map((u) => (
+                    <option key={u.id} value={u.id}>{u.full_name || u.email || u.id}</option>
+                  ))}
+                </select>
+                <button
+                  onClick={() => handleBatchState({ assigned_to: batchAssignUser || '' })}
+                  className="text-[11px] px-2 py-1 rounded border"
+                  style={{ borderColor: '#e5e7eb', color: '#334155' }}
+                  disabled={!batchAssignUser}
+                >
+                  {isZh ? '分配' : 'Assign'}
+                </button>
+              </>
+            )}
+          </div>
+        )}
+
         {/* Email list */}
         <div className="flex-1 overflow-auto">
           {loading ? (
-            <div className="text-center py-8 text-xs" style={{ color: '#8696a0' }}>Loading...</div>
+            <div className="text-center py-8 text-xs" style={{ color: '#8696a0' }}>{isZh ? '加载中...' : 'Loading...'}</div>
           ) : visibleEmails.length === 0 ? (
             <div className="text-center py-12">
               <div className="text-3xl mb-2">📧</div>
               <p className="text-xs" style={{ color: '#8696a0' }}>
-                {t('emailNoMessages') || 'No emails'}
+                {isZh ? '暂无邮件' : (t('emailNoMessages') || 'No emails')}
               </p>
             </div>
           ) : (
@@ -319,36 +619,67 @@ export default function EmailInbox() {
               const ts = email.sent_at || email.received_at || email.created_at || '';
               return (
                 <div key={email.id}
-                  onClick={() => handleSelectEmail(email)}
                   className="px-4 py-3 cursor-pointer transition-colors"
                   style={{
                     background: isActive ? '#e0e7ff' : 'white',
                     borderBottom: '1px solid #f3f4f6',
                   }}>
-                  <div className="flex items-center justify-between mb-1">
+                  <div className="flex items-center gap-2 mb-1">
+                    <input
+                      type="checkbox"
+                      checked={selectedIds.includes(email.id)}
+                      onChange={(e) => {
+                        e.stopPropagation();
+                        setSelectedIds((prev) => e.target.checked ? [...prev, email.id] : prev.filter((id) => id !== email.id));
+                      }}
+                    />
                     <span className="text-xs font-medium truncate flex-1"
+                      onClick={() => handleSelectEmail(email)}
                       style={{ color: '#3b4a54', fontWeight: email.is_read === false ? 700 : 500 }}>
-                      {folder === 'inbox'
+                      {(folder === 'inbox' || folder === 'todo' || folder === 'archived')
+                        ? (email.direction === 'outbound' ? (email.to_name || email.to_email) : (email.from_name || email.from_email))
+                        : (folder === 'inbox'
                         ? (email.from_name || email.from_email)
-                        : (email.to_name || email.to_email)}
+                        : (email.to_name || email.to_email))}
                     </span>
                     <span className="text-[10px] flex-shrink-0 ml-2" style={{ color: '#8696a0' }}>
                       {relTime(ts)}
                     </span>
                   </div>
                   <div className="text-xs truncate mb-0.5"
+                    onClick={() => handleSelectEmail(email)}
                     style={{ color: '#3b4a54', fontWeight: email.is_read === false ? 600 : 400 }}>
                     {email.subject || '(No Subject)'}
                   </div>
-                  <div className="text-[11px] truncate" style={{ color: '#8696a0' }}>
+                  <div className="text-[11px] truncate" onClick={() => handleSelectEmail(email)} style={{ color: '#8696a0' }}>
                     {email.preview || ''}
                   </div>
-                  {email.lead_name && (
-                    <span className="inline-block mt-1 text-[9px] px-1.5 py-0.5 rounded"
-                      style={{ background: '#e0e7ff', color: '#4338ca' }}>
-                      {email.lead_name}
-                    </span>
-                  )}
+                  <div className="flex items-center gap-1.5 mt-1">
+                    {email.lead_name && (
+                      <span className="inline-block text-[9px] px-1.5 py-0.5 rounded"
+                        style={{ background: '#e0e7ff', color: '#4338ca' }}>
+                        {email.lead_name}
+                      </span>
+                    )}
+                    {email.follow_up_state === 'pending' && (
+                      <span className="inline-block text-[9px] px-1.5 py-0.5 rounded"
+                        style={{ background: '#fffbeb', color: '#a16207' }}>
+                        {isZh ? '待跟进' : 'Follow-up'}
+                      </span>
+                    )}
+                    {email.assigned_user_name && (
+                      <span className="inline-block text-[9px] px-1.5 py-0.5 rounded"
+                        style={{ background: '#eef2ff', color: '#4f46e5' }}>
+                        {isZh ? `负责人: ${email.assigned_user_name}` : `Owner: ${email.assigned_user_name}`}
+                      </span>
+                    )}
+                    {email.mailbox_state === 'archived' && (
+                      <span className="inline-block text-[9px] px-1.5 py-0.5 rounded"
+                        style={{ background: '#f1f5f9', color: '#64748b' }}>
+                        {isZh ? '已归档' : 'Archived'}
+                      </span>
+                    )}
+                  </div>
                 </div>
               );
             })
@@ -358,14 +689,14 @@ export default function EmailInbox() {
             <div className="flex items-center justify-center gap-2 py-3">
               <button onClick={() => setPage(Math.max(1, page - 1))} disabled={page <= 1}
                 className="text-xs px-2 py-1 rounded border disabled:opacity-30" style={{ borderColor: '#e5e7eb' }}>
-                Prev
+                {isZh ? '上一页' : 'Prev'}
               </button>
               <span className="text-xs" style={{ color: '#8696a0' }}>
                 {page} / {Math.ceil(total / 50)}
               </span>
               <button onClick={() => setPage(page + 1)} disabled={page * 50 >= total}
                 className="text-xs px-2 py-1 rounded border disabled:opacity-30" style={{ borderColor: '#e5e7eb' }}>
-                Next
+                {isZh ? '下一页' : 'Next'}
               </button>
             </div>
           )}
@@ -378,7 +709,7 @@ export default function EmailInbox() {
           <div className="flex-1 flex items-center justify-center">
             <div className="text-center">
               <div className="text-4xl mb-3">✉️</div>
-              <p className="text-sm" style={{ color: '#8696a0' }}>Select an email to read</p>
+              <p className="text-sm" style={{ color: '#8696a0' }}>{isZh ? '请选择一封邮件查看' : 'Select an email to read'}</p>
             </div>
           </div>
         )}
@@ -394,8 +725,13 @@ export default function EmailInbox() {
             onViewThread={handleViewThread}
             onMarkRead={handleMarkRead}
             onDelete={handleDeleteEmail}
+            onArchive={() => handleArchiveCurrent((selectedEmail.mailbox_state || 'inbox') !== 'archived')}
+            onSetFollowUp={() => handleSetFollowUp(true)}
+            onClearFollowUp={() => handleSetFollowUp(false)}
             canViewThread={!!selectedEmail.thread_id}
             canMarkRead={selectedEmail.is_read === false}
+            isArchived={(selectedEmail.mailbox_state || 'inbox') === 'archived'}
+            isFollowUpPending={selectedEmail.follow_up_state === 'pending'}
             onBack={() => { setViewMode('list'); setSelectedEmail(null); }}
           />
         )}
@@ -429,11 +765,11 @@ export default function EmailInbox() {
           <div className="bg-white rounded-xl shadow-2xl w-full max-w-sm p-5"
             onClick={(e) => e.stopPropagation()}>
             <h3 className="text-sm font-semibold mb-3" style={{ color: '#3b4a54' }}>
-              {t('emailLinkCustomer') || 'Link to Customer'}
+              {isZh ? '关联客户' : (t('emailLinkCustomer') || 'Link to Customer')}
             </h3>
             <input type="text" value={leadSearch}
               onChange={(e) => searchLeads(e.target.value)}
-              placeholder="Search leads..."
+              placeholder={isZh ? '搜索客户线索...' : 'Search leads...'}
               className="w-full text-sm border rounded-lg px-3 py-2 mb-2 outline-none"
               style={{ borderColor: '#e5e7eb' }} />
             <div className="max-h-48 overflow-auto space-y-1">
@@ -451,7 +787,7 @@ export default function EmailInbox() {
             <button onClick={() => setLinkingEmail(null)}
               className="mt-3 w-full text-xs py-2 rounded-lg border"
               style={{ borderColor: '#e5e7eb', color: '#667781' }}>
-              Cancel
+              {isZh ? '取消' : 'Cancel'}
             </button>
           </div>
         </div>
@@ -461,22 +797,22 @@ export default function EmailInbox() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={() => setShowThread(false)}>
           <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl max-h-[80vh] overflow-hidden flex flex-col" onClick={(e) => e.stopPropagation()}>
             <div className="px-4 py-3 border-b flex items-center justify-between" style={{ borderColor: '#e5e7eb' }}>
-              <h3 className="text-sm font-semibold" style={{ color: '#3b4a54' }}>Conversation Thread</h3>
+              <h3 className="text-sm font-semibold" style={{ color: '#3b4a54' }}>{isZh ? '邮件往来记录' : 'Conversation Thread'}</h3>
               <button onClick={() => setShowThread(false)} className="text-xs px-2 py-1 rounded border" style={{ borderColor: '#e5e7eb', color: '#667781' }}>
-                Close
+                {isZh ? '关闭' : 'Close'}
               </button>
             </div>
             <div className="p-4 overflow-auto flex-1 space-y-3">
               {loadingThread ? (
-                <p className="text-xs" style={{ color: '#8696a0' }}>Loading thread...</p>
+                <p className="text-xs" style={{ color: '#8696a0' }}>{isZh ? '加载中...' : 'Loading thread...'}</p>
               ) : threadItems.length === 0 ? (
-                <p className="text-xs" style={{ color: '#8696a0' }}>No thread data</p>
+                <p className="text-xs" style={{ color: '#8696a0' }}>{isZh ? '暂无会话记录' : 'No thread data'}</p>
               ) : (
                 threadItems.map((item) => (
                   <div key={item.id} className="rounded-lg border p-3" style={{ borderColor: '#e5e7eb', background: item.direction === 'outbound' ? '#eff6ff' : '#f8fafc' }}>
                     <div className="flex items-center justify-between gap-2 mb-1">
                       <span className="text-[11px] font-semibold" style={{ color: '#3b4a54' }}>
-                        {item.direction === 'outbound' ? 'You → ' : ''}{item.from_name || item.from_email}
+                        {item.direction === 'outbound' ? (isZh ? '我 → ' : 'You → ') : ''}{item.from_name || item.from_email}
                       </span>
                       <span className="text-[10px]" style={{ color: '#8696a0' }}>{relTime(item.sent_at || item.received_at || item.created_at || '')}</span>
                     </div>
@@ -484,6 +820,112 @@ export default function EmailInbox() {
                     <p className="text-xs whitespace-pre-wrap" style={{ color: '#667781' }}>{item.preview || item.body_text || ''}</p>
                   </div>
                 ))
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showTemplateManager && (
+        <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4" onClick={() => setShowTemplateManager(false)}>
+          <div className="w-full max-w-5xl h-[85vh] bg-white rounded-2xl shadow-2xl overflow-hidden flex" onClick={(e) => e.stopPropagation()}>
+            <div className="w-[44%] border-r overflow-auto" style={{ borderColor: '#e5e7eb' }}>
+              <div className="px-4 py-3 border-b flex items-center justify-between" style={{ borderColor: '#e5e7eb' }}>
+                <h3 className="text-sm font-semibold" style={{ color: '#334155' }}>{isZh ? '邮件模板' : 'Email Templates'}</h3>
+                <button onClick={resetTemplateForm} className="text-xs px-2 py-1 rounded border" style={{ borderColor: '#e5e7eb', color: '#64748b' }}>
+                  {isZh ? '新建' : 'New'}
+                </button>
+              </div>
+              {templateLoading ? (
+                <div className="p-4 text-xs" style={{ color: '#94a3b8' }}>{isZh ? '加载中...' : 'Loading...'}</div>
+              ) : (
+                <div className="p-2 space-y-1">
+                  {templates.map((tpl) => (
+                    <div
+                      key={tpl.id}
+                      className="rounded-lg border px-3 py-2 cursor-pointer"
+                      style={{ borderColor: editingTemplateId === tpl.id ? '#93c5fd' : '#e5e7eb', background: editingTemplateId === tpl.id ? '#eff6ff' : 'white' }}
+                      onClick={() => {
+                        setEditingTemplateId(tpl.id);
+                        setTplName(tpl.name || '');
+                        setTplCategory(tpl.category || 'general');
+                        setTplSubject(tpl.subject || '');
+                        setTplBody(tpl.body_text || '');
+                      }}
+                    >
+                      <p className="text-xs font-semibold truncate" style={{ color: '#334155' }}>{tpl.name}</p>
+                      <p className="text-[11px] truncate mt-0.5" style={{ color: '#64748b' }}>{tpl.subject}</p>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+            <div className="flex-1 flex flex-col">
+              <div className="px-4 py-3 border-b flex items-center justify-between" style={{ borderColor: '#e5e7eb' }}>
+                <h3 className="text-sm font-semibold" style={{ color: '#334155' }}>
+                  {editingTemplateId ? (isZh ? '编辑模板' : 'Edit Template') : (isZh ? '新建模板' : 'Create Template')}
+                </h3>
+                <button onClick={() => setShowTemplateManager(false)} className="text-xs px-2 py-1 rounded border" style={{ borderColor: '#e5e7eb', color: '#64748b' }}>
+                  {isZh ? '关闭' : 'Close'}
+                </button>
+              </div>
+              <div className="p-4 space-y-3 overflow-auto flex-1">
+                <input value={tplName} onChange={(e) => setTplName(e.target.value)} placeholder={isZh ? '模板名称' : 'Template name'} className="w-full text-sm border rounded-lg px-3 py-2 outline-none" style={{ borderColor: '#e5e7eb' }} />
+                <input value={tplCategory} onChange={(e) => setTplCategory(e.target.value)} placeholder={isZh ? '分类（如报价、催款）' : 'Category'} className="w-full text-sm border rounded-lg px-3 py-2 outline-none" style={{ borderColor: '#e5e7eb' }} />
+                <input value={tplSubject} onChange={(e) => setTplSubject(e.target.value)} placeholder={isZh ? '邮件主题' : 'Email subject'} className="w-full text-sm border rounded-lg px-3 py-2 outline-none" style={{ borderColor: '#e5e7eb' }} />
+                <textarea value={tplBody} onChange={(e) => setTplBody(e.target.value)} placeholder={isZh ? '邮件正文，可使用 {{to_email}} {{date}} 变量' : 'Body text'} className="w-full h-64 text-sm border rounded-lg px-3 py-2 outline-none resize-none" style={{ borderColor: '#e5e7eb' }} />
+              </div>
+              <div className="px-4 py-3 border-t flex items-center justify-between" style={{ borderColor: '#e5e7eb' }}>
+                <div>
+                  {editingTemplateId && (
+                    <button onClick={() => deleteTemplate(editingTemplateId)} className="text-xs px-3 py-1.5 rounded border" style={{ borderColor: '#fecaca', color: '#dc2626' }}>
+                      {isZh ? '删除模板' : 'Delete'}
+                    </button>
+                  )}
+                </div>
+                <button onClick={saveTemplate} className="text-xs px-3 py-1.5 rounded text-white" style={{ background: '#2563eb' }}>
+                  {isZh ? '保存模板' : 'Save Template'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showSlaPanel && (
+        <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4" onClick={() => setShowSlaPanel(false)}>
+          <div className="w-full max-w-4xl h-[80vh] bg-white rounded-2xl shadow-2xl overflow-hidden flex flex-col" onClick={(e) => e.stopPropagation()}>
+            <div className="px-4 py-3 border-b flex items-center justify-between" style={{ borderColor: '#e5e7eb' }}>
+              <h3 className="text-sm font-semibold" style={{ color: '#334155' }}>{isZh ? 'SLA 超时未回复邮件' : 'SLA Overdue Emails'}</h3>
+              <div className="flex items-center gap-2">
+                <button onClick={loadSlaItems} className="text-xs px-2 py-1 rounded border" style={{ borderColor: '#e5e7eb', color: '#64748b' }}>
+                  {isZh ? '刷新' : 'Refresh'}
+                </button>
+                <button onClick={triggerSlaNotify} className="text-xs px-2 py-1 rounded border" style={{ borderColor: '#fde68a', color: '#92400e', background: '#fffbeb' }}>
+                  {isZh ? '发送提醒' : 'Notify'}
+                </button>
+                <button onClick={() => setShowSlaPanel(false)} className="text-xs px-2 py-1 rounded border" style={{ borderColor: '#e5e7eb', color: '#64748b' }}>
+                  {isZh ? '关闭' : 'Close'}
+                </button>
+              </div>
+            </div>
+            <div className="p-4 overflow-auto flex-1">
+              {slaLoading ? (
+                <p className="text-xs" style={{ color: '#94a3b8' }}>{isZh ? '加载中...' : 'Loading...'}</p>
+              ) : slaItems.length === 0 ? (
+                <p className="text-xs" style={{ color: '#94a3b8' }}>{isZh ? '暂无超时邮件' : 'No overdue emails'}</p>
+              ) : (
+                <div className="space-y-2">
+                  {slaItems.map((item) => (
+                    <div key={item.id} className="rounded-lg border p-3" style={{ borderColor: '#e5e7eb', background: '#fff' }}>
+                      <div className="flex items-center justify-between gap-2">
+                        <p className="text-xs font-semibold truncate" style={{ color: '#334155' }}>{item.subject || '(No Subject)'}</p>
+                        <span className="text-[10px]" style={{ color: '#94a3b8' }}>{relTime(item.created_at || '')}</span>
+                      </div>
+                      <p className="text-[11px] mt-1" style={{ color: '#64748b' }}>{item.from_name || item.from_email} {item.lead_name ? `· ${item.lead_name}` : ''}</p>
+                    </div>
+                  ))}
+                </div>
               )}
             </div>
           </div>

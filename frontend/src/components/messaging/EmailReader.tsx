@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { api } from '@/lib/api';
-import { useTranslations } from 'next-intl';
+import { useLocale, useTranslations } from 'next-intl';
 import DOMPurify from 'dompurify';
 import { absTime } from './wa-helpers';
 
@@ -37,8 +37,13 @@ interface EmailReaderProps {
   onViewThread?: () => void;
   onMarkRead?: () => void;
   onDelete?: () => void;
+  onArchive?: () => void;
+  onSetFollowUp?: () => void;
+  onClearFollowUp?: () => void;
   canViewThread?: boolean;
   canMarkRead?: boolean;
+  isArchived?: boolean;
+  isFollowUpPending?: boolean;
   onBack?: () => void;
 }
 
@@ -68,11 +73,18 @@ export default function EmailReader({
   onViewThread,
   onMarkRead,
   onDelete,
+  onArchive,
+  onSetFollowUp,
+  onClearFollowUp,
   canViewThread = false,
   canMarkRead = false,
+  isArchived = false,
+  isFollowUpPending = false,
   onBack,
 }: EmailReaderProps) {
   const t = useTranslations('msgCenter');
+  const locale = useLocale();
+  const isZh = locale.toLowerCase().startsWith('zh');
   const timestamp = email.sent_at || email.received_at || email.created_at || '';
   const [translatedText, setTranslatedText] = useState('');
   const [sourceLanguage, setSourceLanguage] = useState('');
@@ -145,6 +157,18 @@ export default function EmailReader({
             </span>
           </div>
         )}
+        <div className="mt-2 flex items-center gap-1.5">
+          {isFollowUpPending && (
+            <span className="text-[10px] px-2 py-0.5 rounded-full" style={{ background: '#fffbeb', color: '#a16207' }}>
+              {isZh ? '待跟进' : 'Need Follow-up'}
+            </span>
+          )}
+          {isArchived && (
+            <span className="text-[10px] px-2 py-0.5 rounded-full" style={{ background: '#f1f5f9', color: '#64748b' }}>
+              {isZh ? '已归档' : 'Archived'}
+            </span>
+          )}
+        </div>
       </div>
 
       {/* Body */}
@@ -178,49 +202,74 @@ export default function EmailReader({
       </div>
 
       {/* Actions */}
-      <div className="flex items-center gap-2 px-5 py-3 flex-shrink-0" style={{ borderTop: '1px solid #e5e7eb' }}>
-        {onReply && (
-          <button onClick={onReply}
-            className="px-3 py-1.5 rounded-lg text-xs font-medium border hover:bg-gray-50"
-            style={{ borderColor: '#e5e7eb', color: '#3b4a54' }}>
-            {t('emailReply') || 'Reply'}
-          </button>
-        )}
-        {onForward && (
-          <button onClick={onForward}
-            className="px-3 py-1.5 rounded-lg text-xs font-medium border hover:bg-gray-50"
-            style={{ borderColor: '#e5e7eb', color: '#3b4a54' }}>
-            {t('emailForward') || 'Forward'}
-          </button>
-        )}
-        {onLinkCustomer && (
-          <button onClick={onLinkCustomer}
-            className="px-3 py-1.5 rounded-lg text-xs font-medium border hover:bg-gray-50 ml-auto"
-            style={{ borderColor: '#e5e7eb', color: '#4338ca' }}>
-            {t('emailLinkCustomer') || 'Link to Customer'}
-          </button>
-        )}
+      <div className="px-5 py-3 flex-shrink-0 flex items-center justify-between gap-2" style={{ borderTop: '1px solid #e5e7eb' }}>
+        <div className="flex items-center gap-2 flex-wrap">
+          {onReply && (
+            <button onClick={onReply}
+              className="px-3 py-1.5 rounded-lg text-xs font-medium border hover:bg-gray-50"
+              style={{ borderColor: '#e5e7eb', color: '#3b4a54' }}>
+              {isZh ? '回复' : (t('emailReply') || 'Reply')}
+            </button>
+          )}
+          {onForward && (
+            <button onClick={onForward}
+              className="px-3 py-1.5 rounded-lg text-xs font-medium border hover:bg-gray-50"
+              style={{ borderColor: '#e5e7eb', color: '#3b4a54' }}>
+              {isZh ? '转发' : (t('emailForward') || 'Forward')}
+            </button>
+          )}
+          {onArchive && (
+            <button onClick={onArchive}
+              className="px-3 py-1.5 rounded-lg text-xs font-medium border hover:bg-gray-50"
+              style={{ borderColor: '#e5e7eb', color: '#3b4a54' }}>
+              {isArchived ? (isZh ? '移回收件箱' : 'Move to Inbox') : (isZh ? '归档' : 'Archive')}
+            </button>
+          )}
+          {isFollowUpPending && onClearFollowUp && (
+            <button onClick={onClearFollowUp}
+              className="px-3 py-1.5 rounded-lg text-xs font-medium border hover:bg-gray-50"
+              style={{ borderColor: '#fde68a', color: '#92400e', background: '#fffbeb' }}>
+              {isZh ? '清除待跟进' : 'Clear Follow-up'}
+            </button>
+          )}
+          {!isFollowUpPending && onSetFollowUp && (
+            <button onClick={onSetFollowUp}
+              className="px-3 py-1.5 rounded-lg text-xs font-medium border hover:bg-gray-50"
+              style={{ borderColor: '#fde68a', color: '#92400e', background: '#fffbeb' }}>
+              {isZh ? '设为待跟进' : 'Set Follow-up'}
+            </button>
+          )}
+        </div>
+        <div className="flex items-center gap-2 flex-wrap justify-end">
+          {onLinkCustomer && (
+            <button onClick={onLinkCustomer}
+              className="px-3 py-1.5 rounded-lg text-xs font-medium border hover:bg-gray-50"
+              style={{ borderColor: '#e5e7eb', color: '#4338ca' }}>
+              {isZh ? '关联客户' : (t('emailLinkCustomer') || 'Link to Customer')}
+            </button>
+          )}
         {canViewThread && onViewThread && (
           <button onClick={onViewThread}
             className="px-3 py-1.5 rounded-lg text-xs font-medium border hover:bg-gray-50"
             style={{ borderColor: '#e5e7eb', color: '#3b4a54' }}>
-            View Thread
+            {isZh ? '查看会话' : 'View Thread'}
           </button>
         )}
         {canMarkRead && onMarkRead && (
           <button onClick={onMarkRead}
             className="px-3 py-1.5 rounded-lg text-xs font-medium border hover:bg-gray-50"
             style={{ borderColor: '#e5e7eb', color: '#3b4a54' }}>
-            Mark Read
+            {isZh ? '标记已读' : 'Mark Read'}
           </button>
         )}
         {onDelete && (
           <button onClick={onDelete}
             className="px-3 py-1.5 rounded-lg text-xs font-medium border hover:bg-gray-50"
             style={{ borderColor: '#fecaca', color: '#dc2626' }}>
-            Delete
+            {isZh ? '删除' : 'Delete'}
           </button>
         )}
+        </div>
       </div>
     </div>
   );

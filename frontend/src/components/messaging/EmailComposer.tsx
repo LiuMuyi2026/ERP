@@ -1,8 +1,8 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { api } from '@/lib/api';
-import { useTranslations } from 'next-intl';
+import { useLocale, useTranslations } from 'next-intl';
 import toast from 'react-hot-toast';
 
 interface EmailComposerProps {
@@ -55,6 +55,8 @@ export default function EmailComposer({
   onSent, onCancel,
 }: EmailComposerProps) {
   const t = useTranslations('msgCenter');
+  const locale = useLocale();
+  const isZh = locale.toLowerCase().startsWith('zh');
   const [to, setTo] = useState(replyTo?.from_email || defaultTo || '');
   const [cc, setCc] = useState('');
   const [bcc, setBcc] = useState('');
@@ -66,10 +68,39 @@ export default function EmailComposer({
   );
   const [showCc, setShowCc] = useState(false);
   const [sending, setSending] = useState(false);
+  const [templates, setTemplates] = useState<Array<{ id: string; name: string; subject: string; body_text: string }>>([]);
+  const [templateId, setTemplateId] = useState('');
+
+  async function loadTemplates() {
+    try {
+      const data = await api.get('/api/email/manage/templates');
+      setTemplates(Array.isArray(data) ? data : []);
+    } catch {
+      setTemplates([]);
+    }
+  }
+
+  function renderTemplate(raw: string) {
+    return String(raw || '')
+      .replaceAll('{{to_email}}', to || '')
+      .replaceAll('{{date}}', new Date().toLocaleDateString());
+  }
+
+  function applyTemplate(id: string) {
+    setTemplateId(id);
+    const tpl = templates.find((t) => t.id === id);
+    if (!tpl) return;
+    setSubject(renderTemplate(tpl.subject));
+    setBodyText(renderTemplate(tpl.body_text));
+  }
+
+  useEffect(() => {
+    loadTemplates();
+  }, []);
 
   async function handleSend() {
     if (!to.trim() || !subject.trim()) {
-      toast.error('To and Subject are required');
+      toast.error(isZh ? '收件人和主题不能为空' : 'To and Subject are required');
       return;
     }
     setSending(true);
@@ -107,7 +138,7 @@ export default function EmailComposer({
       toast.success(t('emailSentSuccess') || 'Email sent');
       onSent?.();
     } catch (e: any) {
-      toast.error(e.message || 'Failed to send');
+      toast.error(e.message || (isZh ? '发送失败' : 'Failed to send'));
     } finally {
       setSending(false);
     }
@@ -119,7 +150,7 @@ export default function EmailComposer({
       <div className="flex items-center justify-between px-4 py-3 flex-shrink-0"
         style={{ borderBottom: '1px solid #e5e7eb' }}>
         <h3 className="text-sm font-semibold" style={{ color: '#3b4a54' }}>
-          {replyTo ? (t('emailReply') || 'Reply') : (t('emailCompose') || 'Compose')}
+          {replyTo ? (isZh ? '回复邮件' : (t('emailReply') || 'Reply')) : (isZh ? '写邮件' : (t('emailCompose') || 'Compose'))}
         </h3>
         {onCancel && (
           <button onClick={onCancel} className="p-1 rounded hover:bg-gray-100">
@@ -132,6 +163,24 @@ export default function EmailComposer({
 
       {/* Fields */}
       <div className="flex-shrink-0 space-y-2 p-4" style={{ borderBottom: '1px solid #f3f4f6' }}>
+        {templates.length > 0 && (
+          <div className="flex items-center gap-2">
+            <label className="text-xs w-12 text-right flex-shrink-0" style={{ color: '#8696a0' }}>
+              {isZh ? '模板' : 'Tpl'}
+            </label>
+            <select
+              value={templateId}
+              onChange={(e) => applyTemplate(e.target.value)}
+              className="flex-1 text-sm border rounded px-2 py-1.5 outline-none"
+              style={{ borderColor: '#e5e7eb' }}
+            >
+              <option value="">{isZh ? '选择模板...' : 'Choose template...'}</option>
+              {templates.map((tpl) => (
+                <option key={tpl.id} value={tpl.id}>{tpl.name}</option>
+              ))}
+            </select>
+          </div>
+        )}
         <div className="flex items-center gap-2">
           <label className="text-xs w-12 text-right flex-shrink-0" style={{ color: '#8696a0' }}>
             {t('emailTo') || 'To'}
@@ -146,7 +195,7 @@ export default function EmailComposer({
           />
           {!showCc && (
             <button onClick={() => setShowCc(true)} className="text-xs px-2 py-1 rounded hover:bg-gray-100"
-              style={{ color: '#8696a0' }}>Cc/Bcc</button>
+              style={{ color: '#8696a0' }}>{isZh ? '抄送/密送' : 'Cc/Bcc'}</button>
           )}
         </div>
 
@@ -185,8 +234,8 @@ export default function EmailComposer({
           value={bodyText}
           onChange={(e) => setBodyText(e.target.value)}
           className="w-full h-full min-h-[200px] text-sm outline-none resize-none"
-          style={{ color: '#3b4a54' }}
-          placeholder="Write your email..."
+            style={{ color: '#3b4a54' }}
+          placeholder={isZh ? '请输入邮件正文...' : 'Write your email...'}
         />
       </div>
 
@@ -195,20 +244,21 @@ export default function EmailComposer({
         style={{ borderTop: '1px solid #e5e7eb' }}>
         {autoTranslateEnabled && (
           <span className="mr-auto text-[11px]" style={{ color: '#64748b' }}>
-            Auto translate: {normalizeLanguageCode(userTargetLanguage)} → {normalizeLanguageCode(guessLanguageFromEmail(to))}
+            {isZh ? '自动翻译: ' : 'Auto translate: '}
+            {normalizeLanguageCode(userTargetLanguage)} → {normalizeLanguageCode(guessLanguageFromEmail(to))}
           </span>
         )}
         {onCancel && (
           <button onClick={onCancel}
             className="px-4 py-2 rounded-lg text-sm border"
             style={{ borderColor: '#e5e7eb', color: '#667781' }}>
-            Cancel
+            {isZh ? '取消' : 'Cancel'}
           </button>
         )}
         <button onClick={handleSend} disabled={sending || !to.trim() || !subject.trim()}
           className="px-4 py-2 rounded-lg text-sm font-medium text-white disabled:opacity-50"
           style={{ background: '#3b82f6' }}>
-          {sending ? '...' : (t('emailSend') || 'Send')}
+          {sending ? '...' : (isZh ? '发送' : (t('emailSend') || 'Send'))}
         </button>
       </div>
     </div>
