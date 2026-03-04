@@ -260,8 +260,8 @@ function AccountCatalogPanel({ accountId }: { accountId: string }) {
 }
 
 // ── Link Contact Modal ─────────────────────────────────────────────────────
-function LinkContactModal({ contact, onClose, onLinked }: {
-  contact: Conversation; onClose: () => void; onLinked: () => void;
+function LinkContactModal({ contact, onClose, onLinked, isMobile = false }: {
+  contact: Conversation; onClose: () => void; onLinked: () => void; isMobile?: boolean;
 }) {
   const [tab, setTab] = useState<'lead' | 'account'>('lead');
   const [search, setSearch] = useState('');
@@ -355,7 +355,7 @@ function LinkContactModal({ contact, onClose, onLinked }: {
 
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-[9999]" onClick={onClose}>
-      <div className="rounded-xl w-full max-w-md shadow-xl border overflow-hidden"
+      <div className={`${isMobile ? 'h-[100dvh] max-w-none rounded-none' : 'rounded-xl max-w-md'} w-full shadow-xl border overflow-hidden`}
         style={{ background: 'var(--notion-card, white)', borderColor: 'var(--notion-border)' }}
         onClick={e => e.stopPropagation()}>
         <div className="px-5 py-3 border-b flex items-center justify-between" style={{ borderColor: 'var(--notion-border)' }}>
@@ -441,8 +441,8 @@ function LinkContactModal({ contact, onClose, onLinked }: {
 }
 
 // ── Add Contact Modal ──────────────────────────────────────────────────────
-function AddContactModal({ accounts, onClose, onAdded }: {
-  accounts: WaAccount[]; onClose: () => void; onAdded: () => void;
+function AddContactModal({ accounts, onClose, onAdded, isMobile = false }: {
+  accounts: WaAccount[]; onClose: () => void; onAdded: () => void; isMobile?: boolean;
 }) {
   const tCrm = useTranslations('crm');
   const [accountId, setAccountId] = useState(accounts[0]?.id || '');
@@ -463,7 +463,7 @@ function AddContactModal({ accounts, onClose, onAdded }: {
 
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-[9999]" onClick={onClose}>
-      <div className="rounded-xl w-full max-w-md shadow-xl border overflow-hidden"
+      <div className={`${isMobile ? 'h-[100dvh] max-w-none rounded-none' : 'rounded-xl max-w-md'} w-full shadow-xl border overflow-hidden`}
         style={{ background: 'var(--notion-card, white)', borderColor: 'var(--notion-border)' }}
         onClick={e => e.stopPropagation()}>
         <div className="px-5 py-3 border-b flex items-center justify-between" style={{ borderColor: 'var(--notion-border)' }}>
@@ -507,8 +507,8 @@ function AddContactModal({ accounts, onClose, onAdded }: {
 }
 
 // ── Assign Contact Modal ──────────────────────────────────────────────────
-function AssignContactModal({ contact, onClose, onAssigned }: {
-  contact: Conversation; onClose: () => void; onAssigned: () => void;
+function AssignContactModal({ contact, onClose, onAssigned, isMobile = false }: {
+  contact: Conversation; onClose: () => void; onAssigned: () => void; isMobile?: boolean;
 }) {
   const tCrm = useTranslations('crm');
   const [users, setUsers] = useState<any[]>([]);
@@ -534,7 +534,7 @@ function AssignContactModal({ contact, onClose, onAssigned }: {
 
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-[9999]" onClick={onClose}>
-      <div className="rounded-xl w-full max-w-md shadow-xl border overflow-hidden"
+      <div className={`${isMobile ? 'h-[100dvh] max-w-none rounded-none' : 'rounded-xl max-w-md'} w-full shadow-xl border overflow-hidden`}
         style={{ background: 'var(--notion-card, white)', borderColor: 'var(--notion-border)' }}
         onClick={e => e.stopPropagation()}>
         <div className="px-5 py-3 border-b flex items-center justify-between" style={{ borderColor: 'var(--notion-border)' }}>
@@ -1242,44 +1242,28 @@ export default function WhatsAppInbox() {
 
       {/* ── Right Panel: Chat or Empty ── */}
       <div
-        className="flex-1 flex flex-col h-full min-w-0"
+        className="flex-1 flex flex-col h-full min-h-0 min-w-0"
         style={{ display: isMobile && !selectedContact ? 'none' : 'flex' }}
       >
-        {isMobile && selectedContact && (
-          <div
-            className="h-11 px-2 flex items-center gap-2 flex-shrink-0"
-            style={{ background: '#008069', color: 'white', borderBottom: '1px solid rgba(255,255,255,0.12)' }}
-          >
-            <button
-              onClick={() => setSelectedContact(null)}
-              className="w-8 h-8 rounded-full flex items-center justify-center"
-              style={{ background: 'rgba(255,255,255,0.12)' }}
-            >
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round">
-                <path d="m15 18-6-6 6-6" />
-              </svg>
-            </button>
-            <span className="text-sm font-medium truncate">
-              {selectedContact.display_name || selectedContact.push_name || selectedContact.phone_number || 'Chat'}
-            </span>
-          </div>
-        )}
         {selectedContact ? (
-          <WhatsAppChatPanel
-            key={selectedContact.id}
-            contactId={selectedContact.id}
-            contactName={selectedContact.display_name || selectedContact.push_name || selectedContact.phone_number}
-            profilePicUrl={selectedContact.profile_pic_url}
-            isGroup={selectedContact.is_group}
-            disappearingDuration={selectedContact.disappearing_duration}
-            conversation={{
-              phone_number: selectedContact.phone_number,
-              crm_account_name: selectedContact.crm_account_name,
-              lead_name: selectedContact.lead_name,
-              lead_status: selectedContact.lead_status,
-              display_name: selectedContact.display_name,
-            }}
-          />
+          <div className="flex-1 min-h-0">
+            <WhatsAppChatPanel
+              key={selectedContact.id}
+              contactId={selectedContact.id}
+              contactName={selectedContact.display_name || selectedContact.push_name || selectedContact.phone_number}
+              profilePicUrl={selectedContact.profile_pic_url}
+              isGroup={selectedContact.is_group}
+              disappearingDuration={selectedContact.disappearing_duration}
+              onBack={isMobile ? () => setSelectedContact(null) : undefined}
+              conversation={{
+                phone_number: selectedContact.phone_number,
+                crm_account_name: selectedContact.crm_account_name,
+                lead_name: selectedContact.lead_name,
+                lead_status: selectedContact.lead_status,
+                display_name: selectedContact.display_name,
+              }}
+            />
+          </div>
         ) : (
           <div className="flex-1 flex flex-col items-center justify-center gap-4" style={{
             background: '#f0f2f5',
@@ -1305,7 +1289,7 @@ export default function WhatsAppInbox() {
       </div>
 
       {/* ── Account Management SlideOver ── */}
-      <SlideOver open={showAccountPanel} onClose={() => setShowAccountPanel(false)} title={tCrm('waInboxSettings')} width="w-[480px]">
+      <SlideOver open={showAccountPanel} onClose={() => setShowAccountPanel(false)} title={tCrm('waInboxSettings')} width={isMobile ? 'w-full' : 'w-[480px]'}>
         <div className="px-6 py-4 space-y-5">
           {/* Create new */}
           <div>
@@ -1393,7 +1377,10 @@ export default function WhatsAppInbox() {
       {/* QR Code Modal */}
       {qrData && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-          <div className="rounded-xl p-6 w-full max-w-sm shadow-xl border text-center" style={{ background: 'var(--notion-card, white)', borderColor: 'var(--notion-border)' }}>
+          <div
+            className={`${isMobile ? 'h-[100dvh] max-w-none rounded-none p-4' : 'rounded-xl p-6 max-w-sm'} w-full shadow-xl border text-center`}
+            style={{ background: 'var(--notion-card, white)', borderColor: 'var(--notion-border)' }}
+          >
             <h3 className="font-semibold mb-2 text-base" style={{ color: 'var(--notion-text)' }}>Scan QR Code</h3>
             <p className="text-xs mb-4" style={{ color: 'var(--notion-text-muted)' }}>Open WhatsApp on your phone &rarr; Settings &rarr; Linked Devices &rarr; Link a Device</p>
             <div className="mx-auto w-64 h-64 rounded-lg overflow-hidden mb-4 flex items-center justify-center" style={{ background: 'white' }}>
@@ -1445,6 +1432,7 @@ export default function WhatsAppInbox() {
       {linkingContact && (
         <LinkContactModal
           contact={linkingContact}
+          isMobile={isMobile}
           onClose={() => setLinkingContact(null)}
           onLinked={() => { setLinkingContact(null); loadData(); }}
         />
@@ -1454,6 +1442,7 @@ export default function WhatsAppInbox() {
       {showAddContact && (
         <AddContactModal
           accounts={accounts}
+          isMobile={isMobile}
           onClose={() => setShowAddContact(false)}
           onAdded={() => { setShowAddContact(false); loadData(); }}
         />
@@ -1463,6 +1452,7 @@ export default function WhatsAppInbox() {
       {assigningContact && (
         <AssignContactModal
           contact={assigningContact}
+          isMobile={isMobile}
           onClose={() => setAssigningContact(null)}
           onAssigned={() => { setAssigningContact(null); loadData(); }}
         />
@@ -1471,7 +1461,7 @@ export default function WhatsAppInbox() {
       {showBroadcast && (
         <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4" onClick={() => setShowBroadcast(false)}>
           <div
-            className={`w-full max-w-6xl rounded-2xl overflow-hidden shadow-2xl bg-white flex flex-col ${isMobile ? 'h-[100dvh]' : 'h-[90vh]'}`}
+            className={`w-full max-w-6xl overflow-hidden shadow-2xl bg-white flex flex-col ${isMobile ? 'h-[100dvh] max-w-none rounded-none' : 'h-[90vh] rounded-2xl'}`}
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center justify-between px-5 py-3 border-b flex-shrink-0" style={{ borderColor: '#e5e7eb' }}>

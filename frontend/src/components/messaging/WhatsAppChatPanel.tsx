@@ -52,6 +52,7 @@ interface WhatsAppChatPanelProps {
     lead_status?: string;
     display_name?: string;
   };
+  onBack?: () => void;
 }
 
 function formatTime(iso: string) {
@@ -128,6 +129,7 @@ type EnrichedProfile = Record<string, any>;
 export default function WhatsAppChatPanel({
   contactId, leadId, contactName, profilePicUrl, isGroup, disappearingDuration,
   isBlocked: initialIsBlocked, isArchived: initialIsArchived, conversation,
+  onBack,
 }: WhatsAppChatPanelProps) {
   const locale = useLocale();
   const isZhHans = locale.toLowerCase().startsWith('zh-cn') || locale.toLowerCase() === 'zh';
@@ -1439,13 +1441,26 @@ export default function WhatsAppChatPanel({
   const isTypingNow = wsTyping || presence?.status === 'composing';
 
   return (
-    <div className="flex flex-col h-full" style={{ minHeight: 400 }}>
+    <div className="flex flex-col h-full min-h-0">
       {/* ── Header ── */}
       <div className="px-4 py-2.5 flex items-center gap-3" style={{ background: '#008069' }}>
+        {onBack && (
+          <button
+            onClick={onBack}
+            className="md:hidden w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0"
+            style={{ background: 'rgba(255,255,255,0.12)', color: 'white' }}
+            title="Back"
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round">
+              <path d="m15 18-6-6 6-6" />
+            </svg>
+          </button>
+        )}
         <div className="w-10 h-10 rounded-full flex items-center justify-center text-white text-sm font-bold overflow-hidden cursor-pointer flex-shrink-0"
           style={{ background: 'rgba(255,255,255,0.2)' }}
           onClick={() => { if (isGroup) { setShowGroupInfo(!showGroupInfo); loadGroupInfo(); } else if (effectiveContactId) { handleFetchProfile(); } }}>
           {profilePicUrl ? (
+            // eslint-disable-next-line @next/next/no-img-element
             <img src={profilePicUrl} alt="" className="w-full h-full object-cover" />
           ) : (
             <svg viewBox="0 0 212 212" width="40" height="40"><path fill="rgba(255,255,255,0.6)" d="M106 0C47.5 0 0 47.5 0 106s47.5 106 106 106 106-47.5 106-106S164.5 0 106 0zm0 50c17.7 0 32 14.3 32 32s-14.3 32-32 32-32-14.3-32-32 14.3-32 32-32zm0 145c-26.5 0-49.9-13.5-63.5-34 .3-21 42.3-32.5 63.5-32.5s63.2 11.5 63.5 32.5C155.9 181.5 132.5 195 106 195z"/></svg>
@@ -2032,7 +2047,7 @@ export default function WhatsAppChatPanel({
       )}
 
       {/* ── Messages ── */}
-      <div ref={scrollContainerRef} className="flex-1 overflow-y-auto px-12 py-4" style={{
+      <div ref={scrollContainerRef} className="flex-1 min-h-0 overflow-y-auto px-3 py-3 md:px-12 md:py-4" style={{
         background: `#e5ddd5`,
         backgroundImage: `url("data:image/svg+xml,%3Csvg width='400' height='400' viewBox='0 0 400 400' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='%23c6ccd1' fill-opacity='0.15'%3E%3Cpath d='M20 20h8v2h-8zm30 0h6v3h-6zm25 5h4v4h-4zm-60 10h5v5h-5zm40 0h3v6h-3zm30 5h7v3h-7zM15 50h4v4h-4zm35-5h6v4h-6zm30 10h5v3h-5zm-50 15h3v5h-3zm25-5h8v2h-8zm35 0h4v6h-4zM10 80h6v3h-6zm45-5h5v5h-5zm25 10h7v2h-7zm-55 15h4v4h-4zm30-5h6v3h-6zm40 5h3v5h-3zM20 110h5v4h-5zm25 5h8v3h-8zm30-5h4v6h-4zm-65 20h7v2h-7zm35-5h5v5h-5zm30 10h6v3h-6zM10 150h4v4h-4zm40-5h3v6h-3zm25 5h8v2h-8zm-50 20h6v3h-6zm30 0h5v5h-5zm35-5h4v4h-4zM25 185h7v3h-7zm25 5h4v4h-4zm30-5h6v5h-6zm-70 20h5v3h-5zm40 0h3v6h-3zm30 5h8v2h-8zM15 220h4v5h-4zm30-5h6v4h-6zm25 10h5v3h-5zm-40 15h7v2h-7zm25 0h4v6h-4zm35-5h3v5h-3zM10 260h6v3h-6zm45-5h8v4h-8zm20 10h5v3h-5zm-55 15h4v4h-4zm30 0h6v5h-6zm30-5h7v3h-7zM20 295h5v4h-5zm25 5h3v6h-3zm30-5h8v2h-8zm-60 20h4v4h-4zm35 0h6v3h-6zm30 5h5v5h-5zM15 335h7v3h-7zm25-5h4v6h-4zm30 5h6v2h-6zm-50 15h5v4h-5zm30 5h3v5h-3zm25-5h8v3h-8zM10 370h6v4h-6zm40-5h5v5h-5zm25 10h4v3h-4zm-55 15h7v2h-7zm35 0h4v6h-4zm30-5h6v4h-6z'/%3E%3Ccircle cx='200' cy='50' r='2'/%3E%3Ccircle cx='350' cy='100' r='1.5'/%3E%3Ccircle cx='100' cy='200' r='2'/%3E%3Ccircle cx='300' cy='250' r='1.5'/%3E%3Ccircle cx='50' cy='350' r='2'/%3E%3Ccircle cx='250' cy='370' r='1.5'/%3E%3C/g%3E%3C/svg%3E")`,
       }}
