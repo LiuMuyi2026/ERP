@@ -87,6 +87,7 @@ export default function EmailInbox() {
   const [showThread, setShowThread] = useState(false);
   const [loadingThread, setLoadingThread] = useState(false);
   const [syncing, setSyncing] = useState(false);
+  const [canManualSync, setCanManualSync] = useState(true);
   const [allUsers, setAllUsers] = useState<{ id: string; full_name?: string; email?: string }[]>([]);
   const [batchAssignUser, setBatchAssignUser] = useState('');
   const [unlinkedOnly, setUnlinkedOnly] = useState(false);
@@ -101,6 +102,7 @@ export default function EmailInbox() {
   const [showSlaPanel, setShowSlaPanel] = useState(false);
   const [slaLoading, setSlaLoading] = useState(false);
   const [slaItems, setSlaItems] = useState<SlaItem[]>([]);
+  const [slaCount, setSlaCount] = useState(0);
 
   useEffect(() => {
     setEmailPrefs(loadEmailUiPrefs(tenantSlug));
@@ -166,6 +168,18 @@ export default function EmailInbox() {
     api.get('/api/admin/users-lite')
       .then((d) => setAllUsers(Array.isArray(d) ? d : (d?.items || [])))
       .catch(() => setAllUsers([]));
+  }, []);
+  useEffect(() => {
+    api.get('/api/auth/me')
+      .then((me: any) => {
+        const role = String(me?.role || '').toLowerCase();
+        const allowed = role.includes('admin') || role === 'owner' || role === 'manager';
+        setCanManualSync(allowed);
+      })
+      .catch(() => setCanManualSync(false));
+  }, []);
+  useEffect(() => {
+    loadSlaItems(true);
   }, []);
 
   async function handleSelectEmail(email: EmailItem) {
@@ -334,20 +348,30 @@ export default function EmailInbox() {
     }
   }
 
-  async function loadSlaItems() {
+  async function loadSlaItems(silent = false) {
     setSlaLoading(true);
     try {
       const data = await api.get('/api/email/sla/overdue?hours=24&limit=200');
-      setSlaItems(Array.isArray(data) ? data : []);
+      const items = Array.isArray(data) ? data : [];
+      setSlaItems(items);
+      setSlaCount(items.length);
+      return items;
     } catch {
       setSlaItems([]);
-      toast.error(isZh ? 'SLA 列表加载失败' : 'Failed to load SLA data');
+      setSlaCount(0);
+      if (!silent) toast.error(isZh ? 'SLA 列表加载失败' : 'Failed to load SLA data');
+      return [];
     } finally {
       setSlaLoading(false);
     }
   }
 
   async function triggerSlaNotify() {
+    if (slaItems.length === 0) {
+      toast((isZh ? '当前没有超时邮件，无需提醒' : 'No overdue emails to notify'));
+      return;
+    }
+    if (!confirm(isZh ? `确认发送 ${slaItems.length} 条 SLA 提醒吗？` : `Send ${slaItems.length} SLA reminders now?`)) return;
     try {
       const data = await api.post('/api/email/sla/notify?hours=24&limit=200', {});
       toast.success(isZh ? `已发送 ${data?.notified || 0} 条提醒` : `Sent ${data?.notified || 0} reminders`);
@@ -404,6 +428,10 @@ export default function EmailInbox() {
   }
 
   async function handleManualSync() {
+    if (!canManualSync) {
+      toast.error(isZh ? '仅管理员可手动同步' : 'Only admin can trigger manual sync');
+      return;
+    }
     setSyncing(true);
     try {
       await api.post('/api/email/imap/sync', {});
@@ -421,61 +449,86 @@ export default function EmailInbox() {
     }
   }
 
+  async function handleOpenSlaPanel() {
+    const items = await loadSlaItems(true);
+    if (items.length === 0) {
+      toast(isZh ? '当前没有 SLA 超时邮件' : 'No SLA overdue emails right now');
+      setShowSlaPanel(false);
+      return;
+    }
+    setShowSlaPanel(true);
+  }
+
+  async function handleOpenSlaItem(item: SlaItem) {
+    try {
+      const detail = await api.get(`/api/email/${item.id}`);
+      setSelectedEmail(detail);
+      setViewMode('read');
+      setShowSlaPanel(false);
+    } catch {
+      toast.error(isZh ? '邮件详情加载失败' : 'Failed to load email detail');
+    }
+  }
+
   const visibleEmails = emails;
 
   return (
     <div className="h-full flex" style={{ background: '#eef2f6' }}>
       {/* Left: Email List */}
       <div className="flex flex-col" style={{ width: 420, background: 'white', borderRight: '1px solid #dbe3ea' }}>
-        {/* Folder tabs + compose */}
-        <div className="flex items-center gap-2 px-4 py-3 flex-shrink-0 flex-wrap" style={{ borderBottom: '1px solid #e5e7eb' }}>
-          {(['inbox', 'todo', 'archived', 'sent'] as Folder[]).map((f) => (
-            <button key={f} onClick={() => { setFolder(f); setPage(1); }}
-              className="px-3 py-1.5 rounded-full text-[11px] font-medium transition-colors"
-              style={{
-                background: folder === f ? '#dbeafe' : '#f8fafc',
-                color: folder === f ? '#1d4ed8' : '#64748b',
-                border: `1px solid ${folder === f ? '#93c5fd' : '#e2e8f0'}`,
-              }}>
-              {f === 'inbox'
-                ? (isZh ? '收件箱' : (t('emailInbox') || 'Inbox'))
-                : f === 'todo'
-                ? (isZh ? '待跟进' : 'Need Follow-up')
-                : f === 'archived'
-                ? (isZh ? '已归档' : 'Archived')
-                : (isZh ? '已发送' : (t('emailSent') || 'Sent'))}
+        {/* Folder tabs + actions */}
+        <div className="px-4 py-3 flex-shrink-0" style={{ borderBottom: '1px solid #e5e7eb' }}>
+          <div className="flex items-center gap-2 flex-wrap">
+            {(['inbox', 'todo', 'archived', 'sent'] as Folder[]).map((f) => (
+              <button key={f} onClick={() => { setFolder(f); setPage(1); }}
+                className="px-3 py-1.5 rounded-full text-[11px] font-medium transition-colors"
+                style={{
+                  background: folder === f ? '#dbeafe' : '#f8fafc',
+                  color: folder === f ? '#1d4ed8' : '#64748b',
+                  border: `1px solid ${folder === f ? '#93c5fd' : '#e2e8f0'}`,
+                }}>
+                {f === 'inbox'
+                  ? (isZh ? '收件箱' : (t('emailInbox') || 'Inbox'))
+                  : f === 'todo'
+                  ? (isZh ? '待跟进' : 'Need Follow-up')
+                  : f === 'archived'
+                  ? (isZh ? '已归档' : 'Archived')
+                  : (isZh ? '已发送' : (t('emailSent') || 'Sent'))}
+              </button>
+            ))}
+            {folder === 'inbox' && (
+              <span className="text-[10px] px-2 py-0.5 rounded-full" style={{ background: '#e0f2fe', color: '#0369a1' }}>
+                {isZh ? `未读 ${unreadCount}` : `Unread ${unreadCount}`}
+              </span>
+            )}
+          </div>
+          <div className="mt-2.5 flex items-center justify-end gap-2">
+            <button onClick={handleCompose}
+              className="px-3 py-1.5 rounded-full text-[11px] font-medium text-white"
+              style={{ background: '#2563eb' }}>
+              + {isZh ? '写邮件' : (t('emailCompose') || 'Compose')}
             </button>
-          ))}
-          {folder === 'inbox' && (
-            <span className="text-[10px] px-2 py-0.5 rounded-full" style={{ background: '#e0f2fe', color: '#0369a1' }}>
-              {isZh ? `未读 ${unreadCount}` : `Unread ${unreadCount}`}
-            </span>
-          )}
-          <div className="flex-1" />
-          <button onClick={handleCompose}
-            className="px-3 py-1.5 rounded-full text-[11px] font-medium text-white"
-            style={{ background: '#2563eb' }}>
-            + {isZh ? '写邮件' : (t('emailCompose') || 'Compose')}
-          </button>
-          <button onClick={handleManualSync} disabled={syncing}
-            className="px-3 py-1.5 rounded-full text-[11px] font-medium border disabled:opacity-60"
-            style={{ borderColor: '#dbe3ea', color: '#334155', background: '#f8fafc' }}>
-            {syncing ? (isZh ? '同步中...' : 'Syncing...') : (isZh ? '同步' : 'Sync')}
-          </button>
-          <button
-            onClick={() => { setShowTemplateManager(true); loadTemplates(); }}
-            className="px-3 py-1.5 rounded-full text-[11px] font-medium border"
-            style={{ borderColor: '#dbe3ea', color: '#334155', background: '#f8fafc' }}
-          >
-            {isZh ? '模板' : 'Templates'}
-          </button>
-          <button
-            onClick={() => { setShowSlaPanel(true); loadSlaItems(); }}
-            className="px-3 py-1.5 rounded-full text-[11px] font-medium border"
-            style={{ borderColor: '#fde68a', color: '#92400e', background: '#fffbeb' }}
-          >
-            SLA
-          </button>
+            <button onClick={handleManualSync} disabled={syncing || !canManualSync}
+              title={canManualSync ? (isZh ? '手动拉取最新邮件' : 'Manually pull latest emails') : (isZh ? '仅管理员可手动同步' : 'Admin only')}
+              className="px-3 py-1.5 rounded-full text-[11px] font-medium border disabled:opacity-60"
+              style={{ borderColor: '#dbe3ea', color: '#334155', background: '#f8fafc' }}>
+              {syncing ? (isZh ? '同步中...' : 'Syncing...') : (isZh ? '同步' : 'Sync')}
+            </button>
+            <button
+              onClick={() => { setShowTemplateManager(true); loadTemplates(); }}
+              className="px-3 py-1.5 rounded-full text-[11px] font-medium border"
+              style={{ borderColor: '#dbe3ea', color: '#334155', background: '#f8fafc' }}
+            >
+              {isZh ? '模板' : 'Templates'}
+            </button>
+            <button
+              onClick={handleOpenSlaPanel}
+              className="px-3 py-1.5 rounded-full text-[11px] font-medium border"
+              style={{ borderColor: '#fde68a', color: '#92400e', background: '#fffbeb' }}
+            >
+              SLA {slaCount > 0 ? `(${slaCount})` : ''}
+            </button>
+          </div>
         </div>
 
         {/* Search */}
@@ -886,10 +939,11 @@ export default function EmailInbox() {
             <div className="px-4 py-3 border-b flex items-center justify-between" style={{ borderColor: '#e5e7eb' }}>
               <h3 className="text-sm font-semibold" style={{ color: '#334155' }}>{isZh ? 'SLA 超时未回复邮件' : 'SLA Overdue Emails'}</h3>
               <div className="flex items-center gap-2">
-                <button onClick={loadSlaItems} className="text-xs px-2 py-1 rounded border" style={{ borderColor: '#e5e7eb', color: '#64748b' }}>
+                <button onClick={() => loadSlaItems()} className="text-xs px-2 py-1 rounded border" style={{ borderColor: '#e5e7eb', color: '#64748b' }}>
                   {isZh ? '刷新' : 'Refresh'}
                 </button>
-                <button onClick={triggerSlaNotify} className="text-xs px-2 py-1 rounded border" style={{ borderColor: '#fde68a', color: '#92400e', background: '#fffbeb' }}>
+                <button onClick={triggerSlaNotify} disabled={slaItems.length === 0}
+                  className="text-xs px-2 py-1 rounded border disabled:opacity-60" style={{ borderColor: '#fde68a', color: '#92400e', background: '#fffbeb' }}>
                   {isZh ? '发送提醒' : 'Notify'}
                 </button>
                 <button onClick={() => setShowSlaPanel(false)} className="text-xs px-2 py-1 rounded border" style={{ borderColor: '#e5e7eb', color: '#64748b' }}>
@@ -905,13 +959,15 @@ export default function EmailInbox() {
               ) : (
                 <div className="space-y-2">
                   {slaItems.map((item) => (
-                    <div key={item.id} className="rounded-lg border p-3" style={{ borderColor: '#e5e7eb', background: '#fff' }}>
+                    <button key={item.id} onClick={() => handleOpenSlaItem(item)}
+                      className="w-full text-left rounded-lg border p-3 hover:bg-amber-50 transition-colors"
+                      style={{ borderColor: '#e5e7eb', background: '#fff' }}>
                       <div className="flex items-center justify-between gap-2">
                         <p className="text-xs font-semibold truncate" style={{ color: '#334155' }}>{item.subject || '(No Subject)'}</p>
                         <span className="text-[10px]" style={{ color: '#94a3b8' }}>{relTime(item.created_at || '')}</span>
                       </div>
                       <p className="text-[11px] mt-1" style={{ color: '#64748b' }}>{item.from_name || item.from_email} {item.lead_name ? `· ${item.lead_name}` : ''}</p>
-                    </div>
+                    </button>
                   ))}
                 </div>
               )}
