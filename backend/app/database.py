@@ -6,7 +6,14 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-engine = create_async_engine(settings.database_url, echo=False, pool_size=30, max_overflow=10)
+engine = create_async_engine(
+    settings.database_url,
+    echo=False,
+    pool_size=30,
+    max_overflow=10,
+    pool_pre_ping=True,         # detect dead connections before use
+    pool_recycle=600,            # recycle connections after 10 minutes
+)
 AsyncSessionLocal = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
 

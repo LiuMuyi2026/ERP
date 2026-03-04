@@ -1365,9 +1365,13 @@ TENANT_MIGRATION_DDL = [
     "CREATE INDEX IF NOT EXISTS idx_emails_from ON emails(from_email)",
     "CREATE INDEX IF NOT EXISTS idx_emails_to ON emails(to_email)",
     "CREATE INDEX IF NOT EXISTS idx_emails_message_id ON emails(message_id_header)",
+    # Prevent duplicate inbound emails from webhook retries
+    "CREATE UNIQUE INDEX IF NOT EXISTS idx_emails_unique_msg_id ON emails(message_id_header) WHERE message_id_header IS NOT NULL AND message_id_header != ''",
 
     # Add lead_id to messages table for customer linking
     "ALTER TABLE messages ADD COLUMN IF NOT EXISTS lead_id UUID",
+    # Index for internal message queries
+    "CREATE INDEX IF NOT EXISTS idx_messages_pair ON messages(from_user_id, to_user_id, created_at DESC)",
 ]
 
 

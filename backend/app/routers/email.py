@@ -245,6 +245,7 @@ async def inbound_email_webhook(request: Request):
                     'received', :message_id_header, :in_reply_to, :references_header, CAST(:thread_id AS uuid),
                     :lead_id, :webhook_provider, :received_at, :created_at
                 )
+                ON CONFLICT DO NOTHING
             """), {
                 "id": email_id,
                 "from_email": from_email,
