@@ -4,19 +4,17 @@ import { useState, useEffect } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { useTranslations } from 'next-intl';
 import WhatsAppInbox from '@/components/messaging/WhatsAppInbox';
-import WhatsAppBroadcast from '@/components/messaging/WhatsAppBroadcast';
 import EmailInbox from '@/components/messaging/EmailInbox';
 import InternalMessages from '@/components/messaging/InternalMessages';
 import MessageManagement from '../crm/components/MessageManagement';
 
-type MsgTab = 'whatsapp' | 'email' | 'internal' | 'broadcast' | 'commlog';
-const VALID_TABS: MsgTab[] = ['whatsapp', 'email', 'internal', 'broadcast', 'commlog'];
+type MsgTab = 'whatsapp' | 'email' | 'internal' | 'commlog';
+const VALID_TABS: MsgTab[] = ['whatsapp', 'email', 'internal', 'commlog'];
 
 const TAB_CONFIG: { key: MsgTab; icon: string; color: string }[] = [
   { key: 'whatsapp',  icon: 'wa',       color: '#00a884' },
   { key: 'email',     icon: 'email',    color: '#3b82f6' },
   { key: 'internal',  icon: 'internal', color: '#7c3aed' },
-  { key: 'broadcast', icon: 'broadcast', color: '#7c3aed' },
   { key: 'commlog',   icon: 'commlog',  color: '#667781' },
 ];
 
@@ -43,13 +41,7 @@ function TabIcon({ type, active, color }: { type: string; active: boolean; color
       <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/>
     </svg>
   );
-  // broadcast
-  return (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M12 2v8M4.93 10.93l1.41 1.41M2 18h2M20 18h2M17.66 12.34l1.41-1.41M12 18a6 6 0 0 0 0-12"/>
-      <circle cx="12" cy="18" r="2"/>
-    </svg>
-  );
+  return null;
 }
 
 export default function MessagesCenter() {
@@ -69,7 +61,6 @@ export default function MessagesCenter() {
     whatsapp:  t('tabWhatsApp')  || 'WhatsApp',
     email:     t('tabEmail')     || 'Email',
     internal:  t('tabInternal')  || 'Internal',
-    broadcast: t('tabBroadcast') || 'Broadcast',
     commlog:   t('tabCommLog')   || 'Comm Log',
   };
 
@@ -105,7 +96,6 @@ export default function MessagesCenter() {
         {activeTab === 'whatsapp'  && <WhatsAppInbox />}
         {activeTab === 'email'     && <EmailInbox />}
         {activeTab === 'internal'  && <InternalMessages />}
-        {activeTab === 'broadcast' && <WhatsAppBroadcast />}
         {activeTab === 'commlog'   && <div className="px-8 py-4 overflow-auto h-full" style={{ background: 'white' }}><MessageManagement /></div>}
       </div>
     </div>

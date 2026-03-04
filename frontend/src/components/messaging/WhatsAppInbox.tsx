@@ -9,6 +9,7 @@ import { useTranslations } from 'next-intl';
 import toast from 'react-hot-toast';
 import SlideOver from '@/components/ui/SlideOver';
 import WhatsAppChatPanel from './WhatsAppChatPanel';
+import WhatsAppBroadcast from './WhatsAppBroadcast';
 import { relTime, WA_STATUS_COLORS } from './wa-helpers';
 
 // ── Types ──────────────────────────────────
@@ -605,6 +606,7 @@ export default function WhatsAppInbox() {
 
   // Add / Assign / Delete
   const [showAddContact, setShowAddContact] = useState(false);
+  const [showBroadcast, setShowBroadcast] = useState(false);
   const [assigningContact, setAssigningContact] = useState<Conversation | null>(null);
   const [filterAssigned, setFilterAssigned] = useState('');
   const [allUsers, setAllUsers] = useState<{ id: string; full_name?: string; email?: string }[]>([]);
@@ -952,6 +954,15 @@ export default function WhatsAppInbox() {
             title={tCrm('waInboxAddContact')}>
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+            </svg>
+          </button>
+          <button onClick={() => setShowBroadcast(true)}
+            className="p-2 rounded-full hover:bg-white/10 transition-colors flex-shrink-0"
+            title="Broadcast">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M3 11v2a1 1 0 0 0 1 1h3l5 4V6L7 10H4a1 1 0 0 0-1 1z"/>
+              <path d="M16 9a5 5 0 0 1 0 6"/>
+              <path d="M19 6a9 9 0 0 1 0 12"/>
             </svg>
           </button>
           <button onClick={() => setShowAccountPanel(true)}
@@ -1394,6 +1405,27 @@ export default function WhatsAppInbox() {
           onClose={() => setAssigningContact(null)}
           onAssigned={() => { setAssigningContact(null); loadData(); }}
         />
+      )}
+
+      {showBroadcast && (
+        <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4" onClick={() => setShowBroadcast(false)}>
+          <div
+            className="w-full max-w-6xl h-[90vh] rounded-2xl overflow-hidden shadow-2xl bg-white flex flex-col"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between px-5 py-3 border-b flex-shrink-0" style={{ borderColor: '#e5e7eb' }}>
+              <h3 className="text-sm font-semibold" style={{ color: '#111b21' }}>WhatsApp Broadcast</h3>
+              <button onClick={() => setShowBroadcast(false)} className="p-1.5 rounded hover:bg-gray-100" title="Close">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#667781" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+                </svg>
+              </button>
+            </div>
+            <div className="flex-1 min-h-0">
+              <WhatsAppBroadcast />
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

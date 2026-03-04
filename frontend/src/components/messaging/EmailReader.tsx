@@ -34,6 +34,11 @@ interface EmailReaderProps {
   onReply?: () => void;
   onForward?: () => void;
   onLinkCustomer?: () => void;
+  onViewThread?: () => void;
+  onMarkRead?: () => void;
+  onDelete?: () => void;
+  canViewThread?: boolean;
+  canMarkRead?: boolean;
   onBack?: () => void;
 }
 
@@ -60,6 +65,11 @@ export default function EmailReader({
   onReply,
   onForward,
   onLinkCustomer,
+  onViewThread,
+  onMarkRead,
+  onDelete,
+  canViewThread = false,
+  canMarkRead = false,
   onBack,
 }: EmailReaderProps) {
   const t = useTranslations('msgCenter');
@@ -188,6 +198,27 @@ export default function EmailReader({
             className="px-3 py-1.5 rounded-lg text-xs font-medium border hover:bg-gray-50 ml-auto"
             style={{ borderColor: '#e5e7eb', color: '#4338ca' }}>
             {t('emailLinkCustomer') || 'Link to Customer'}
+          </button>
+        )}
+        {canViewThread && onViewThread && (
+          <button onClick={onViewThread}
+            className="px-3 py-1.5 rounded-lg text-xs font-medium border hover:bg-gray-50"
+            style={{ borderColor: '#e5e7eb', color: '#3b4a54' }}>
+            View Thread
+          </button>
+        )}
+        {canMarkRead && onMarkRead && (
+          <button onClick={onMarkRead}
+            className="px-3 py-1.5 rounded-lg text-xs font-medium border hover:bg-gray-50"
+            style={{ borderColor: '#e5e7eb', color: '#3b4a54' }}>
+            Mark Read
+          </button>
+        )}
+        {onDelete && (
+          <button onClick={onDelete}
+            className="px-3 py-1.5 rounded-lg text-xs font-medium border hover:bg-gray-50"
+            style={{ borderColor: '#fecaca', color: '#dc2626' }}>
+            Delete
           </button>
         )}
       </div>
