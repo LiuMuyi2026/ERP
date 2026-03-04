@@ -309,13 +309,13 @@ async def _verify_contact_ownership(db, contact_id: str, uid: str, role: str = "
     is_admin = role in ("platform_admin", "tenant_admin", "manager")
     if is_admin:
         own = await db.execute(text("""
-            SELECT c.id, c.wa_account_id, c.wa_jid FROM whatsapp_contacts c
+            SELECT c.*, a.owner_user_id FROM whatsapp_contacts c
             JOIN whatsapp_accounts a ON a.id = c.wa_account_id
             WHERE c.id = :cid
         """), {"cid": contact_id})
     else:
         own = await db.execute(text("""
-            SELECT c.id, c.wa_account_id, c.wa_jid FROM whatsapp_contacts c
+            SELECT c.*, a.owner_user_id FROM whatsapp_contacts c
             JOIN whatsapp_accounts a ON a.id = c.wa_account_id
             WHERE c.id = :cid AND a.owner_user_id = :uid
         """), {"cid": contact_id, "uid": uid})
@@ -339,6 +339,37 @@ async def _get_message_with_key(db, message_id: str, contact_id: str):
     if not wa_key:
         raise HTTPException(status_code=400, detail="Message has no wa_key for this operation")
     return msg, wa_key
+
+
+async def _ws_targets_for_account(db: AsyncSession, account_id: str) -> list[str]:
+    """Resolve users who should receive realtime events for an account."""
+    targets: set[str] = set()
+
+    owner_row = await db.execute(text(
+        "SELECT owner_user_id FROM whatsapp_accounts WHERE id = :id"
+    ), {"id": account_id})
+    owner = owner_row.fetchone()
+    if owner and owner.owner_user_id:
+        targets.add(str(owner.owner_user_id))
+
+    admin_rows = await db.execute(text("""
+        SELECT id
+        FROM users
+        WHERE is_active = TRUE
+          AND (COALESCE(is_admin, FALSE) = TRUE OR role IN ('platform_admin', 'tenant_admin', 'manager'))
+    """))
+    for row in admin_rows.fetchall():
+        targets.add(str(row.id))
+
+    return list(targets)
+
+
+async def _ws_emit_for_account(db: AsyncSession, tenant_slug: str, account_id: str, event: dict) -> None:
+    """Emit a realtime event only to account owner + admin scope users."""
+    if not tenant_slug:
+        return
+    for uid in await _ws_targets_for_account(db, account_id):
+        await wa_ws_manager.send_to_user(tenant_slug, uid, event)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -579,11 +610,15 @@ async def get_messages(
     if info and not info.is_group:
         phone = info.wa_jid.split("@")[0] if "@" in info.wa_jid else ""
         if phone:
-            # Find all contacts with the same phone number (across accounts in this tenant)
+            # Merge by phone only within the same account owner boundary.
             sibling_contacts = await db.execute(text("""
-                SELECT id FROM whatsapp_contacts
-                WHERE SPLIT_PART(wa_jid, '@', 1) = :phone AND id != :cid
-            """), {"phone": phone, "cid": contact_id})
+                SELECT c.id
+                FROM whatsapp_contacts c
+                JOIN whatsapp_accounts a ON a.id = c.wa_account_id
+                WHERE SPLIT_PART(c.wa_jid, '@', 1) = :phone
+                  AND c.id != :cid
+                  AND a.owner_user_id = :owner_uid
+            """), {"phone": phone, "cid": contact_id, "owner_uid": str(contact.owner_user_id)})
             for row in sibling_contacts.fetchall():
                 contact_ids.append(str(row.id))
 
@@ -705,8 +740,15 @@ async def mark_conversation_read(contact_id: str, ctx: dict = Depends(get_curren
         phone = cinfo.wa_jid.split("@")[0] if "@" in cinfo.wa_jid else ""
         if phone:
             await db.execute(text(
-                "UPDATE whatsapp_contacts SET unread_count = 0, updated_at = NOW() WHERE SPLIT_PART(wa_jid, '@', 1) = :phone"
-            ), {"phone": phone})
+                """
+                UPDATE whatsapp_contacts c
+                SET unread_count = 0, updated_at = NOW()
+                FROM whatsapp_accounts a
+                WHERE c.wa_account_id = a.id
+                  AND SPLIT_PART(c.wa_jid, '@', 1) = :phone
+                  AND a.owner_user_id = :owner_uid
+                """
+            ), {"phone": phone, "owner_uid": str(contact.owner_user_id)})
         else:
             await db.execute(text("UPDATE whatsapp_contacts SET unread_count = 0, updated_at = NOW() WHERE id = :cid"), {"cid": contact_id})
     else:
@@ -937,7 +979,18 @@ async def remove_participants(contact_id: str, body: GroupParticipantsBody, ctx:
 @router.get("/labels")
 async def list_labels(account_id: Optional[str] = None, ctx: dict = Depends(get_current_user_with_tenant)):
     db = ctx["db"]
+    role = ctx.get("role", "")
+    is_admin_scope = role in ("platform_admin", "tenant_admin", "manager")
     if account_id:
+        if is_admin_scope:
+            acc = await db.execute(text("SELECT id FROM whatsapp_accounts WHERE id = :aid AND is_active = TRUE"), {"aid": account_id})
+        else:
+            acc = await db.execute(text("""
+                SELECT id FROM whatsapp_accounts
+                WHERE id = :aid AND owner_user_id = :uid AND is_active = TRUE
+            """), {"aid": account_id, "uid": ctx["sub"]})
+        if not acc.fetchone():
+            raise HTTPException(status_code=404, detail="Account not found")
         rows = await db.execute(text(
             "SELECT * FROM whatsapp_labels WHERE wa_account_id = :aid ORDER BY name"
         ), {"aid": account_id})
@@ -1347,7 +1400,7 @@ async def unlink_contact(contact_id: str, ctx: dict = Depends(get_current_user_w
 @router.post("/contacts/{contact_id}/pin")
 async def toggle_pin(contact_id: str, ctx: dict = Depends(get_current_user_with_tenant)):
     db = ctx["db"]
-    await _verify_contact_ownership(db, contact_id, ctx["sub"], ctx.get("role", ""))
+    contact = await _verify_contact_ownership(db, contact_id, ctx["sub"], ctx.get("role", ""))
     row = await db.execute(
         text("SELECT COALESCE(is_pinned, FALSE) AS is_pinned FROM whatsapp_contacts WHERE id = :cid"),
         {"cid": contact_id},
@@ -1359,14 +1412,17 @@ async def toggle_pin(contact_id: str, ctx: dict = Depends(get_current_user_with_
         {"cid": contact_id, "val": new_val},
     )
     await db.commit()
-    await wa_ws_manager.broadcast(ctx.get("tenant_slug", ""), {"type": "contact_updated", "contact_id": contact_id, "is_pinned": new_val})
+    await _ws_emit_for_account(
+        db, ctx.get("tenant_slug", ""), str(contact.wa_account_id),
+        {"type": "contact_updated", "contact_id": contact_id, "is_pinned": new_val},
+    )
     return {"ok": True, "is_pinned": new_val}
 
 
 @router.post("/contacts/{contact_id}/mute")
 async def toggle_mute(contact_id: str, ctx: dict = Depends(get_current_user_with_tenant)):
     db = ctx["db"]
-    await _verify_contact_ownership(db, contact_id, ctx["sub"], ctx.get("role", ""))
+    contact = await _verify_contact_ownership(db, contact_id, ctx["sub"], ctx.get("role", ""))
     row = await db.execute(
         text("SELECT COALESCE(is_muted, FALSE) AS is_muted FROM whatsapp_contacts WHERE id = :cid"),
         {"cid": contact_id},
@@ -1378,7 +1434,10 @@ async def toggle_mute(contact_id: str, ctx: dict = Depends(get_current_user_with
         {"cid": contact_id, "val": new_val},
     )
     await db.commit()
-    await wa_ws_manager.broadcast(ctx.get("tenant_slug", ""), {"type": "contact_updated", "contact_id": contact_id, "is_muted": new_val})
+    await _ws_emit_for_account(
+        db, ctx.get("tenant_slug", ""), str(contact.wa_account_id),
+        {"type": "contact_updated", "contact_id": contact_id, "is_muted": new_val},
+    )
     return {"ok": True, "is_muted": new_val}
 
 
@@ -3013,10 +3072,11 @@ def _extract_evo_message_content(msg: dict) -> dict:
 async def _resolve_tenant_for_instance(db: AsyncSession, instance_name: str) -> Optional[str]:
     """Find the tenant slug for a given wa_account_id (instance name)."""
     row = await db.execute(text("""
-        SELECT t.slug FROM platform.tenants t
-        JOIN information_schema.tables ist ON ist.table_schema = 'tenant_' || t.slug
-        WHERE ist.table_name = 'whatsapp_accounts'
-        LIMIT 100
+        SELECT slug
+        FROM platform.tenants
+        WHERE is_active = TRUE
+          AND schema_provisioned = TRUE
+        ORDER BY created_at DESC
     """))
     for tenant_row in row.fetchall():
         slug = tenant_row.slug
@@ -3086,7 +3146,7 @@ async def evo_webhook(request: Request, db: AsyncSession = Depends(get_db)):
         elif event == "GROUP_PARTICIPANTS_UPDATE":
             await _handle_group_participants_update(db, instance, data)
         elif event == "PRESENCE_UPDATE":
-            await _handle_presence_update(tenant_slug, instance, data)
+            await _handle_presence_update(db, tenant_slug, instance, data)
         else:
             logger.debug("evo-webhook: unhandled event %s", event)
     except Exception as e:
@@ -3152,13 +3212,12 @@ async def _handle_connection_update(db: AsyncSession, instance: str, data: dict,
 
     await db.commit()
 
-    # Broadcast connection_update via WebSocket
-    if tenant_slug:
-        await wa_ws_manager.broadcast(tenant_slug, {
-            "type": "connection_update",
-            "account_id": instance,
-            "status": new_status,
-        })
+    # Broadcast connection_update with account-level scope.
+    await _ws_emit_for_account(db, tenant_slug, instance, {
+        "type": "connection_update",
+        "account_id": instance,
+        "status": new_status,
+    })
 
 
 async def _handle_messages_upsert(db: AsyncSession, instance: str, data: dict, tenant_slug: str = ""):
@@ -3332,17 +3391,28 @@ async def _handle_messages_upsert(db: AsyncSession, instance: str, data: dict, t
                     "ts": ts, "meta": json.dumps(metadata), "reply_to": reply_to,
                 })
             else:
-                await db.execute(text("""
+                insert_result = await db.execute(text("""
                     INSERT INTO whatsapp_messages (wa_account_id, wa_contact_id, wa_message_id, direction, message_type,
                         content, media_url, media_mime_type, status, timestamp, created_at, metadata, reply_to_message_id)
                     VALUES (:aid, :cid, :mid, :dir, :mtype, :content, :murl, :mmime, 'received', :ts, NOW(), :meta, :reply_to)
                     ON CONFLICT DO NOTHING
+                    RETURNING id
                 """), {
                     "aid": instance, "cid": contact_id, "mid": wa_message_id,
                     "dir": direction, "mtype": extracted["type"], "content": extracted["text"],
                     "murl": extracted.get("media_url"), "mmime": extracted.get("media_mime"),
                     "ts": ts, "meta": json.dumps(metadata), "reply_to": reply_to,
                 })
+                inserted_row = insert_result.fetchone()
+                db_message_id = str(inserted_row.id) if inserted_row else None
+                if not db_message_id and wa_message_id:
+                    id_row = await db.execute(text("""
+                        SELECT id FROM whatsapp_messages
+                        WHERE wa_account_id = :aid AND wa_message_id = :mid
+                        LIMIT 1
+                    """), {"aid": instance, "mid": wa_message_id})
+                    hit = id_row.fetchone()
+                    db_message_id = str(hit.id) if hit else None
 
                 # Broadcast new_message via WebSocket
                 if tenant_slug and not is_history:
@@ -3351,13 +3421,14 @@ async def _handle_messages_upsert(db: AsyncSession, instance: str, data: dict, t
                         "SELECT unread_count FROM whatsapp_contacts WHERE id = :cid"
                     ), {"cid": contact_id})
                     uc = uc_row.fetchone()
-                    await wa_ws_manager.broadcast(tenant_slug, {
+                    await _ws_emit_for_account(db, tenant_slug, instance, {
                         "type": "new_message",
                         "contact_id": contact_id,
                         "contact_jid": remote_jid,
                         "account_id": instance,
                         "direction": direction,
                         "message": {
+                            "id": db_message_id,
                             "wa_message_id": wa_message_id,
                             "message_type": extracted["type"],
                             "content": extracted["text"],
@@ -3429,13 +3500,12 @@ async def _handle_messages_update(db: AsyncSession, instance: str, data: dict, t
                 {"st": new_status, "mid": wa_message_id},
             )
 
-            # Broadcast message_status via WebSocket
-            if tenant_slug:
-                await wa_ws_manager.broadcast(tenant_slug, {
-                    "type": "message_status",
-                    "wa_message_id": wa_message_id,
-                    "status": new_status,
-                })
+            # Broadcast message_status with account-level scope.
+            await _ws_emit_for_account(db, tenant_slug, instance, {
+                "type": "message_status",
+                "wa_message_id": wa_message_id,
+                "status": new_status,
+            })
 
     await db.commit()
 
@@ -3450,12 +3520,11 @@ async def _handle_messages_delete(db: AsyncSession, instance: str, data: dict, t
         """), {"mid": wa_message_id})
         await db.commit()
 
-        # Broadcast message_deleted via WebSocket
-        if tenant_slug:
-            await wa_ws_manager.broadcast(tenant_slug, {
-                "type": "message_deleted",
-                "wa_message_id": wa_message_id,
-            })
+        # Broadcast message_deleted with account-level scope.
+        await _ws_emit_for_account(db, tenant_slug, instance, {
+            "type": "message_deleted",
+            "wa_message_id": wa_message_id,
+        })
 
 
 async def _handle_groups_upsert(db: AsyncSession, instance: str, data: dict):
@@ -3517,7 +3586,7 @@ async def _handle_group_participants_update(db: AsyncSession, instance: str, dat
     await db.commit()
 
 
-async def _handle_presence_update(tenant_slug: str, instance: str, data: dict):
+async def _handle_presence_update(db: AsyncSession, tenant_slug: str, instance: str, data: dict):
     """Handle PRESENCE_UPDATE event — forward typing indicators via WebSocket."""
     if not tenant_slug:
         return
@@ -3526,9 +3595,18 @@ async def _handle_presence_update(tenant_slug: str, instance: str, data: dict):
     state = data.get("status") or data.get("presences", {}).get(participant, {}).get("lastKnownPresence", "")
     if not participant or not state:
         return
-    await wa_ws_manager.broadcast(tenant_slug, {
+    participant_norm = normalize_jid(participant)
+    contact_row = await db.execute(text("""
+        SELECT id
+        FROM whatsapp_contacts
+        WHERE wa_account_id = :aid AND wa_jid IN (:jid1, :jid2)
+        LIMIT 1
+    """), {"aid": instance, "jid1": participant, "jid2": participant_norm})
+    contact = contact_row.fetchone()
+    await _ws_emit_for_account(db, tenant_slug, instance, {
         "type": "typing",
         "account_id": instance,
+        "contact_id": str(contact.id) if contact else None,
         "participant": participant,
         "state": state,
     })

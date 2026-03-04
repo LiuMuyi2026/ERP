@@ -342,9 +342,9 @@ export default function WhatsAppChatPanel({
       if (ev.contact_id === effectiveContactId) {
         const m = ev.message;
         setMessages((prev) => {
-          // Deduplicate by wa_message_id
-          if (prev.some((p) => (p as any).wa_message_id === m.wa_message_id)) return prev;
-          return [...prev, { id: m.wa_message_id, ...m }];
+          // Deduplicate by local message id or wa_message_id.
+          if (prev.some((p) => p.id === m.id || (p as any).wa_message_id === m.wa_message_id)) return prev;
+          return [...prev, { id: m.id || m.wa_message_id, ...m }];
         });
         // Auto mark read since this chat is open
         api.post(`/api/whatsapp/conversations/${effectiveContactId}/read`, {}).catch(() => {});
@@ -375,15 +375,13 @@ export default function WhatsAppChatPanel({
 
     // Typing indicator from WS
     unsubs.push(onWsEvent('typing', (ev) => {
-      // Match by participant JID containing the contact's JID
-      if (ev.participant && effectiveContactId) {
-        const isComposing = ev.state === 'composing';
-        setWsTyping(isComposing);
-        if (isComposing) {
-          // Auto-clear after 5s if no paused event
-          const t = setTimeout(() => setWsTyping(false), 5000);
-          return () => clearTimeout(t);
-        }
+      if (!effectiveContactId || ev.contact_id !== effectiveContactId) return;
+      const isComposing = ev.state === 'composing';
+      setWsTyping(isComposing);
+      if (isComposing) {
+        // Auto-clear after 5s if no paused event
+        const t = setTimeout(() => setWsTyping(false), 5000);
+        return () => clearTimeout(t);
       }
     }));
 
