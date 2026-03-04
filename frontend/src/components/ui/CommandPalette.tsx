@@ -27,6 +27,7 @@ export default function CommandPalette({ open, onClose, tenant }: CommandPalette
   const [activeIdx, setActiveIdx] = useState(0);
   const [remoteItems, setRemoteItems] = useState<CommandItem[]>([]);
   const [remoteLoading, setRemoteLoading] = useState(false);
+  const [isAdminScope, setIsAdminScope] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
 
@@ -53,6 +54,21 @@ export default function CommandPalette({ open, onClose, tenant }: CommandPalette
 
   useEffect(() => {
     if (!open) return;
+    let cancelled = false;
+    api.get('/api/auth/me')
+      .then((me: any) => {
+        if (cancelled) return;
+        const role = String(me?.role || '').toLowerCase();
+        setIsAdminScope(role === 'tenant_admin' || role === 'platform_admin' || role === 'manager' || role === 'admin');
+      })
+      .catch(() => {
+        if (!cancelled) setIsAdminScope(false);
+      });
+    return () => { cancelled = true; };
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
     const q = query.trim();
     if (q.length < 2) {
       setRemoteItems([]);
@@ -62,10 +78,39 @@ export default function CommandPalette({ open, onClose, tenant }: CommandPalette
     const timer = setTimeout(async () => {
       setRemoteLoading(true);
       try {
-        const [workspaceRes, integrationRes] = await Promise.allSettled([
+        const queryCalls: Array<Promise<any>> = [
           api.get(`/api/workspace/search?q=${encodeURIComponent(q)}`),
           api.get(`/api/integrations/directory/apps?q=${encodeURIComponent(q)}`),
-        ]);
+          api.get(`/api/crm/leads?search=${encodeURIComponent(q)}&limit=10`),
+          api.get(`/api/crm/customers?search=${encodeURIComponent(q)}&limit=10`),
+          api.get(`/api/hr/employees?search=${encodeURIComponent(q)}`),
+          api.get('/api/crm/contracts?limit=30'),
+          api.get('/api/crm/receivables'),
+          api.get('/api/crm/payables'),
+          api.get(`/api/orders/purchase?search=${encodeURIComponent(q)}`),
+          api.get(`/api/orders/sales?search=${encodeURIComponent(q)}`),
+          api.get(`/api/inventory/products?search=${encodeURIComponent(q)}&limit=20`),
+          api.get(`/api/inventory/suppliers?search=${encodeURIComponent(q)}`),
+          api.get('/api/whatsapp/dashboard?sort_by=last_message'),
+          api.get(`/api/email/inbox?page=1&page_size=12&include_outbound=true&search=${encodeURIComponent(q)}`),
+          api.get('/api/messages/conversations'),
+          api.get('/api/notifications?limit=30'),
+          api.get('/api/operations/orders?limit=30'),
+        ];
+        if (isAdminScope) {
+          queryCalls.push(api.get('/api/admin/users-lite'));
+        }
+
+        const [
+          workspaceRes, integrationRes, leadsRes, customersRes, employeesRes,
+          contractsRes, receivablesRes, payablesRes,
+          purchaseOrdersRes, salesOrdersRes,
+          productsRes, suppliersRes,
+          waConversationsRes, emailInboxRes, internalMessagesRes, notificationsRes,
+          operationsOrdersRes, adminUsersRes,
+        ] = await Promise.allSettled(queryCalls);
+
+        const includesQ = (value: unknown) => String(value || '').toLowerCase().includes(q.toLowerCase());
 
         const items: CommandItem[] = [];
         if (workspaceRes.status === 'fulfilled' && Array.isArray(workspaceRes.value)) {
@@ -95,6 +140,235 @@ export default function CommandPalette({ open, onClose, tenant }: CommandPalette
             });
           }
         }
+        if (leadsRes.status === 'fulfilled' && Array.isArray(leadsRes.value)) {
+          for (const lead of leadsRes.value.slice(0, 10)) {
+            const leadName = lead.full_name || lead.company || lead.email || 'Lead';
+            const desc = [lead.company, lead.status, lead.email].filter(Boolean).join(' · ');
+            items.push({
+              id: `crm-lead-${lead.id}`,
+              label: leadName,
+              description: desc || 'CRM lead',
+              icon: 'people-group',
+              group: 'CRM Leads',
+              keywords: ['lead', 'crm', '线索'],
+              action: () => navigate(`/${tenant}/crm/customer-360/${lead.id}`),
+            });
+          }
+        }
+        if (customersRes.status === 'fulfilled' && Array.isArray(customersRes.value)) {
+          for (const customer of customersRes.value.slice(0, 10)) {
+            const customerName = customer.full_name || customer.company || customer.email || 'Customer';
+            const desc = [customer.company, customer.status, customer.email].filter(Boolean).join(' · ');
+            items.push({
+              id: `crm-customer-${customer.id}`,
+              label: customerName,
+              description: desc || 'CRM customer',
+              icon: 'building',
+              group: 'CRM Customers',
+              keywords: ['customer', 'crm', '客户'],
+              action: () => navigate(`/${tenant}/crm/customer-360/${customer.id}`),
+            });
+          }
+        }
+        if (employeesRes.status === 'fulfilled' && Array.isArray(employeesRes.value)) {
+          for (const emp of employeesRes.value.slice(0, 12)) {
+            const empName = emp.full_name || emp.email || emp.employee_number || 'Employee';
+            const desc = [emp.department_name, emp.position_name, emp.email].filter(Boolean).join(' · ');
+            items.push({
+              id: `hr-employee-${emp.id}`,
+              label: empName,
+              description: desc || 'HR employee',
+              icon: 'person',
+              group: 'Employees',
+              keywords: ['employee', 'hr', '员工'],
+              action: () => navigate(`/${tenant}/hr?search=${encodeURIComponent(empName)}`),
+            });
+          }
+        }
+        if (contractsRes.status === 'fulfilled' && Array.isArray(contractsRes.value)) {
+          for (const c of contractsRes.value.slice(0, 40)) {
+            if (!includesQ(c.contract_no) && !includesQ(c.account_name) && !includesQ(c.remarks)) continue;
+            items.push({
+              id: `crm-contract-${c.id}`,
+              label: c.contract_no || 'Contract',
+              description: [c.account_name, c.status, c.currency].filter(Boolean).join(' · '),
+              icon: 'receipt',
+              group: 'CRM Contracts',
+              keywords: ['contract', 'crm', '合同'],
+              action: () => navigate(`/${tenant}/crm`),
+            });
+          }
+        }
+        if (receivablesRes.status === 'fulfilled' && Array.isArray(receivablesRes.value)) {
+          for (const r of receivablesRes.value.slice(0, 40)) {
+            if (!includesQ(r.contract_no) && !includesQ(r.invoice_no) && !includesQ(r.lead_name)) continue;
+            items.push({
+              id: `crm-receivable-${r.id}`,
+              label: r.invoice_no || r.contract_no || 'Receivable',
+              description: [r.lead_name, r.status, r.contract_no].filter(Boolean).join(' · '),
+              icon: 'money-bag',
+              group: 'CRM Receivables',
+              keywords: ['receivable', 'crm', '应收'],
+              action: () => navigate(`/${tenant}/crm`),
+            });
+          }
+        }
+        if (payablesRes.status === 'fulfilled' && Array.isArray(payablesRes.value)) {
+          for (const p of payablesRes.value.slice(0, 40)) {
+            if (!includesQ(p.contract_no) && !includesQ(p.invoice_no) && !includesQ(p.supplier_name)) continue;
+            items.push({
+              id: `crm-payable-${p.id}`,
+              label: p.invoice_no || p.contract_no || 'Payable',
+              description: [p.supplier_name, p.status, p.contract_no].filter(Boolean).join(' · '),
+              icon: 'money-bag',
+              group: 'CRM Payables',
+              keywords: ['payable', 'crm', '应付'],
+              action: () => navigate(`/${tenant}/crm`),
+            });
+          }
+        }
+        if (purchaseOrdersRes.status === 'fulfilled' && Array.isArray(purchaseOrdersRes.value)) {
+          for (const po of purchaseOrdersRes.value.slice(0, 20)) {
+            items.push({
+              id: `order-po-${po.id}`,
+              label: po.po_number || 'Purchase Order',
+              description: [po.supplier_name, po.product_name, po.status].filter(Boolean).join(' · '),
+              icon: 'box',
+              group: 'Orders - Purchase',
+              keywords: ['purchase', 'po', '订单', '采购'],
+              action: () => navigate(`/${tenant}/orders`),
+            });
+          }
+        }
+        if (salesOrdersRes.status === 'fulfilled' && Array.isArray(salesOrdersRes.value)) {
+          for (const so of salesOrdersRes.value.slice(0, 20)) {
+            items.push({
+              id: `order-so-${so.id}`,
+              label: so.contract_no || 'Sales Order',
+              description: [so.account_name, so.status].filter(Boolean).join(' · '),
+              icon: 'receipt',
+              group: 'Orders - Sales',
+              keywords: ['sales', 'so', '订单', '销售'],
+              action: () => navigate(`/${tenant}/orders`),
+            });
+          }
+        }
+        if (productsRes.status === 'fulfilled' && Array.isArray(productsRes.value)) {
+          for (const p of productsRes.value.slice(0, 20)) {
+            items.push({
+              id: `inventory-product-${p.id}`,
+              label: p.name || p.sku || 'Product',
+              description: [p.sku, p.category].filter(Boolean).join(' · '),
+              icon: 'factory',
+              group: 'Inventory Products',
+              keywords: ['inventory', 'product', '库存', '产品'],
+              action: () => navigate(`/${tenant}/inventory`),
+            });
+          }
+        }
+        if (suppliersRes.status === 'fulfilled' && Array.isArray(suppliersRes.value)) {
+          for (const s of suppliersRes.value.slice(0, 20)) {
+            items.push({
+              id: `inventory-supplier-${s.id}`,
+              label: s.name || 'Supplier',
+              description: [s.contact_person, s.supplier_type].filter(Boolean).join(' · '),
+              icon: 'building',
+              group: 'Inventory Suppliers',
+              keywords: ['supplier', 'inventory', '供应商'],
+              action: () => navigate(`/${tenant}/inventory`),
+            });
+          }
+        }
+        if (waConversationsRes.status === 'fulfilled' && Array.isArray(waConversationsRes.value)) {
+          for (const c of waConversationsRes.value.slice(0, 30)) {
+            if (!includesQ(c.display_name) && !includesQ(c.push_name) && !includesQ(c.phone_number) && !includesQ(c.lead_name)) continue;
+            const name = c.display_name || c.push_name || c.phone_number || 'WhatsApp';
+            items.push({
+              id: `wa-conv-${c.id}`,
+              label: name,
+              description: [c.phone_number, c.lead_name, c.last_message_preview].filter(Boolean).join(' · '),
+              icon: 'chat-bubble',
+              group: 'Messages - WhatsApp',
+              keywords: ['whatsapp', 'message', '聊天'],
+              action: () => navigate(`/${tenant}/messages`),
+            });
+          }
+        }
+        if (emailInboxRes.status === 'fulfilled') {
+          const rows = Array.isArray(emailInboxRes.value) ? emailInboxRes.value : (emailInboxRes.value?.items || []);
+          if (Array.isArray(rows)) {
+            for (const em of rows.slice(0, 20)) {
+              items.push({
+                id: `email-${em.id}`,
+                label: em.subject || em.from_email || 'Email',
+                description: [em.from_email, em.preview, em.mailbox_state].filter(Boolean).join(' · '),
+                icon: 'mail',
+                group: 'Messages - Email',
+                keywords: ['email', 'mail', '邮件'],
+                action: () => navigate(`/${tenant}/messages`),
+              });
+            }
+          }
+        }
+        if (internalMessagesRes.status === 'fulfilled' && Array.isArray(internalMessagesRes.value)) {
+          for (const m of internalMessagesRes.value.slice(0, 20)) {
+            if (!includesQ(m.full_name) && !includesQ(m.email) && !includesQ(m.last_content)) continue;
+            items.push({
+              id: `internal-msg-${m.other_id}`,
+              label: m.full_name || m.email || 'Internal Chat',
+              description: [m.email, m.last_content].filter(Boolean).join(' · '),
+              icon: 'chat-bubble',
+              group: 'Messages - Internal',
+              keywords: ['internal', 'message', '内部消息'],
+              action: () => navigate(`/${tenant}/messages`),
+            });
+          }
+        }
+        if (notificationsRes.status === 'fulfilled') {
+          const rows = Array.isArray(notificationsRes.value) ? notificationsRes.value : (notificationsRes.value?.notifications || []);
+          if (Array.isArray(rows)) {
+            for (const n of rows.slice(0, 30)) {
+              if (!includesQ(n.title) && !includesQ(n.body) && !includesQ(n.type)) continue;
+              items.push({
+                id: `notification-${n.id}`,
+                label: n.title || 'Notification',
+                description: [n.type, n.body].filter(Boolean).join(' · '),
+                icon: 'bell',
+                group: 'Notifications',
+                keywords: ['notification', 'alert', '通知'],
+                action: () => navigate(`/${tenant}/notifications`),
+              });
+            }
+          }
+        }
+        if (operationsOrdersRes.status === 'fulfilled' && Array.isArray(operationsOrdersRes.value)) {
+          for (const o of operationsOrdersRes.value.slice(0, 30)) {
+            if (!includesQ(o.contract_no) && !includesQ(o.customer_name) && !includesQ(o.stage)) continue;
+            items.push({
+              id: `op-order-${o.id}`,
+              label: o.contract_no || 'Operation Order',
+              description: [o.customer_name, o.stage].filter(Boolean).join(' · '),
+              icon: 'box',
+              group: 'Operations Orders',
+              keywords: ['operations', 'order', '流程'],
+              action: () => navigate(`/${tenant}/operations`),
+            });
+          }
+        }
+        if (isAdminScope && adminUsersRes && adminUsersRes.status === 'fulfilled' && Array.isArray(adminUsersRes.value)) {
+          for (const u of adminUsersRes.value.slice(0, 30)) {
+            if (!includesQ(u.full_name) && !includesQ(u.email) && !includesQ(u.role)) continue;
+            items.push({
+              id: `admin-user-${u.id}`,
+              label: u.full_name || u.email || 'User',
+              description: [u.email, u.role, u.position_name].filter(Boolean).join(' · '),
+              icon: 'person',
+              group: 'Admin Users',
+              keywords: ['admin', 'user', '权限', '用户'],
+              action: () => navigate(`/${tenant}/admin`),
+            });
+          }
+        }
         setRemoteItems(items);
       } catch {
         setRemoteItems([]);
@@ -103,7 +377,7 @@ export default function CommandPalette({ open, onClose, tenant }: CommandPalette
       }
     }, 260);
     return () => clearTimeout(timer);
-  }, [open, query, navigate, tenant]);
+  }, [open, query, navigate, tenant, isAdminScope]);
 
   const normalizedQuery = query.trim().toLowerCase();
   const filteredLocal = normalizedQuery
@@ -218,7 +492,7 @@ export default function CommandPalette({ open, onClose, tenant }: CommandPalette
           )}
           {!remoteLoading && query.trim().length > 0 && query.trim().length < 2 && (
             <div className="px-4 py-2 text-xs" style={{ color: 'var(--notion-text-muted)' }}>
-              Type at least 2 characters to search workspace pages and system data.
+              Type at least 2 characters to search pages, leads, customers, employees, and system data.
             </div>
           )}
           {flatItems.length === 0 && (
