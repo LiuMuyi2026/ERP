@@ -625,38 +625,10 @@ async def get_messages(
     contact = await _verify_contact_ownership(db, contact_id, ctx["sub"], ctx.get("role", ""))
     actual_limit = min(limit, 200)
 
-    # Collect all contact IDs that share the same phone number (for 1:1 chats)
-    contact_ids = [contact_id]
-    contact_info = await db.execute(text(
-        "SELECT wa_jid, is_group FROM whatsapp_contacts WHERE id = :cid"
-    ), {"cid": contact_id})
-    info = contact_info.fetchone()
-
-    if info and not info.is_group:
-        phone = info.wa_jid.split("@")[0] if "@" in info.wa_jid else ""
-        if phone:
-            # Merge by phone only within the same account owner boundary.
-            sibling_contacts = await db.execute(text("""
-                SELECT c.id
-                FROM whatsapp_contacts c
-                JOIN whatsapp_accounts a ON a.id = c.wa_account_id
-                WHERE SPLIT_PART(c.wa_jid, '@', 1) = :phone
-                  AND c.id != :cid
-                  AND a.owner_user_id = :owner_uid
-            """), {"phone": phone, "cid": contact_id, "owner_uid": str(contact.owner_user_id)})
-            for row in sibling_contacts.fetchall():
-                contact_ids.append(str(row.id))
-
-    if len(contact_ids) == 1:
-        q = """SELECT m.*, COALESCE(u.full_name, u.email) AS created_by_name
-               FROM whatsapp_messages m LEFT JOIN users u ON u.id = m.created_by
-               WHERE m.wa_contact_id = :cid AND m.is_deleted = FALSE"""
-        params: dict = {"cid": contact_id}
-    else:
-        q = """SELECT m.*, COALESCE(u.full_name, u.email) AS created_by_name
-               FROM whatsapp_messages m LEFT JOIN users u ON u.id = m.created_by
-               WHERE m.wa_contact_id = ANY(:cids::uuid[]) AND m.is_deleted = FALSE"""
-        params = {"cids": contact_ids}
+    q = """SELECT m.*, COALESCE(u.full_name, u.email) AS created_by_name
+           FROM whatsapp_messages m LEFT JOIN users u ON u.id = m.created_by
+           WHERE m.wa_contact_id = :cid AND m.is_deleted = FALSE"""
+    params: dict = {"cid": contact_id}
 
     if before:
         q += " AND m.timestamp < :before"
@@ -667,14 +639,9 @@ async def get_messages(
         rows = await db.execute(text(q), params)
     except Exception as e:
         logger.warning("get_messages fallback without created_by join: %s", e)
-        if len(contact_ids) == 1:
-            q = """SELECT m.*, NULL::text AS created_by_name
-                   FROM whatsapp_messages m
-                   WHERE m.wa_contact_id = :cid"""
-        else:
-            q = """SELECT m.*, NULL::text AS created_by_name
-                   FROM whatsapp_messages m
-                   WHERE m.wa_contact_id = ANY(:cids::uuid[])"""
+        q = """SELECT m.*, NULL::text AS created_by_name
+               FROM whatsapp_messages m
+               WHERE m.wa_contact_id = :cid"""
         if before:
             q += " AND m.timestamp < :before"
         q += " ORDER BY m.timestamp DESC LIMIT :lim"
@@ -682,8 +649,8 @@ async def get_messages(
     messages = [dict(r._mapping) for r in rows.fetchall()]
     has_more = len(messages) == actual_limit
     messages.reverse()
-    logger.info("get_messages: contact_id=%s, contact_ids=%s, wa_jid=%s, total=%d, has_more=%s",
-                contact_id, contact_ids, info.wa_jid if info else "N/A", len(messages), has_more)
+    logger.info("get_messages: contact_id=%s, total=%d, has_more=%s",
+                contact_id, len(messages), has_more)
 
     # Fetch reactions for these messages
     if messages:
