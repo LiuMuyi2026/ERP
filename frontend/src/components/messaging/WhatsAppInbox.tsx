@@ -626,12 +626,23 @@ export default function WhatsAppInbox() {
   const [typingByKey, setTypingByKey] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
-    if (typeof window === 'undefined') return;
-    const mq = window.matchMedia('(max-width: 768px)');
-    const update = () => setIsMobile(mq.matches);
-    update();
-    mq.addEventListener('change', update);
-    return () => mq.removeEventListener('change', update);
+    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return;
+    let cleanup: (() => void) | undefined;
+    try {
+      const mq = window.matchMedia('(max-width: 768px)');
+      const update = () => setIsMobile(mq.matches);
+      update();
+      if (typeof mq.addEventListener === 'function') {
+        mq.addEventListener('change', update);
+        cleanup = () => mq.removeEventListener('change', update);
+      } else if (typeof (mq as any).addListener === 'function') {
+        (mq as any).addListener(update);
+        cleanup = () => (mq as any).removeListener(update);
+      }
+    } catch {
+      setIsMobile(false);
+    }
+    return () => cleanup?.();
   }, []);
 
   async function handleBatchAutoLink() {
