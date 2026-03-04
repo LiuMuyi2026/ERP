@@ -35,6 +35,15 @@ type MessageTranslation = {
   error?: string;
 };
 
+function normalizeMessageStatus(status?: string): string {
+  const s = String(status || '').trim().toLowerCase();
+  if (!s) return 'pending';
+  if (s === 'read' || s === 'played' || s === 'read_message') return 'read';
+  if (s === 'delivery_ack' || s === 'delivered' || s === 'server_ack') return 'delivered';
+  if (s === 'sent' || s === 'pending') return s;
+  return s;
+}
+
 interface WhatsAppChatPanelProps {
   contactId?: string;
   leadId?: string;
@@ -578,20 +587,24 @@ export default function WhatsAppChatPanel({
       } else {
         data = [];
       }
+      const normalizedData = (Array.isArray(data) ? data : []).map((m) => ({
+        ...m,
+        status: normalizeMessageStatus((m as any).status),
+      }));
       setLoadError(null);
       setHasMore(more);
       if (olderPage) {
         // Prepend older messages, preserve scroll position
         const container = scrollContainerRef.current;
         const prevHeight = container?.scrollHeight || 0;
-        setMessages(prev => [...data, ...prev]);
+        setMessages(prev => [...normalizedData, ...prev]);
         requestAnimationFrame(() => {
           if (container) {
             container.scrollTop = container.scrollHeight - prevHeight;
           }
         });
       } else {
-        setMessages(data);
+        setMessages(normalizedData);
       }
     } catch (err: any) {
       console.error('[WhatsAppChat] loadMessages failed:', err?.message || err);
@@ -697,7 +710,7 @@ export default function WhatsAppChatPanel({
         setMessages((prev) => {
           // Deduplicate by local message id or wa_message_id.
           if (prev.some((p) => p.id === m.id || (p as any).wa_message_id === m.wa_message_id)) return prev;
-          return [...prev, { id: m.id || m.wa_message_id, ...m }];
+          return [...prev, { id: m.id || m.wa_message_id, ...m, status: normalizeMessageStatus(m.status) }];
         });
         // Auto mark read since this chat is open
         if (m?.direction !== 'outbound') {
@@ -708,10 +721,11 @@ export default function WhatsAppChatPanel({
 
     // Message status update (✓✓)
     unsubs.push(onWsEvent('message_status', (ev) => {
+      const nextStatus = normalizeMessageStatus(ev.status);
       setMessages((prev) =>
         prev.map((m) =>
           (m as any).wa_message_id === ev.wa_message_id || m.id === ev.wa_message_id
-            ? { ...m, status: ev.status }
+            ? { ...m, status: nextStatus }
             : m
         )
       );
@@ -838,8 +852,10 @@ export default function WhatsAppChatPanel({
   // ── Send message ──
   async function sendMessage(e: React.FormEvent) {
     e.preventDefault();
-    if ((!input.trim() && !attachFile) || !effectiveContactId) return;
+    if (sending || (!input.trim() && !attachFile) || !effectiveContactId) return;
     setSending(true);
+    let attemptedContent = '';
+    let attemptedMessageType = 'text';
     try {
       const rawInput = input.trim();
       let outgoingContent = rawInput;
@@ -878,6 +894,8 @@ export default function WhatsAppChatPanel({
         else if (attachFile.type.startsWith('audio/')) message_type = 'audio';
         else message_type = 'document';
       }
+      attemptedContent = outgoingContent;
+      attemptedMessageType = message_type;
 
       await api.post(`/api/whatsapp/conversations/${effectiveContactId}/send`, {
         content: outgoingContent,
@@ -899,6 +917,30 @@ export default function WhatsAppChatPanel({
       loadMessages();
     } catch (e: any) {
       console.error('sendMessage:', e);
+      // Some backend/provider flows can return an error even after the message
+      // is persisted/sent. Double-check latest outbound messages before showing
+      // a hard failure toast to avoid false negatives in UI.
+      let likelySent = false;
+      try {
+        const verifyResp: any = await api.get(`/api/whatsapp/conversations/${effectiveContactId}/messages?limit=20`);
+        const verifyRows: Message[] = Array.isArray(verifyResp)
+          ? verifyResp
+          : (Array.isArray(verifyResp?.messages) ? verifyResp.messages : []);
+        likelySent = verifyRows.some((m) => {
+          if (m.direction !== 'outbound') return false;
+          if (attemptedMessageType !== 'text' && m.message_type !== attemptedMessageType) return false;
+          return (m.content || '').trim() === attemptedContent.trim();
+        });
+      } catch {
+        // ignore verify failure
+      }
+      if (likelySent) {
+        setInput('');
+        setAttachFile(null);
+        setReplyTo(null);
+        sendTyping('paused');
+        return;
+      }
       if (e instanceof ApiError && e.status === 404) {
         notifyConversationInvalid('send_404');
         toast.error('Conversation not found. Please refresh the chat list.');
@@ -2359,8 +2401,8 @@ export default function WhatsAppChatPanel({
                         {msg.is_edited && <span className="text-[9px] italic" style={{ color: 'var(--notion-text-muted)' }}>(edited)</span>}
                         <span className="text-[10px]" style={{ color: 'var(--notion-text-muted)' }}>{formatTime(msg.timestamp)}</span>
                         {isOut && (
-                          <span className="text-[10px]" style={{ color: msg.status === 'read' ? '#53bdeb' : 'var(--notion-text-muted)' }}>
-                            {msg.status === 'read' ? '✓✓' : msg.status === 'delivered' ? '✓✓' : '✓'}
+                          <span className="text-[10px]" style={{ color: normalizeMessageStatus(msg.status) === 'read' ? '#53bdeb' : 'var(--notion-text-muted)' }}>
+                            {normalizeMessageStatus(msg.status) === 'read' ? '✓✓' : normalizeMessageStatus(msg.status) === 'delivered' ? '✓✓' : '✓'}
                           </span>
                         )}
                       </div>

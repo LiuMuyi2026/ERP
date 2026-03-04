@@ -801,11 +801,12 @@ export default function HRPage() {
   }
 
   function handleTabChange(tabKey: 'employees' | 'leave' | 'tasks' | 'conversations' | 'whatsapp') {
-    setTab(tabKey);
+    // Conversations are managed in Message Center now; keep HR focused on HR modules.
     if (tabKey === 'conversations') {
-      loadConversations();
+      setTab('employees');
       return;
     }
+    setTab(tabKey);
     if (tabKey === 'tasks') {
       loadTasksData();
       return;
@@ -892,7 +893,7 @@ export default function HRPage() {
       {/* Toolbar */}
       <div className="px-8 pb-4 flex items-center gap-3 border-b" style={{ borderColor: 'var(--notion-border)' }}>
         <div className="flex gap-0.5 rounded-md p-0.5" style={{ background: 'var(--notion-active)' }}>
-          {(['employees', 'leave', 'tasks', ...(isAdmin ? ['conversations' as const, 'whatsapp' as const] : [])] as const).map(tabKey => (
+          {(['employees', 'leave', 'tasks', ...(isAdmin ? ['whatsapp' as const] : [])] as const).map(tabKey => (
             <button key={tabKey} onClick={() => handleTabChange(tabKey)}
               className="px-3 py-1 rounded text-sm font-medium transition-colors"
               style={{
