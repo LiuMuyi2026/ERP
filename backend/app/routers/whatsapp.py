@@ -670,11 +670,11 @@ async def get_messages(
         if len(contact_ids) == 1:
             q = """SELECT m.*, NULL::text AS created_by_name
                    FROM whatsapp_messages m
-                   WHERE m.wa_contact_id = :cid AND m.is_deleted = FALSE"""
+                   WHERE m.wa_contact_id = :cid"""
         else:
             q = """SELECT m.*, NULL::text AS created_by_name
                    FROM whatsapp_messages m
-                   WHERE m.wa_contact_id = ANY(:cids::uuid[]) AND m.is_deleted = FALSE"""
+                   WHERE m.wa_contact_id = ANY(:cids::uuid[])"""
         if before:
             q += " AND m.timestamp < :before"
         q += " ORDER BY m.timestamp DESC LIMIT :lim"
@@ -687,18 +687,23 @@ async def get_messages(
 
     # Fetch reactions for these messages
     if messages:
-        msg_ids = [str(m["id"]) for m in messages]
-        reaction_rows = await db.execute(text("""
-            SELECT r.* FROM whatsapp_reactions r
-            JOIN whatsapp_messages m ON m.id = r.wa_message_id
-            WHERE r.wa_message_id = ANY(:ids::uuid[])
-        """), {"ids": msg_ids})
-        reactions_by_msg: dict = {}
-        for r in reaction_rows.fetchall():
-            mid = str(r.wa_message_id)
-            reactions_by_msg.setdefault(mid, []).append({"reactor_jid": r.reactor_jid, "emoji": r.emoji})
-        for m in messages:
-            m["reactions"] = reactions_by_msg.get(str(m["id"]), [])
+        try:
+            msg_ids = [str(m["id"]) for m in messages]
+            reaction_rows = await db.execute(text("""
+                SELECT r.* FROM whatsapp_reactions r
+                JOIN whatsapp_messages m ON m.id = r.wa_message_id
+                WHERE r.wa_message_id = ANY(:ids::uuid[])
+            """), {"ids": msg_ids})
+            reactions_by_msg: dict = {}
+            for r in reaction_rows.fetchall():
+                mid = str(r.wa_message_id)
+                reactions_by_msg.setdefault(mid, []).append({"reactor_jid": r.reactor_jid, "emoji": r.emoji})
+            for m in messages:
+                m["reactions"] = reactions_by_msg.get(str(m["id"]), [])
+        except Exception as e:
+            logger.warning("get_messages reactions fallback: %s", e)
+            for m in messages:
+                m["reactions"] = []
 
     return {"messages": messages, "has_more": has_more}
 
