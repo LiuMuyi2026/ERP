@@ -78,6 +78,32 @@ class EmailAIPolishRequest(BaseModel):
     target_language: Optional[str] = "en"
 
 
+def _email_lang_instruction(lang: str) -> str:
+    """Return explicit language instruction for AI prompts."""
+    v = (lang or "").strip().lower().replace("_", "-")
+    if v.startswith("zh-tw") or v.startswith("zh-hk") or v.startswith("zh-hant"):
+        return "Use Traditional Chinese (繁體中文) for the entire response."
+    if v.startswith("zh"):
+        return "Use Simplified Chinese (简体中文) for the entire response."
+    if v.startswith("es"):
+        return "Use Spanish for the entire response."
+    if v.startswith("pt"):
+        return "Use Portuguese for the entire response."
+    if v.startswith("it"):
+        return "Use Italian for the entire response."
+    if v.startswith("ja"):
+        return "Use Japanese (日本語) for the entire response."
+    if v.startswith("fr"):
+        return "Use French for the entire response."
+    if v.startswith("de"):
+        return "Use German for the entire response."
+    if v.startswith("ar"):
+        return "Use Arabic for the entire response."
+    if v.startswith("ru"):
+        return "Use Russian for the entire response."
+    return "Use English for the entire response."
+
+
 # ── Send Email ───────────────────────────────────────────────────────────────
 
 @router.post("/send")
@@ -194,6 +220,7 @@ async def ai_write_email(body: EmailAIWriteRequest, ctx: dict = Depends(get_curr
     to_email = (body.to_email or "").strip()
     subject = (body.subject or "").strip()
 
+    lang_instruction = _email_lang_instruction(target_lang)
     prompt = f"""
 You are an expert business email assistant.
 Task: generate a complete, polished email body based on the user's draft and intent.
@@ -202,7 +229,7 @@ Output rules:
 - Return body text only (no markdown fences, no explanation).
 - Keep paragraph formatting clean and readable.
 - Keep placeholders/numbers/emails exactly when possible.
-- Write in language: {target_lang}
+- {lang_instruction}
 
 Context:
 - To: {to_email or "(not provided)"}
@@ -235,6 +262,7 @@ async def ai_polish_text(body: EmailAIPolishRequest, ctx: dict = Depends(get_cur
     target_lang = (body.target_language or "en").strip() or "en"
     style = (body.style or "professional").strip() or "professional"
 
+    lang_instruction = _email_lang_instruction(target_lang)
     prompt = f"""
 Polish the following selected email text.
 
@@ -243,7 +271,7 @@ Requirements:
 - Improve clarity, fluency, and tone.
 - Keep it concise and natural.
 - Style: {style}
-- Output language: {target_lang}
+- {lang_instruction}
 - Return only the polished text.
 
 Text:
