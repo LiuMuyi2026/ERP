@@ -309,6 +309,47 @@ def normalize_jid(jid: str, alt_jid: str = "") -> str:
     return jid
 
 
+def _chat_identity_digits(wa_jid: Optional[str], phone_number: Optional[str]) -> str:
+    """Normalize a chat/account identity into comparable digits."""
+    if phone_number:
+        digits = re.sub(r"\D", "", str(phone_number))
+        if digits:
+            return digits
+    if wa_jid:
+        local = str(wa_jid).split("@")[0]
+        digits = re.sub(r"\D", "", local)
+        if digits:
+            return digits
+    return ""
+
+
+async def _assert_contact_not_self_chat(db: AsyncSession, contact_id: str) -> None:
+    """Disallow CRM linkage for self-chat contacts (owner account chatting with itself)."""
+    row = await db.execute(text("""
+        SELECT
+            c.id,
+            c.is_group,
+            c.wa_jid AS contact_wa_jid,
+            c.phone_number AS contact_phone,
+            a.wa_jid AS account_wa_jid,
+            a.phone_number AS account_phone
+        FROM whatsapp_contacts c
+        JOIN whatsapp_accounts a ON a.id = c.wa_account_id
+        WHERE c.id = :cid
+        LIMIT 1
+    """), {"cid": contact_id})
+    rec = row.fetchone()
+    if not rec or bool(rec.is_group):
+        return
+    contact_digits = _chat_identity_digits(rec.contact_wa_jid, rec.contact_phone)
+    account_digits = _chat_identity_digits(rec.account_wa_jid, rec.account_phone)
+    if contact_digits and account_digits and contact_digits == account_digits:
+        raise HTTPException(
+            status_code=400,
+            detail="Self-chat cannot be linked to CRM customer. Please link an external contact instead.",
+        )
+
+
 async def _verify_contact_ownership(db, contact_id: str, uid: str, role: str = ""):
     """Verify user owns this contact via account ownership. Admins/managers bypass ownership check."""
     is_admin = await _is_admin_scope(db, uid, role)
@@ -1683,6 +1724,7 @@ async def lead_messages(lead_id: str, limit: int = 50, ctx: dict = Depends(get_c
 async def link_lead(contact_id: str, body: LinkLeadBody, ctx: dict = Depends(get_current_user_with_tenant)):
     db = ctx["db"]
     await _verify_contact_ownership(db, contact_id, ctx["sub"], ctx.get("role", ""))
+    await _assert_contact_not_self_chat(db, contact_id)
     await _ensure_lead_linkable(db, body.lead_id, ctx["sub"], ctx.get("role", ""))
     # Also try to find account_id from contracts linked to this lead
     acct_row = await db.execute(text(
@@ -1702,6 +1744,7 @@ async def link_lead(contact_id: str, body: LinkLeadBody, ctx: dict = Depends(get
 async def link_account(contact_id: str, body: LinkAccountBody, ctx: dict = Depends(get_current_user_with_tenant)):
     db = ctx["db"]
     await _verify_contact_ownership(db, contact_id, ctx["sub"], ctx.get("role", ""))
+    await _assert_contact_not_self_chat(db, contact_id)
     await _ensure_account_linkable(db, body.account_id, ctx["sub"], ctx.get("role", ""))
     # Keep linkage consistent: if current lead is clearly tied to another account, unlink the lead.
     lead_row = await db.execute(text(
@@ -1762,7 +1805,7 @@ async def batch_auto_link(ctx: dict = Depends(get_current_user_with_tenant)):
     # Get all unlinked non-group contacts
     if is_admin:
         rows = await db.execute(text("""
-            SELECT c.id, c.phone_number, c.wa_jid
+            SELECT c.id, c.phone_number, c.wa_jid, a.phone_number AS account_phone, a.wa_jid AS account_wa_jid
             FROM whatsapp_contacts c
             JOIN whatsapp_accounts a ON a.id = c.wa_account_id
             WHERE c.lead_id IS NULL AND c.is_group = FALSE
@@ -1770,7 +1813,7 @@ async def batch_auto_link(ctx: dict = Depends(get_current_user_with_tenant)):
         """))
     else:
         rows = await db.execute(text("""
-            SELECT c.id, c.phone_number, c.wa_jid
+            SELECT c.id, c.phone_number, c.wa_jid, a.phone_number AS account_phone, a.wa_jid AS account_wa_jid
             FROM whatsapp_contacts c
             JOIN whatsapp_accounts a ON a.id = c.wa_account_id
             WHERE c.lead_id IS NULL AND c.is_group = FALSE
@@ -1808,6 +1851,12 @@ async def batch_auto_link(ctx: dict = Depends(get_current_user_with_tenant)):
     total_checked = len(contacts)
 
     for contact in contacts:
+        # Skip self-chat contacts: they are valid for messaging but cannot be CRM-linked.
+        contact_digits = _chat_identity_digits(contact.wa_jid, contact.phone_number)
+        account_digits = _chat_identity_digits(contact.account_wa_jid, contact.account_phone)
+        if contact_digits and account_digits and contact_digits == account_digits:
+            continue
+
         # Try matching by phone_number or wa_jid (extract digits)
         contact_phones = []
         if contact.phone_number:
