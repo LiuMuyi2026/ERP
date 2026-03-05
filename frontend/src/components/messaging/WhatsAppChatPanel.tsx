@@ -555,11 +555,12 @@ export default function WhatsAppChatPanel({
   }, []);
 
   // ── Load messages ──
-  async function loadMessages(olderPage = false) {
+  async function loadMessages(olderPage = false, silent = false) {
     if (olderPage) {
       if (loadingMore || !hasMore) return;
       setLoadingMore(true);
-    } else {
+    } else if (!silent) {
+      // Only show loading spinner on initial load, not background polls
       setLoading(true);
     }
     try {
@@ -569,7 +570,6 @@ export default function WhatsAppChatPanel({
         const beforeParam = olderPage && messages.length > 0
           ? `&before=${messages[0].timestamp}` : '';
         const resp: any = await api.get(`/api/whatsapp/conversations/${contactId}/messages?limit=50${beforeParam}`);
-        console.log('[WhatsAppChat] loadMessages resp:', { contactId, olderPage, resp_type: typeof resp, msg_count: resp?.messages?.length ?? (Array.isArray(resp) ? resp.length : 0) });
         // Support both new {messages, has_more} and legacy array format
         if (resp && typeof resp === 'object' && 'messages' in resp) {
           data = resp.messages;
@@ -611,14 +611,14 @@ export default function WhatsAppChatPanel({
       if (err instanceof ApiError && err.status === 404) {
         notifyConversationInvalid('messages_404');
       }
-      if (!olderPage) {
+      if (!olderPage && !silent) {
         setMessages([]);
         setLoadError(err?.message || '无法加载消息');
       }
     }
     finally {
       if (olderPage) setLoadingMore(false);
-      else setLoading(false);
+      else if (!silent) setLoading(false);
     }
   }
 
@@ -645,8 +645,8 @@ export default function WhatsAppChatPanel({
     if (effectiveContactId) {
       safeMarkConversationRead();
     }
-    // Fallback: poll every 30s as safety net (WS is primary)
-    const iv = setInterval(() => { loadMessages(); }, 30_000);
+    // Fallback: poll every 30s as safety net (WS is primary) — silent to avoid flash
+    const iv = setInterval(() => { loadMessages(false, true); }, 30_000);
     return () => clearInterval(iv);
   }, [effectiveContactId, leadId]);
 
