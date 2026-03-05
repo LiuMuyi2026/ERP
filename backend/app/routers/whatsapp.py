@@ -7,7 +7,7 @@ import json
 import hmac
 import hashlib
 from datetime import datetime, timezone
-from typing import Optional, List
+from typing import Optional, List, Any
 from urllib.parse import urlparse
 
 from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile, File
@@ -373,6 +373,32 @@ async def _ensure_account_linkable(db: AsyncSession, account_id: str, uid: str, 
         raise HTTPException(status_code=404, detail="CRM account not found")
 
 
+async def _resolve_thread_contact_ids(db: AsyncSession, contact_row: Any, fallback_contact_id: str) -> list[str]:
+    """Resolve all contact IDs belonging to the same logical 1:1 thread in one WA account."""
+    if not contact_row:
+        return [fallback_contact_id]
+    if bool(getattr(contact_row, "is_group", False)):
+        return [fallback_contact_id]
+    wa_jid = str(getattr(contact_row, "wa_jid", "") or "")
+    account_id = str(getattr(contact_row, "wa_account_id", "") or "")
+    if "@" not in wa_jid or not account_id:
+        return [fallback_contact_id]
+    phone = wa_jid.split("@")[0]
+    if not phone:
+        return [fallback_contact_id]
+
+    rows = await db.execute(text("""
+        SELECT id::text
+        FROM whatsapp_contacts
+        WHERE wa_account_id = :aid
+          AND COALESCE(is_group, FALSE) = FALSE
+          AND COALESCE(is_deleted, FALSE) = FALSE
+          AND SPLIT_PART(wa_jid, '@', 1) = :phone
+    """), {"aid": account_id, "phone": phone})
+    ids = [str(r.id) for r in rows.fetchall()]
+    return ids or [fallback_contact_id]
+
+
 async def _get_message_with_key(db, message_id: str, contact_id: str):
     """Get a message and its wa_key from metadata."""
     row = await db.execute(text("""
@@ -681,10 +707,11 @@ async def get_messages(
     ctx: dict = Depends(get_current_user_with_tenant),
 ):
     db = ctx["db"]
-    await _verify_contact_ownership(db, contact_id, ctx["sub"], ctx.get("role", ""))
+    contact = await _verify_contact_ownership(db, contact_id, ctx["sub"], ctx.get("role", ""))
+    thread_contact_ids = await _resolve_thread_contact_ids(db, contact, contact_id)
     actual_limit = min(limit, 200)
-    where_sql = "m.wa_contact_id = CAST(:cid AS uuid)"
-    params: dict = {"cid": contact_id, "lim": actual_limit}
+    where_sql = "m.wa_contact_id = ANY(:cids::uuid[])"
+    params: dict = {"cids": thread_contact_ids, "lim": actual_limit}
     if before:
         where_sql += " AND m.timestamp < :before"
         params["before"] = before
@@ -867,14 +894,15 @@ async def mark_conversation_read(contact_id: str, ctx: dict = Depends(get_curren
     db = ctx["db"]
     contact = await _verify_contact_ownership(db, contact_id, ctx["sub"], ctx.get("role", ""))
     account_id = str(contact.wa_account_id)
+    thread_contact_ids = await _resolve_thread_contact_ids(db, contact, contact_id)
 
     # Get recent unread message IDs
     rows = await db.execute(text("""
         SELECT wa_message_id FROM whatsapp_messages
-        WHERE wa_contact_id = :cid AND direction = 'inbound' AND status != 'read'
+        WHERE wa_contact_id = ANY(:cids::uuid[]) AND direction = 'inbound' AND status != 'read'
         AND wa_message_id IS NOT NULL
         ORDER BY timestamp DESC LIMIT 20
-    """), {"cid": contact_id})
+    """), {"cids": thread_contact_ids})
     msg_ids = [r.wa_message_id for r in rows.fetchall()]
 
     # Reset unread count — also clear all contacts with same phone (1:1 merge)
@@ -889,12 +917,11 @@ async def mark_conversation_read(contact_id: str, ctx: dict = Depends(get_curren
                 """
                 UPDATE whatsapp_contacts c
                 SET unread_count = 0, updated_at = NOW()
-                FROM whatsapp_accounts a
-                WHERE c.wa_account_id = a.id
+                WHERE c.wa_account_id = :aid
+                  AND COALESCE(c.is_group, FALSE) = FALSE
                   AND SPLIT_PART(c.wa_jid, '@', 1) = :phone
-                  AND a.owner_user_id = :owner_uid
                 """
-            ), {"phone": phone, "owner_uid": str(contact.owner_user_id)})
+            ), {"phone": phone, "aid": account_id})
         else:
             await db.execute(text("UPDATE whatsapp_contacts SET unread_count = 0, updated_at = NOW() WHERE id = :cid"), {"cid": contact_id})
     else:
@@ -1262,6 +1289,8 @@ async def dashboard(
                    au.full_name AS assigned_user_name,
                    CASE WHEN c.is_group THEN c.id::text
                         ELSE SPLIT_PART(c.wa_jid, '@', 1) END AS merge_key,
+                   CASE WHEN c.is_group THEN c.id::text
+                        ELSE a.id::text || ':' || SPLIT_PART(c.wa_jid, '@', 1) END AS merge_bucket,
                    (SELECT wm.direction || ':' || wm.message_type || ':' || COALESCE(wm.content, '')
                     FROM whatsapp_messages wm WHERE wm.wa_contact_id = c.id
                     ORDER BY wm.timestamp DESC LIMIT 1) AS last_message_preview
@@ -1275,8 +1304,8 @@ async def dashboard(
         ),
         ranked AS (
             SELECT *,
-                   ROW_NUMBER() OVER (PARTITION BY merge_key ORDER BY last_message_at DESC NULLS LAST) AS rn,
-                   SUM(unread_count) OVER (PARTITION BY merge_key) AS total_unread
+                   ROW_NUMBER() OVER (PARTITION BY merge_bucket ORDER BY last_message_at DESC NULLS LAST) AS rn,
+                   SUM(unread_count) OVER (PARTITION BY merge_bucket) AS total_unread
             FROM base
         )
         SELECT * FROM ranked WHERE rn = 1
@@ -1323,6 +1352,7 @@ async def dashboard(
                     FALSE AS is_pinned,
                     FALSE AS is_muted,
                     CASE WHEN c.is_group THEN c.id::text ELSE SPLIT_PART(c.wa_jid, '@', 1) END AS merge_key,
+                    CASE WHEN c.is_group THEN c.id::text ELSE a.id::text || ':' || SPLIT_PART(c.wa_jid, '@', 1) END AS merge_bucket,
                     (SELECT wm.direction || ':' || wm.message_type || ':' || COALESCE(wm.content, '')
                      FROM whatsapp_messages wm WHERE wm.wa_contact_id = c.id
                      ORDER BY wm.timestamp DESC LIMIT 1) AS last_message_preview
@@ -1333,8 +1363,8 @@ async def dashboard(
             ),
             ranked AS (
                 SELECT *,
-                       ROW_NUMBER() OVER (PARTITION BY merge_key ORDER BY last_message_at DESC NULLS LAST) AS rn,
-                       SUM(unread_count) OVER (PARTITION BY merge_key) AS total_unread
+                       ROW_NUMBER() OVER (PARTITION BY merge_bucket ORDER BY last_message_at DESC NULLS LAST) AS rn,
+                       SUM(unread_count) OVER (PARTITION BY merge_bucket) AS total_unread
                 FROM base
             )
             SELECT * FROM ranked WHERE rn = 1
