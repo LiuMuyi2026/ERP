@@ -12,6 +12,7 @@ type Reaction = { reactor_jid: string; emoji: string };
 
 type Message = {
   id: string;
+  wa_message_id?: string;
   direction: string;
   message_type: string;
   content?: string;
@@ -26,6 +27,15 @@ type Message = {
   metadata?: any;
   created_by_name?: string;
 };
+
+function messageIdentity(m: Partial<Message> | null | undefined): string {
+  if (!m) return '';
+  const id = typeof m.id === 'string' ? m.id.trim() : '';
+  if (id) return id;
+  const waId = typeof m.wa_message_id === 'string' ? m.wa_message_id.trim() : '';
+  if (waId) return `wa:${waId}`;
+  return `ts:${m.timestamp || ''}|dir:${m.direction || ''}|type:${m.message_type || ''}|content:${m.content || ''}|media:${m.media_url || ''}`;
+}
 
 type MessageTranslation = {
   translatedText: string;
@@ -587,10 +597,15 @@ export default function WhatsAppChatPanel({
       } else {
         data = [];
       }
-      const normalizedData = (Array.isArray(data) ? data : []).map((m) => ({
-        ...m,
-        status: normalizeMessageStatus((m as any).status),
-      }));
+      const normalizedData = (Array.isArray(data) ? data : []).map((m: any) => {
+        const normalized: Message = {
+          ...m,
+          id: messageIdentity(m),
+          wa_message_id: typeof m?.wa_message_id === 'string' ? m.wa_message_id : undefined,
+          status: normalizeMessageStatus(m?.status),
+        };
+        return normalized;
+      });
       setLoadError(null);
       setHasMore(more);
       if (olderPage) {
@@ -607,9 +622,9 @@ export default function WhatsAppChatPanel({
         // Silent poll: merge API data with existing messages to preserve WS-added ones
         setMessages(prev => {
           if (prev.length === 0) return normalizedData;
-          const apiIds = new Set(normalizedData.map((m: Message) => m.id));
+          const apiIds = new Set(normalizedData.map((m: Message) => messageIdentity(m)));
           // Keep WS-added messages (present in prev but not in API response)
-          const wsOnly = prev.filter(m => m.id && !apiIds.has(m.id));
+          const wsOnly = prev.filter((m) => !apiIds.has(messageIdentity(m)));
           // Merge: API data + any WS-only messages, sorted by timestamp
           const merged = [...normalizedData, ...wsOnly];
           merged.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
@@ -711,10 +726,17 @@ export default function WhatsAppChatPanel({
     unsubs.push(onWsEvent('new_message', (ev) => {
       if (ev.contact_id === effectiveContactId) {
         const m = ev.message;
+        const incoming: Message = {
+          ...m,
+          id: messageIdentity(m),
+          wa_message_id: typeof m?.wa_message_id === 'string' ? m.wa_message_id : undefined,
+          status: normalizeMessageStatus(m?.status),
+        };
+        const incomingKey = messageIdentity(incoming);
         setMessages((prev) => {
-          // Deduplicate by local message id or wa_message_id.
-          if (prev.some((p) => p.id === m.id || (p as any).wa_message_id === m.wa_message_id)) return prev;
-          return [...prev, { id: m.id || m.wa_message_id, ...m, status: normalizeMessageStatus(m.status) }];
+          // Deduplicate by stable identity to avoid flash/disappear on silent refresh.
+          if (prev.some((p) => messageIdentity(p) === incomingKey)) return prev;
+          return [...prev, incoming];
         });
         // Auto mark read since this chat is open
         if (m?.direction !== 'outbound') {
@@ -2224,6 +2246,7 @@ export default function WhatsAppChatPanel({
                 </span>
               </div>
               {group.messages.map(msg => {
+                const msgKey = messageIdentity(msg);
                 const isOut = msg.direction === 'outbound';
                 const quoted = msg.reply_to_message_id ? findQuotedMessage(msg.reply_to_message_id) : null;
                 const isHighlighted = searchResults.length > 0 && searchResults[searchIdx]?.id === msg.id;
@@ -2231,7 +2254,7 @@ export default function WhatsAppChatPanel({
                 // Deleted message
                 if (msg.is_deleted) {
                   return (
-                    <div key={msg.id} className={`flex mb-2 ${isOut ? 'justify-end' : 'justify-start'}`}>
+                    <div key={msgKey} className={`flex mb-2 ${isOut ? 'justify-end' : 'justify-start'}`}>
                       <div className="max-w-[65%] px-2.5 py-1.5 shadow-sm" style={{ background: isOut ? '#d9fdd3' : 'white', borderRadius: '7.5px', opacity: 0.6 }}>
                         <p className="text-xs italic" style={{ color: '#8696a0' }}>This message was deleted</p>
                       </div>
@@ -2242,7 +2265,7 @@ export default function WhatsAppChatPanel({
                 // Editing inline
                 if (editingMsg?.id === msg.id) {
                   return (
-                    <div key={msg.id} className={`flex mb-2 ${isOut ? 'justify-end' : 'justify-start'}`}>
+                    <div key={msgKey} className={`flex mb-2 ${isOut ? 'justify-end' : 'justify-start'}`}>
                       <div className="max-w-[65%] px-2.5 py-1.5 shadow-sm" style={{ background: '#d9fdd3', borderRadius: '7.5px' }}>
                         <input value={editInput} onChange={e => setEditInput(e.target.value)}
                           className="w-full text-sm border rounded px-2 py-1 mb-1" autoFocus
@@ -2257,7 +2280,7 @@ export default function WhatsAppChatPanel({
                 }
 
                 return (
-                  <div key={msg.id} className={`flex mb-2 ${isOut ? 'justify-end' : 'justify-start'} group relative`}>
+                  <div key={msgKey} className={`flex mb-2 ${isOut ? 'justify-end' : 'justify-start'} group relative`}>
                     <div className="max-w-[65%] px-2.5 py-1.5 shadow-sm relative"
                       style={{
                         background: isOut ? '#d9fdd3' : 'white',
