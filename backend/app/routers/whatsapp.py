@@ -723,7 +723,6 @@ async def get_messages(
                     SELECT id FROM whatsapp_contacts
                     WHERE wa_account_id = CAST(:aid AS uuid)
                       AND COALESCE(is_group, FALSE) = FALSE
-                      AND COALESCE(is_deleted, FALSE) = FALSE
                       AND SPLIT_PART(wa_jid, '@', 1) = :phone
                 )
             """
@@ -932,7 +931,6 @@ async def mark_conversation_read(contact_id: str, ctx: dict = Depends(get_curren
             JOIN whatsapp_contacts c ON c.id = m.wa_contact_id
             WHERE c.wa_account_id = CAST(:aid AS uuid)
               AND COALESCE(c.is_group, FALSE) = FALSE
-              AND COALESCE(c.is_deleted, FALSE) = FALSE
               AND SPLIT_PART(c.wa_jid, '@', 1) = :phone
               AND m.direction = 'inbound'
               AND m.status != 'read'
