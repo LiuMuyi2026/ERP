@@ -709,6 +709,8 @@ async def get_messages(
     db = ctx["db"]
     contact = await _verify_contact_ownership(db, contact_id, ctx["sub"], ctx.get("role", ""))
     actual_limit = min(limit, 200)
+    fallback_params: dict = {"cid": contact_id, "lim": actual_limit}
+    fallback_where_sql = "m.wa_contact_id = CAST(:cid AS uuid)"
     params: dict = {"lim": actual_limit}
     if bool(getattr(contact, "is_group", False)):
         where_sql = "m.wa_contact_id = CAST(:cid AS uuid)"
@@ -734,6 +736,7 @@ async def get_messages(
     if before:
         where_sql += " AND m.timestamp < :before"
         params["before"] = before
+        fallback_params["before"] = before
 
     try:
         # Preferred query for current schemas.
@@ -762,11 +765,11 @@ async def get_messages(
                 m.direction, m.message_type, m.content, m.media_url, m.media_mime_type,
                 m.status, m.metadata, m.timestamp, m.created_at
             FROM whatsapp_messages m
-            WHERE {where_sql}
+            WHERE {fallback_where_sql}
             ORDER BY m.timestamp DESC
             LIMIT :lim
         """
-        rows = await db.execute(text(q), params)
+        rows = await db.execute(text(q), fallback_params)
         messages = [dict(r._mapping) for r in rows.fetchall()]
         for m in messages:
             m.setdefault("is_deleted", False)
@@ -917,27 +920,36 @@ async def mark_conversation_read(contact_id: str, ctx: dict = Depends(get_curren
     phone = wa_jid.split("@")[0] if "@" in wa_jid else ""
 
     # Get recent unread message IDs
-    if bool(getattr(contact, "is_group", False)) or not phone:
+    try:
+        if bool(getattr(contact, "is_group", False)) or not phone:
+            rows = await db.execute(text("""
+                SELECT wa_message_id FROM whatsapp_messages
+                WHERE wa_contact_id = CAST(:cid AS uuid) AND direction = 'inbound' AND status != 'read'
+                  AND wa_message_id IS NOT NULL
+                ORDER BY timestamp DESC LIMIT 20
+            """), {"cid": contact_id})
+        else:
+            rows = await db.execute(text("""
+                SELECT m.wa_message_id
+                FROM whatsapp_messages m
+                JOIN whatsapp_contacts c ON c.id = m.wa_contact_id
+                WHERE c.wa_account_id = CAST(:aid AS uuid)
+                  AND COALESCE(c.is_group, FALSE) = FALSE
+                  AND SPLIT_PART(c.wa_jid, '@', 1) = :phone
+                  AND m.direction = 'inbound'
+                  AND m.status != 'read'
+                  AND m.wa_message_id IS NOT NULL
+                ORDER BY m.timestamp DESC
+                LIMIT 20
+            """), {"aid": account_id, "phone": phone})
+    except Exception as e:
+        logger.warning("mark_conversation_read fallback query activated: %s", e)
         rows = await db.execute(text("""
             SELECT wa_message_id FROM whatsapp_messages
             WHERE wa_contact_id = CAST(:cid AS uuid) AND direction = 'inbound' AND status != 'read'
               AND wa_message_id IS NOT NULL
             ORDER BY timestamp DESC LIMIT 20
         """), {"cid": contact_id})
-    else:
-        rows = await db.execute(text("""
-            SELECT m.wa_message_id
-            FROM whatsapp_messages m
-            JOIN whatsapp_contacts c ON c.id = m.wa_contact_id
-            WHERE c.wa_account_id = CAST(:aid AS uuid)
-              AND COALESCE(c.is_group, FALSE) = FALSE
-              AND SPLIT_PART(c.wa_jid, '@', 1) = :phone
-              AND m.direction = 'inbound'
-              AND m.status != 'read'
-              AND m.wa_message_id IS NOT NULL
-            ORDER BY m.timestamp DESC
-            LIMIT 20
-        """), {"aid": account_id, "phone": phone})
     msg_ids = [r.wa_message_id for r in rows.fetchall()]
 
     # Reset unread count — also clear all contacts with same phone (1:1 merge)
@@ -965,7 +977,11 @@ async def mark_conversation_read(contact_id: str, ctx: dict = Depends(get_curren
 
     # Tell Evolution API to send read receipts
     if msg_ids:
-        await wa_bridge.mark_read(account_id, contact.wa_jid, msg_ids)
+        try:
+            await wa_bridge.mark_read(account_id, contact.wa_jid, msg_ids)
+        except Exception as e:
+            # Bridge/provider read-receipt failures should not break chat UX.
+            logger.warning("wa_bridge.mark_read failed for contact %s: %s", contact_id, e)
 
     return {"ok": True}
 
