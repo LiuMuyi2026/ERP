@@ -603,6 +603,18 @@ export default function WhatsAppChatPanel({
             container.scrollTop = container.scrollHeight - prevHeight;
           }
         });
+      } else if (silent) {
+        // Silent poll: merge API data with existing messages to preserve WS-added ones
+        setMessages(prev => {
+          if (prev.length === 0) return normalizedData;
+          const apiIds = new Set(normalizedData.map((m: Message) => m.id));
+          // Keep WS-added messages (present in prev but not in API response)
+          const wsOnly = prev.filter(m => m.id && !apiIds.has(m.id));
+          // Merge: API data + any WS-only messages, sorted by timestamp
+          const merged = [...normalizedData, ...wsOnly];
+          merged.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+          return merged;
+        });
       } else {
         setMessages(normalizedData);
       }
@@ -630,12 +642,8 @@ export default function WhatsAppChatPanel({
     lastReadAtRef.current = now;
     try {
       await api.post(`/api/whatsapp/conversations/${effectiveContactId}/read`, {});
-    } catch (e: any) {
-      if (e instanceof ApiError && e.status === 404) {
-        notifyConversationInvalid('read_404');
-      }
-      // Some backends return 400 for transient/merged conversation ids.
-      // Swallow to keep chat panel stable.
+    } catch {
+      // Swallow read errors — non-critical, should not disrupt chat panel.
     }
   }
 
@@ -691,12 +699,8 @@ export default function WhatsAppChatPanel({
     if (!effectiveContactId) return;
     api.get(`/api/whatsapp/conversations/${effectiveContactId}/presence`)
       .then(setPresence)
-      .catch((e: any) => {
-        if (e instanceof ApiError && e.status === 404) {
-          notifyConversationInvalid('presence_404');
-        }
-      });
-  }, [effectiveContactId, notifyConversationInvalid]);
+      .catch(() => { /* Presence is non-critical, swallow errors */ });
+  }, [effectiveContactId]);
 
   // ── WebSocket event handlers ──
   useEffect(() => {
@@ -748,13 +752,10 @@ export default function WhatsAppChatPanel({
   // ── Typing indicator ──
   const sendTyping = useCallback((type: 'composing' | 'paused') => {
     if (!effectiveContactId || !typingSupportedRef.current) return;
-    api.post(`/api/whatsapp/conversations/${effectiveContactId}/typing`, { type }).catch((e: any) => {
-      if (e instanceof ApiError && e.status === 404) {
-        typingSupportedRef.current = false;
-        notifyConversationInvalid('typing_404');
-      }
+    api.post(`/api/whatsapp/conversations/${effectiveContactId}/typing`, { type }).catch(() => {
+      typingSupportedRef.current = false;
     });
-  }, [effectiveContactId, notifyConversationInvalid]);
+  }, [effectiveContactId]);
 
   const translateWithAi = useCallback(async (
     text: string,
@@ -902,7 +903,7 @@ export default function WhatsAppChatPanel({
       setAttachFile(null);
       setReplyTo(null);
       sendTyping('paused');
-      loadMessages();
+      loadMessages(false, true);
     } catch (e: any) {
       console.error('sendMessage:', e);
       // Some backend/provider flows can return an error even after the message
@@ -944,7 +945,7 @@ export default function WhatsAppChatPanel({
     if (!effectiveContactId) return;
     try {
       await api.post(`/api/whatsapp/conversations/${effectiveContactId}/messages/${msg.id}/react`, { emoji });
-      loadMessages();
+      loadMessages(false, true);
     } catch (e: any) { console.error('handleReaction:', e); toast.error('Failed to react'); }
     setMenuMsg(null);
   }
@@ -954,7 +955,7 @@ export default function WhatsAppChatPanel({
     if (!effectiveContactId) return;
     try {
       await api.delete(`/api/whatsapp/conversations/${effectiveContactId}/messages/${msg.id}`);
-      loadMessages();
+      loadMessages(false, true);
     } catch (e: any) { console.error('handleDelete:', e); toast.error('Failed to delete message'); }
     setMenuMsg(null);
   }
@@ -966,7 +967,7 @@ export default function WhatsAppChatPanel({
       await api.patch(`/api/whatsapp/conversations/${effectiveContactId}/messages/${editingMsg.id}`, { content: editInput.trim() });
       setEditingMsg(null);
       setEditInput('');
-      loadMessages();
+      loadMessages(false, true);
     } catch (e: any) { console.error('handleEditSubmit:', e); toast.error('Failed to edit message'); }
   }
 
@@ -1002,7 +1003,7 @@ export default function WhatsAppChatPanel({
       setPollQuestion('');
       setPollOptions(['', '']);
       setPollMultiple(false);
-      loadMessages();
+      loadMessages(false, true);
     } catch (e: any) { console.error('handleSendPoll:', e); toast.error('Failed to send poll'); }
   }
 
@@ -1120,7 +1121,7 @@ export default function WhatsAppChatPanel({
       setShowButtonsModal(false);
       setBtnTitle(''); setBtnDesc(''); setBtnFooter('');
       setBtnButtons([{ id: '1', text: '' }]);
-      loadMessages();
+      loadMessages(false, true);
     } catch (e: any) { console.error('handleSendButtons:', e); toast.error('Failed to send buttons'); }
   }
 
@@ -1139,7 +1140,7 @@ export default function WhatsAppChatPanel({
       setShowListModal(false);
       setListTitle(''); setListDesc(''); setListBtnText(''); setListFooter('');
       setListSections([{ title: '', rows: [{ title: '', description: '', row_id: '1' }] }]);
-      loadMessages();
+      loadMessages(false, true);
     } catch (e: any) { console.error('handleSendList:', e); toast.error('Failed to send list'); }
   }
 
@@ -1210,7 +1211,7 @@ export default function WhatsAppChatPanel({
       });
       setShowContactModal(false);
       setContactCardName(''); setContactCardPhone('');
-      loadMessages();
+      loadMessages(false, true);
     } catch (e: any) { console.error('handleSendContact:', e); toast.error('Failed to send contact'); }
   }
 
@@ -1224,7 +1225,7 @@ export default function WhatsAppChatPanel({
       });
       setShowLocationModal(false);
       setLocLat(''); setLocLng(''); setLocName(''); setLocAddress('');
-      loadMessages();
+      loadMessages(false, true);
     } catch (e: any) { console.error('handleSendLocation:', e); toast.error('Failed to send location'); }
   }
 
@@ -1257,7 +1258,7 @@ export default function WhatsAppChatPanel({
           await api.post(`/api/whatsapp/conversations/${effectiveContactId}/send-voice-note`, {
             audio_url: uploadRes.media_url,
           });
-          loadMessages();
+          loadMessages(false, true);
         } catch (e: any) { console.error('sendVoiceNote:', e); toast.error('Failed to send voice note'); }
         recorder.stream.getTracks().forEach(t => t.stop());
         setIsRecording(false);
@@ -1288,7 +1289,7 @@ export default function WhatsAppChatPanel({
     try {
       const res = await api.post(`/api/whatsapp/conversations/${effectiveContactId}/sync-history`, { count: 100 });
       setSyncCount(res.imported || 0);
-      loadMessages();
+      loadMessages(false, true);
     } catch (e: any) { console.error('handleSyncHistory:', e); toast.error('Failed to sync history'); }
     finally { setSyncing(false); }
   }
@@ -1298,7 +1299,7 @@ export default function WhatsAppChatPanel({
     if (!effectiveContactId) return;
     try {
       await api.post(`/api/whatsapp/conversations/${effectiveContactId}/messages/${msgId}/download-media`, {});
-      loadMessages();
+      loadMessages(false, true);
     } catch (e: any) { console.error('handleDownloadMedia:', e); toast.error('Failed to download media'); }
   }
 
@@ -1340,7 +1341,7 @@ export default function WhatsAppChatPanel({
     if (!effectiveContactId) return;
     try {
       await api.post(`/api/whatsapp/conversations/${effectiveContactId}/call`, { is_video: isVideo });
-      loadMessages();
+      loadMessages(false, true);
     } catch (e: any) { console.error('handleCall:', e); toast.error('Failed to initiate call'); }
     setShowCallMenu(false);
   }
