@@ -725,12 +725,13 @@ export default function WhatsAppChatPanel({
   useEffect(() => {
     if (!effectiveContactId) return;
     const unsubs: (() => void)[] = [];
-    const localPhone = (
+    const localPhoneRaw = (
       (mergeKey && String(mergeKey)) ||
       (waJid && String(waJid).split('@')[0]) ||
-      (conversation?.phone_number && String(conversation.phone_number).replace(/\D/g, '')) ||
+      (conversation?.phone_number && String(conversation.phone_number)) ||
       ''
     );
+    const localPhone = localPhoneRaw.replace(/\D/g, '');
 
     // New message: append to list if for current contact
     unsubs.push(onWsEvent('new_message', (ev) => {

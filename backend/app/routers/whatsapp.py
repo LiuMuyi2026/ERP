@@ -717,7 +717,9 @@ async def get_messages(
         params["cid"] = contact_id
     else:
         wa_jid = str(getattr(contact, "wa_jid", "") or "")
-        phone = wa_jid.split("@")[0] if "@" in wa_jid else ""
+        phone = str(getattr(contact, "phone_number", "") or "")
+        if not phone:
+            phone = wa_jid.split("@")[0] if "@" in wa_jid else ""
         if phone:
             where_sql = """
                 m.wa_contact_id IN (
@@ -729,7 +731,7 @@ async def get_messages(
                     WHERE c1.id = CAST(:cid AS uuid)
                       AND COALESCE(c2.is_group, FALSE) = FALSE
                       AND COALESCE(c2.is_deleted, FALSE) = FALSE
-                      AND SPLIT_PART(c2.wa_jid, '@', 1) = :phone
+                      AND COALESCE(NULLIF(c2.phone_number, ''), SPLIT_PART(c2.wa_jid, '@', 1)) = :phone
                 )
             """
             params["cid"] = contact_id
@@ -921,7 +923,9 @@ async def mark_conversation_read(contact_id: str, ctx: dict = Depends(get_curren
     contact = await _verify_contact_ownership(db, contact_id, ctx["sub"], ctx.get("role", ""))
     account_id = str(contact.wa_account_id)
     wa_jid = str(getattr(contact, "wa_jid", "") or "")
-    phone = wa_jid.split("@")[0] if "@" in wa_jid else ""
+    phone = str(getattr(contact, "phone_number", "") or "")
+    if not phone:
+        phone = wa_jid.split("@")[0] if "@" in wa_jid else ""
 
     # Get recent unread message IDs
     try:
@@ -946,7 +950,7 @@ async def mark_conversation_read(contact_id: str, ctx: dict = Depends(get_curren
                     WHERE c_ref.id = CAST(:cid AS uuid)
                       AND COALESCE(c_same.is_group, FALSE) = FALSE
                       AND COALESCE(c_same.is_deleted, FALSE) = FALSE
-                      AND SPLIT_PART(c_same.wa_jid, '@', 1) = :phone
+                      AND COALESCE(NULLIF(c_same.phone_number, ''), SPLIT_PART(c_same.wa_jid, '@', 1)) = :phone
                 )
                   AND m.direction = 'inbound'
                   AND m.status != 'read'
@@ -966,11 +970,13 @@ async def mark_conversation_read(contact_id: str, ctx: dict = Depends(get_curren
 
     # Reset unread count — also clear all contacts with same phone (1:1 merge)
     contact_info = await db.execute(text(
-        "SELECT wa_jid, is_group FROM whatsapp_contacts WHERE id = :cid"
+        "SELECT wa_jid, phone_number, is_group FROM whatsapp_contacts WHERE id = :cid"
     ), {"cid": contact_id})
     cinfo = contact_info.fetchone()
     if cinfo and not cinfo.is_group:
-        phone = cinfo.wa_jid.split("@")[0] if "@" in cinfo.wa_jid else ""
+        phone = cinfo.phone_number or ""
+        if not phone:
+            phone = cinfo.wa_jid.split("@")[0] if "@" in cinfo.wa_jid else ""
         if phone:
             await db.execute(text(
                 """
@@ -985,7 +991,7 @@ async def mark_conversation_read(contact_id: str, ctx: dict = Depends(get_curren
                 )
                   AND COALESCE(c.is_group, FALSE) = FALSE
                   AND COALESCE(c.is_deleted, FALSE) = FALSE
-                  AND SPLIT_PART(c.wa_jid, '@', 1) = :phone
+                  AND COALESCE(NULLIF(c.phone_number, ''), SPLIT_PART(c.wa_jid, '@', 1)) = :phone
                 """
             ), {"phone": phone, "cid": contact_id})
         else:
@@ -1358,9 +1364,9 @@ async def dashboard(
                    ca.name AS crm_account_name,
                    au.full_name AS assigned_user_name,
                    CASE WHEN c.is_group THEN c.id::text
-                        ELSE SPLIT_PART(c.wa_jid, '@', 1) END AS merge_key,
+                        ELSE COALESCE(NULLIF(c.phone_number, ''), SPLIT_PART(c.wa_jid, '@', 1)) END AS merge_key,
                    CASE WHEN c.is_group THEN c.id::text
-                        ELSE a.owner_user_id::text || ':' || SPLIT_PART(c.wa_jid, '@', 1) END AS merge_bucket,
+                        ELSE a.owner_user_id::text || ':' || COALESCE(NULLIF(c.phone_number, ''), SPLIT_PART(c.wa_jid, '@', 1)) END AS merge_bucket,
                    (SELECT wm.direction || ':' || wm.message_type || ':' || COALESCE(wm.content, '')
                     FROM whatsapp_messages wm WHERE wm.wa_contact_id = c.id
                     ORDER BY wm.timestamp DESC LIMIT 1) AS last_message_preview
@@ -1421,8 +1427,8 @@ async def dashboard(
                     NULL::text AS crm_account_name,
                     FALSE AS is_pinned,
                     FALSE AS is_muted,
-                    CASE WHEN c.is_group THEN c.id::text ELSE SPLIT_PART(c.wa_jid, '@', 1) END AS merge_key,
-                    CASE WHEN c.is_group THEN c.id::text ELSE a.owner_user_id::text || ':' || SPLIT_PART(c.wa_jid, '@', 1) END AS merge_bucket,
+                    CASE WHEN c.is_group THEN c.id::text ELSE COALESCE(NULLIF(c.phone_number, ''), SPLIT_PART(c.wa_jid, '@', 1)) END AS merge_key,
+                    CASE WHEN c.is_group THEN c.id::text ELSE a.owner_user_id::text || ':' || COALESCE(NULLIF(c.phone_number, ''), SPLIT_PART(c.wa_jid, '@', 1)) END AS merge_bucket,
                     (SELECT wm.direction || ':' || wm.message_type || ':' || COALESCE(wm.content, '')
                      FROM whatsapp_messages wm WHERE wm.wa_contact_id = c.id
                      ORDER BY wm.timestamp DESC LIMIT 1) AS last_message_preview
