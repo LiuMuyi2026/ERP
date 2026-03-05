@@ -719,18 +719,6 @@ export default function WhatsAppChatPanel({
       }
     }));
 
-    // Message status update (✓✓)
-    unsubs.push(onWsEvent('message_status', (ev) => {
-      const nextStatus = normalizeMessageStatus(ev.status);
-      setMessages((prev) =>
-        prev.map((m) =>
-          (m as any).wa_message_id === ev.wa_message_id || m.id === ev.wa_message_id
-            ? { ...m, status: nextStatus }
-            : m
-        )
-      );
-    }));
-
     // Message deleted
     unsubs.push(onWsEvent('message_deleted', (ev) => {
       setMessages((prev) =>
@@ -2400,11 +2388,6 @@ export default function WhatsAppChatPanel({
                       <div className="flex items-center justify-end gap-1.5 mt-0.5">
                         {msg.is_edited && <span className="text-[9px] italic" style={{ color: 'var(--notion-text-muted)' }}>(edited)</span>}
                         <span className="text-[10px]" style={{ color: 'var(--notion-text-muted)' }}>{formatTime(msg.timestamp)}</span>
-                        {isOut && (
-                          <span className="text-[10px]" style={{ color: normalizeMessageStatus(msg.status) === 'read' ? '#53bdeb' : 'var(--notion-text-muted)' }}>
-                            {normalizeMessageStatus(msg.status) === 'read' ? '✓✓' : normalizeMessageStatus(msg.status) === 'delivered' ? '✓✓' : '✓'}
-                          </span>
-                        )}
                       </div>
 
                       {/* Reaction badges */}
