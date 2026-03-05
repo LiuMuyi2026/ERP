@@ -341,6 +341,38 @@ async def _is_admin_scope(db, uid: str, role: str = "") -> bool:
     return bool(user and user.is_admin)
 
 
+async def _ensure_lead_linkable(db: AsyncSession, lead_id: str, uid: str, role: str = "") -> None:
+    """Ensure lead exists and current user can link a WA contact to it."""
+    is_admin = await _is_admin_scope(db, uid, role)
+    if is_admin:
+        row = await db.execute(text("SELECT id FROM leads WHERE id = :lid"), {"lid": lead_id})
+    else:
+        row = await db.execute(text("""
+            SELECT id
+            FROM leads
+            WHERE id = :lid
+              AND (assigned_to = CAST(:uid AS uuid) OR created_by = CAST(:uid AS uuid))
+        """), {"lid": lead_id, "uid": uid})
+    if not row.fetchone():
+        raise HTTPException(status_code=404, detail="Lead not found")
+
+
+async def _ensure_account_linkable(db: AsyncSession, account_id: str, uid: str, role: str = "") -> None:
+    """Ensure CRM account exists and current user can link a WA contact to it."""
+    is_admin = await _is_admin_scope(db, uid, role)
+    if is_admin:
+        row = await db.execute(text("SELECT id FROM crm_accounts WHERE id = :aid"), {"aid": account_id})
+    else:
+        row = await db.execute(text("""
+            SELECT id
+            FROM crm_accounts
+            WHERE id = :aid
+              AND (owner_id = CAST(:uid AS uuid) OR created_by = CAST(:uid AS uuid))
+        """), {"aid": account_id, "uid": uid})
+    if not row.fetchone():
+        raise HTTPException(status_code=404, detail="CRM account not found")
+
+
 async def _get_message_with_key(db, message_id: str, contact_id: str):
     """Get a message and its wa_key from metadata."""
     row = await db.execute(text("""
@@ -1215,7 +1247,7 @@ async def dashboard(
     q = f"""
         WITH base AS (
             SELECT c.id, c.wa_account_id, c.wa_jid, c.phone_number, c.display_name,
-                   c.push_name, c.profile_pic_url, c.lead_id, c.contact_id,
+                   c.push_name, c.profile_pic_url, c.lead_id,
                    c.is_group, c.last_message_at, c.unread_count,
                    c.created_at, c.updated_at, c.group_metadata,
                    c.disappearing_duration, c.wa_labels, c.account_id AS crm_account_id,
@@ -1368,8 +1400,13 @@ async def fix_duplicate_contacts(ctx: dict = Depends(require_admin_with_tenant))
 
         # Check if canonical version exists (same account or any account)
         canon_row = await db.execute(text(
-            "SELECT id FROM whatsapp_contacts WHERE wa_jid = :jid AND id != :lid_id LIMIT 1"
-        ), {"jid": canonical_jid, "lid_id": str(lc.id)})
+            """
+            SELECT id
+            FROM whatsapp_contacts
+            WHERE wa_account_id = :aid AND wa_jid = :jid AND id != :lid_id
+            LIMIT 1
+            """
+        ), {"aid": str(lc.wa_account_id), "jid": canonical_jid, "lid_id": str(lc.id)})
         canon = canon_row.fetchone()
 
         if canon:
@@ -1540,6 +1577,7 @@ async def lead_messages(lead_id: str, limit: int = 50, ctx: dict = Depends(get_c
 async def link_lead(contact_id: str, body: LinkLeadBody, ctx: dict = Depends(get_current_user_with_tenant)):
     db = ctx["db"]
     await _verify_contact_ownership(db, contact_id, ctx["sub"], ctx.get("role", ""))
+    await _ensure_lead_linkable(db, body.lead_id, ctx["sub"], ctx.get("role", ""))
     # Also try to find account_id from contracts linked to this lead
     acct_row = await db.execute(text(
         "SELECT account_id FROM crm_contracts WHERE lead_id = :lid AND account_id IS NOT NULL LIMIT 1"
@@ -1558,18 +1596,34 @@ async def link_lead(contact_id: str, body: LinkLeadBody, ctx: dict = Depends(get
 async def link_account(contact_id: str, body: LinkAccountBody, ctx: dict = Depends(get_current_user_with_tenant)):
     db = ctx["db"]
     await _verify_contact_ownership(db, contact_id, ctx["sub"], ctx.get("role", ""))
-    # Verify the CRM account exists
-    acct_row = await db.execute(
-        text("SELECT id FROM crm_accounts WHERE id = :aid"), {"aid": body.account_id}
-    )
-    if not acct_row.fetchone():
-        raise HTTPException(status_code=404, detail="CRM account not found")
+    await _ensure_account_linkable(db, body.account_id, ctx["sub"], ctx.get("role", ""))
+    # Keep linkage consistent: if current lead is clearly tied to another account, unlink the lead.
+    lead_row = await db.execute(text(
+        "SELECT lead_id FROM whatsapp_contacts WHERE id = :cid"
+    ), {"cid": contact_id})
+    current = lead_row.fetchone()
+    lead_id = str(current.lead_id) if current and current.lead_id else None
+    clear_lead = False
+    if lead_id:
+        rel = await db.execute(text("""
+            SELECT 1
+            FROM crm_contracts
+            WHERE lead_id = :lid AND account_id = :aid
+            LIMIT 1
+        """), {"lid": lead_id, "aid": body.account_id})
+        clear_lead = rel.fetchone() is None
     await db.execute(
-        text("UPDATE whatsapp_contacts SET account_id = :aid, updated_at = NOW() WHERE id = :cid"),
-        {"aid": body.account_id, "cid": contact_id},
+        text("""
+            UPDATE whatsapp_contacts
+            SET account_id = :aid,
+                lead_id = CASE WHEN :clear_lead THEN NULL ELSE lead_id END,
+                updated_at = NOW()
+            WHERE id = :cid
+        """),
+        {"aid": body.account_id, "cid": contact_id, "clear_lead": clear_lead},
     )
     await db.commit()
-    return {"ok": True}
+    return {"ok": True, "lead_unlinked": clear_lead}
 
 
 @router.post("/contacts/{contact_id}/unlink")
@@ -1619,10 +1673,18 @@ async def batch_auto_link(ctx: dict = Depends(get_current_user_with_tenant)):
         """), {"uid": uid})
     contacts = rows.fetchall()
 
-    # Get all leads with phone/whatsapp numbers
-    lead_rows = await db.execute(text(
-        "SELECT id, phone, whatsapp FROM crm_leads WHERE phone IS NOT NULL OR whatsapp IS NOT NULL"
-    ))
+    # Get all leads with phone/whatsapp numbers (scope by user for non-admin).
+    if is_admin:
+        lead_rows = await db.execute(text(
+            "SELECT id, phone, whatsapp FROM leads WHERE phone IS NOT NULL OR whatsapp IS NOT NULL"
+        ))
+    else:
+        lead_rows = await db.execute(text("""
+            SELECT id, phone, whatsapp
+            FROM leads
+            WHERE (phone IS NOT NULL OR whatsapp IS NOT NULL)
+              AND (assigned_to = CAST(:uid AS uuid) OR created_by = CAST(:uid AS uuid))
+        """), {"uid": uid})
     leads = lead_rows.fetchall()
 
     # Build phone -> lead_id lookup (normalized)

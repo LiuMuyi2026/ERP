@@ -1259,6 +1259,8 @@ TENANT_MIGRATION_DDL = [
     # ── Phase 4: CRM linkage & attribution ───────────────────────────────
     "ALTER TABLE whatsapp_contacts ADD COLUMN IF NOT EXISTS account_id UUID",
     "CREATE INDEX IF NOT EXISTS idx_wa_contacts_account_id ON whatsapp_contacts(account_id)",
+    "DO $$ BEGIN ALTER TABLE whatsapp_contacts ADD CONSTRAINT fk_wa_contacts_lead FOREIGN KEY (lead_id) REFERENCES leads(id) ON DELETE SET NULL NOT VALID; EXCEPTION WHEN duplicate_object THEN NULL; END $$",
+    "DO $$ BEGIN ALTER TABLE whatsapp_contacts ADD CONSTRAINT fk_wa_contacts_account FOREIGN KEY (account_id) REFERENCES crm_accounts(id) ON DELETE SET NULL NOT VALID; EXCEPTION WHEN duplicate_object THEN NULL; END $$",
     "ALTER TABLE whatsapp_messages ADD COLUMN IF NOT EXISTS created_by UUID",
 
     # ── Phase 5: Customer acquisition requests ───────────────────────────
