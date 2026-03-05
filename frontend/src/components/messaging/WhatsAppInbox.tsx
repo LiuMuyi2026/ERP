@@ -1340,6 +1340,9 @@ export default function WhatsAppInbox() {
             <WhatsAppChatPanel
               key={selectedContact.id}
               contactId={selectedContact.id}
+              waAccountId={selectedContact.wa_account_id}
+              waJid={selectedContact.wa_jid}
+              mergeKey={selectedContact.merge_key}
               contactName={selectedContact.display_name || selectedContact.push_name || selectedContact.phone_number}
               profilePicUrl={typeof selectedContact.profile_pic_url === 'string' ? selectedContact.profile_pic_url : undefined}
               isGroup={selectedContact.is_group}

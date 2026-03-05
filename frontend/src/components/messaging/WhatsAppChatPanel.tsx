@@ -56,6 +56,9 @@ function normalizeMessageStatus(status?: string): string {
 
 interface WhatsAppChatPanelProps {
   contactId?: string;
+  waAccountId?: string;
+  waJid?: string;
+  mergeKey?: string;
   leadId?: string;
   contactName?: string;
   profilePicUrl?: string;
@@ -159,7 +162,7 @@ type AiAction = 'summarize' | 'enrich_profile' | 'sales_strategy' | 'sales_tips'
 type EnrichedProfile = Record<string, any>;
 
 export default function WhatsAppChatPanel({
-  contactId, leadId, contactName, profilePicUrl, isGroup, disappearingDuration,
+  contactId, waAccountId, waJid, mergeKey, leadId, contactName, profilePicUrl, isGroup, disappearingDuration,
   isBlocked: initialIsBlocked, isArchived: initialIsArchived, conversation,
   onBack, onConversationInvalid,
 }: WhatsAppChatPanelProps) {
@@ -722,10 +725,26 @@ export default function WhatsAppChatPanel({
   useEffect(() => {
     if (!effectiveContactId) return;
     const unsubs: (() => void)[] = [];
+    const localPhone = (
+      (mergeKey && String(mergeKey)) ||
+      (waJid && String(waJid).split('@')[0]) ||
+      (conversation?.phone_number && String(conversation.phone_number).replace(/\D/g, '')) ||
+      ''
+    );
 
     // New message: append to list if for current contact
     unsubs.push(onWsEvent('new_message', (ev) => {
-      if (ev.contact_id === effectiveContactId) {
+      const evPhoneRaw = typeof ev?.contact_jid === 'string' ? ev.contact_jid.split('@')[0] : '';
+      const evPhone = evPhoneRaw.replace(/\D/g, '');
+      const sameContactId = ev.contact_id === effectiveContactId;
+      const sameThreadByPhone = !!(
+        !sameContactId &&
+        localPhone &&
+        evPhone &&
+        (!waAccountId || ev.account_id === waAccountId) &&
+        localPhone === evPhone
+      );
+      if (sameContactId || sameThreadByPhone) {
         const m = ev.message;
         const incoming: Message = {
           ...m,
@@ -742,6 +761,10 @@ export default function WhatsAppChatPanel({
         // Auto mark read since this chat is open
         if (m?.direction !== 'outbound') {
           safeMarkConversationRead();
+        }
+        if (sameThreadByPhone && !sameContactId) {
+          // Keep state consistent when provider emits a sibling contact_id for same thread.
+          loadMessages(false, true);
         }
       }
     }));
@@ -782,7 +805,7 @@ export default function WhatsAppChatPanel({
       }
       unsubs.forEach((u) => u());
     };
-  }, [effectiveContactId, onWsEvent]);
+  }, [effectiveContactId, onWsEvent, mergeKey, waJid, waAccountId, conversation?.phone_number]);
 
   // ── Typing indicator ──
   const sendTyping = useCallback((type: 'composing' | 'paused') => {
