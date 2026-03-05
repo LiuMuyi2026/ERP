@@ -708,10 +708,30 @@ async def get_messages(
 ):
     db = ctx["db"]
     contact = await _verify_contact_ownership(db, contact_id, ctx["sub"], ctx.get("role", ""))
-    thread_contact_ids = await _resolve_thread_contact_ids(db, contact, contact_id)
     actual_limit = min(limit, 200)
-    where_sql = "m.wa_contact_id = ANY(:cids::uuid[])"
-    params: dict = {"cids": thread_contact_ids, "lim": actual_limit}
+    params: dict = {"lim": actual_limit}
+    if bool(getattr(contact, "is_group", False)):
+        where_sql = "m.wa_contact_id = CAST(:cid AS uuid)"
+        params["cid"] = contact_id
+    else:
+        wa_jid = str(getattr(contact, "wa_jid", "") or "")
+        account_id = str(getattr(contact, "wa_account_id", "") or "")
+        phone = wa_jid.split("@")[0] if "@" in wa_jid else ""
+        if account_id and phone:
+            where_sql = """
+                m.wa_contact_id IN (
+                    SELECT id FROM whatsapp_contacts
+                    WHERE wa_account_id = CAST(:aid AS uuid)
+                      AND COALESCE(is_group, FALSE) = FALSE
+                      AND COALESCE(is_deleted, FALSE) = FALSE
+                      AND SPLIT_PART(wa_jid, '@', 1) = :phone
+                )
+            """
+            params["aid"] = account_id
+            params["phone"] = phone
+        else:
+            where_sql = "m.wa_contact_id = CAST(:cid AS uuid)"
+            params["cid"] = contact_id
     if before:
         where_sql += " AND m.timestamp < :before"
         params["before"] = before
@@ -894,15 +914,32 @@ async def mark_conversation_read(contact_id: str, ctx: dict = Depends(get_curren
     db = ctx["db"]
     contact = await _verify_contact_ownership(db, contact_id, ctx["sub"], ctx.get("role", ""))
     account_id = str(contact.wa_account_id)
-    thread_contact_ids = await _resolve_thread_contact_ids(db, contact, contact_id)
+    wa_jid = str(getattr(contact, "wa_jid", "") or "")
+    phone = wa_jid.split("@")[0] if "@" in wa_jid else ""
 
     # Get recent unread message IDs
-    rows = await db.execute(text("""
-        SELECT wa_message_id FROM whatsapp_messages
-        WHERE wa_contact_id = ANY(:cids::uuid[]) AND direction = 'inbound' AND status != 'read'
-        AND wa_message_id IS NOT NULL
-        ORDER BY timestamp DESC LIMIT 20
-    """), {"cids": thread_contact_ids})
+    if bool(getattr(contact, "is_group", False)) or not phone:
+        rows = await db.execute(text("""
+            SELECT wa_message_id FROM whatsapp_messages
+            WHERE wa_contact_id = CAST(:cid AS uuid) AND direction = 'inbound' AND status != 'read'
+              AND wa_message_id IS NOT NULL
+            ORDER BY timestamp DESC LIMIT 20
+        """), {"cid": contact_id})
+    else:
+        rows = await db.execute(text("""
+            SELECT m.wa_message_id
+            FROM whatsapp_messages m
+            JOIN whatsapp_contacts c ON c.id = m.wa_contact_id
+            WHERE c.wa_account_id = CAST(:aid AS uuid)
+              AND COALESCE(c.is_group, FALSE) = FALSE
+              AND COALESCE(c.is_deleted, FALSE) = FALSE
+              AND SPLIT_PART(c.wa_jid, '@', 1) = :phone
+              AND m.direction = 'inbound'
+              AND m.status != 'read'
+              AND m.wa_message_id IS NOT NULL
+            ORDER BY m.timestamp DESC
+            LIMIT 20
+        """), {"aid": account_id, "phone": phone})
     msg_ids = [r.wa_message_id for r in rows.fetchall()]
 
     # Reset unread count — also clear all contacts with same phone (1:1 merge)
