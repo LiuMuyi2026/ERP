@@ -72,6 +72,32 @@ type WaAccount = {
 type WaLabel = { id: string; wa_label_id: string; name?: string; color?: string };
 
 // relTime and WA_STATUS_COLORS imported from wa-helpers
+function digitsOnly(value?: string): string {
+  if (!value) return '';
+  return String(value).replace(/\D/g, '');
+}
+
+function chatPeerDigits(conv: Conversation): string {
+  const phone = digitsOnly(conv.phone_number);
+  if (phone) return phone;
+  const jidLocal = (conv.wa_jid || '').split('@')[0];
+  return digitsOnly(jidLocal);
+}
+
+function ownerDigits(conv: Conversation): string {
+  const phone = digitsOnly(conv.account_phone);
+  if (phone) return phone;
+  const jidLocal = (conv.owner_wa_jid || '').split('@')[0];
+  return digitsOnly(jidLocal);
+}
+
+function isSelfChatConversation(conv?: Conversation | null): boolean {
+  if (!conv || conv.is_group) return false;
+  const peer = chatPeerDigits(conv);
+  const owner = ownerDigits(conv);
+  return !!(peer && owner && peer === owner);
+}
+
 function isSafeImageSrc(src?: unknown): boolean {
   if (typeof src !== 'string' || !src) return false;
   return (
@@ -277,6 +303,7 @@ function LinkContactModal({ contact, onClose, onLinked, isMobile = false }: {
 
   const isLinked = !!(contact.lead_id || contact.account_id);
   const currentLink = contact.crm_account_name || contact.lead_name;
+  const isSelfChat = isSelfChatConversation(contact);
 
   useEffect(() => { setResults([]); setSearch(''); }, [tab]);
   useEffect(() => {
@@ -338,6 +365,10 @@ function LinkContactModal({ contact, onClose, onLinked, isMobile = false }: {
   }, [search, tab, ownerUserId, isAdminScope, meId]);
 
   async function handleLink(targetId: string) {
+    if (isSelfChat) {
+      toast.error('自己的WhatsApp聊天不能绑定CRM客户');
+      return;
+    }
     setLinking(true);
     try {
       if (tab === 'lead') {
@@ -358,6 +389,10 @@ function LinkContactModal({ contact, onClose, onLinked, isMobile = false }: {
   }
 
   async function handleCreateAndLink() {
+    if (isSelfChat) {
+      toast.error('自己的WhatsApp聊天不能绑定CRM客户');
+      return;
+    }
     setLinking(true);
     try {
       const name = contact.push_name || contact.display_name || contact.phone_number || 'Unknown';
@@ -400,6 +435,7 @@ function LinkContactModal({ contact, onClose, onLinked, isMobile = false }: {
         <div className="flex border-b" style={{ borderColor: 'var(--notion-border)' }}>
           {(['lead', 'account'] as const).map(t => (
             <button key={t} onClick={() => setTab(t)}
+              disabled={isSelfChat}
               className="flex-1 py-2 text-xs font-medium transition-colors"
               style={{ color: tab === t ? '#1d4ed8' : 'var(--notion-text-muted)', borderBottom: tab === t ? '2px solid #1d4ed8' : '2px solid transparent' }}>
               {t === 'lead' ? tCrm('waInboxLinkLead') : tCrm('waInboxLinkAccount')}
@@ -408,8 +444,12 @@ function LinkContactModal({ contact, onClose, onLinked, isMobile = false }: {
         </div>
 
         <div className="px-5 py-3">
+          {isSelfChat && (
+            <p className="text-xs mb-2" style={{ color: '#dc2626' }}>自己的WhatsApp聊天不能绑定CRM客户</p>
+          )}
           {tab === 'lead' && isAdminScope && (
             <select value={ownerUserId} onChange={e => { setOwnerUserId(e.target.value); setResults([]); }}
+              disabled={isSelfChat}
               className="w-full px-3 py-2 rounded-md text-sm outline-none border mb-2"
               style={{ borderColor: 'var(--notion-border)', color: 'var(--notion-text)' }}>
               <option value="">{tCrm('waInboxSelectUserFirst')}</option>
@@ -422,6 +462,7 @@ function LinkContactModal({ contact, onClose, onLinked, isMobile = false }: {
             placeholder={tab === 'lead'
               ? (isAdminScope ? tCrm('waInboxSearchLeadsByUser') : tCrm('waInboxSearchOwnLeads'))
               : (isAdminScope ? tCrm('waInboxSearchAccountsByName') : tCrm('waInboxSearchOwnAccountsByName'))}
+            disabled={isSelfChat}
             autoFocus
             className="w-full px-3 py-2 rounded-md text-sm outline-none border"
             style={{ borderColor: 'var(--notion-border)', color: 'var(--notion-text)' }} />
@@ -433,7 +474,7 @@ function LinkContactModal({ contact, onClose, onLinked, isMobile = false }: {
             <p className="text-xs text-center py-4" style={{ color: 'var(--notion-text-muted)' }}>{tCrm('waInboxNoResults')}</p>
           )}
           {results.map(item => (
-            <button key={item.id} onClick={() => handleLink(item.id)} disabled={linking}
+            <button key={item.id} onClick={() => handleLink(item.id)} disabled={linking || isSelfChat}
               className="w-full text-left px-3 py-2 rounded-md text-sm flex items-center justify-between gap-2 hover:bg-gray-50 transition-colors"
               style={{ color: 'var(--notion-text)' }}>
               <div className="min-w-0">
@@ -452,7 +493,7 @@ function LinkContactModal({ contact, onClose, onLinked, isMobile = false }: {
         </div>
         {/* Create new lead and link */}
         <div className="px-5 py-3 border-t" style={{ borderColor: 'var(--notion-border)' }}>
-          <button onClick={handleCreateAndLink} disabled={linking}
+          <button onClick={handleCreateAndLink} disabled={linking || isSelfChat}
             className="w-full py-2 rounded-md text-xs font-medium text-white"
             style={{ background: '#008069' }}>
             {linking ? tCrm('waInboxCreating') : tCrm('waInboxCreateLeadAndLink')}
@@ -823,7 +864,12 @@ export default function WhatsAppInbox() {
       const detail = (e as CustomEvent).detail;
       if (!detail?.contactId) return;
       const conv = conversations.find(c => c.id === detail.contactId);
-      if (conv) setLinkingContact(conv);
+      if (!conv) return;
+      if (isSelfChatConversation(conv)) {
+        toast.error('自己的WhatsApp聊天不能绑定CRM客户');
+        return;
+      }
+      setLinkingContact(conv);
     }
     window.addEventListener('open-link-modal', handleOpenLinkModal);
     return () => window.removeEventListener('open-link-modal', handleOpenLinkModal);
@@ -1269,7 +1315,7 @@ export default function WhatsAppInbox() {
                             {conv.unread_count}
                           </span>
                         )}
-                        {!isLinked && !conv.is_group && (
+                        {!isLinked && !conv.is_group && !isSelfChatConversation(conv) && (
                           <button onClick={e => { e.stopPropagation(); setLinkingContact(conv); }}
                             className="text-[9px] px-1.5 py-0.5 rounded-full font-medium"
                             style={{ background: '#fff7ed', color: '#d97706', border: '1px solid #fed7aa' }}>
@@ -1302,7 +1348,7 @@ export default function WhatsAppInbox() {
                   {ctxMenu.conv.assigned_to ? tCrm('waInboxReassign') : tCrm('waInboxAssign')}
                 </button>
                 {/* CRM Link/Unlink */}
-                {!ctxMenu.conv.is_group && !(ctxMenu.conv.lead_name || ctxMenu.conv.crm_account_name) && (
+                {!ctxMenu.conv.is_group && !isSelfChatConversation(ctxMenu.conv) && !(ctxMenu.conv.lead_name || ctxMenu.conv.crm_account_name) && (
                   <button className="w-full text-left px-4 py-2 text-[13px] hover:bg-[#f5f6f6]" style={{ color: '#d97706' }}
                     onClick={() => { setLinkingContact(ctxMenu.conv); setCtxMenu(null); }}>
                     绑定CRM客户
@@ -1351,6 +1397,8 @@ export default function WhatsAppInbox() {
               onConversationInvalid={handleConversationInvalid}
               conversation={{
                 phone_number: selectedContact.phone_number,
+                account_phone: selectedContact.account_phone,
+                owner_wa_jid: selectedContact.owner_wa_jid,
                 crm_account_name: selectedContact.crm_account_name,
                 lead_name: selectedContact.lead_name,
                 lead_status: selectedContact.lead_status,

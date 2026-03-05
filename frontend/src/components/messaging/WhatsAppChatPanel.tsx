@@ -69,6 +69,8 @@ interface WhatsAppChatPanelProps {
   /** Conversation data for template variable substitution */
   conversation?: {
     phone_number?: string;
+    account_phone?: string;
+    owner_wa_jid?: string;
     crm_account_name?: string;
     lead_name?: string;
     lead_status?: string;
@@ -121,6 +123,11 @@ function normalizeLanguageCode(value?: string) {
   if (v.startsWith('ru')) return 'ru';
   if (v.startsWith('ar')) return 'ar';
   return v.split('-')[0];
+}
+
+function digitsOnly(value?: string): string {
+  if (!value) return '';
+  return String(value).replace(/\D/g, '');
 }
 
 function parseMessageMetadata(metadata: unknown): Record<string, any> {
@@ -509,6 +516,12 @@ export default function WhatsAppChatPanel({
   });
 
   const effectiveContactId = contactId || resolvedContactId;
+  const isSelfChat = (() => {
+    if (isGroup) return false;
+    const peer = digitsOnly(conversation?.phone_number) || digitsOnly((waJid || '').split('@')[0]);
+    const owner = digitsOnly(conversation?.account_phone) || digitsOnly((conversation?.owner_wa_jid || '').split('@')[0]);
+    return !!(peer && owner && peer === owner);
+  })();
 
   const notifyConversationInvalid = useCallback((reason: string) => {
     if (invalidNotifiedRef.current) return;
@@ -528,6 +541,10 @@ export default function WhatsAppChatPanel({
   // Quick create lead from chat panel
   async function handleQuickCreateLead() {
     if (!effectiveContactId) return;
+    if (isSelfChat) {
+      toast.error('自己的WhatsApp聊天不能绑定CRM客户');
+      return;
+    }
     try {
       // Get current user for assignment
       const me = await api.get('/api/auth/me').catch(() => null);
@@ -2067,15 +2084,21 @@ export default function WhatsAppChatPanel({
                 <div className="text-xs" style={{ color: '#8696a0' }}>未关联CRM客户</div>
                 <div className="flex flex-col items-center gap-2 mt-2">
                   <button onClick={handleQuickCreateLead}
-                    className="px-4 py-1.5 rounded-lg text-xs font-medium text-white"
+                    disabled={isSelfChat}
+                    className="px-4 py-1.5 rounded-lg text-xs font-medium text-white disabled:opacity-50 disabled:cursor-not-allowed"
                     style={{ background: '#008069' }}>
                     + 创建为新线索
                   </button>
                   <button onClick={() => {
+                    if (isSelfChat) {
+                      toast.error('自己的WhatsApp聊天不能绑定CRM客户');
+                      return;
+                    }
                     // Emit a custom event to open LinkContactModal from inbox
                     window.dispatchEvent(new CustomEvent('open-link-modal', { detail: { contactId: effectiveContactId } }));
                   }}
-                    className="px-4 py-1.5 rounded-lg text-xs font-medium"
+                    disabled={isSelfChat}
+                    className="px-4 py-1.5 rounded-lg text-xs font-medium disabled:opacity-50 disabled:cursor-not-allowed"
                     style={{ color: '#008069', border: '1px solid #008069' }}>
                     搜索已有客户绑定
                   </button>
