@@ -543,6 +543,7 @@ export default function WhatsAppChatPanel({
   // ── WebSocket for real-time updates ──
   const { on: onWsEvent } = useWhatsAppSocket();
   const [wsTyping, setWsTyping] = useState(false);
+  const wsTypingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return;
@@ -760,15 +761,27 @@ export default function WhatsAppChatPanel({
     unsubs.push(onWsEvent('typing', (ev) => {
       if (!effectiveContactId || ev.contact_id !== effectiveContactId) return;
       const isComposing = ev.state === 'composing';
+      if (wsTypingTimerRef.current) {
+        clearTimeout(wsTypingTimerRef.current);
+        wsTypingTimerRef.current = null;
+      }
       setWsTyping(isComposing);
       if (isComposing) {
-        // Auto-clear after 5s if no paused event
-        const t = setTimeout(() => setWsTyping(false), 5000);
-        return () => clearTimeout(t);
+        // Auto-clear after 5s if no paused/available event.
+        wsTypingTimerRef.current = setTimeout(() => {
+          setWsTyping(false);
+          wsTypingTimerRef.current = null;
+        }, 5000);
       }
     }));
 
-    return () => unsubs.forEach((u) => u());
+    return () => {
+      if (wsTypingTimerRef.current) {
+        clearTimeout(wsTypingTimerRef.current);
+        wsTypingTimerRef.current = null;
+      }
+      unsubs.forEach((u) => u());
+    };
   }, [effectiveContactId, onWsEvent]);
 
   // ── Typing indicator ──
@@ -1340,21 +1353,28 @@ export default function WhatsAppChatPanel({
   // ── 4.5 Fetch profile ──
   async function handleFetchProfile() {
     if (!effectiveContactId) return;
+    setProfileData(null);
     setShowProfilePanel(true);
     setShowCatalogTab(false);
     setCatalogData(null);
     try {
       const data = await api.get(`/api/whatsapp/conversations/${effectiveContactId}/profile`);
-      const raw = (data && typeof data === 'object')
-        ? ((data as any).profile || (data as any).data || data)
+      if (!data || typeof data !== 'object' || Array.isArray(data)) {
+        setProfileData({});
+        return;
+      }
+      const raw = (data as any).profile || (data as any).data || data;
+      if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+        setProfileData({});
+        return;
+      }
+      const business = (raw.business && typeof raw.business === 'object' && !Array.isArray(raw.business))
+        ? raw.business
         : {};
-      const business = (raw && typeof (raw as any).business === 'object' && !Array.isArray((raw as any).business))
-        ? (raw as any).business
-        : {};
-      const picture = typeof (raw as any).picture === 'string'
-        ? (raw as any).picture
-        : (typeof (raw as any).profilePictureUrl === 'string' ? (raw as any).profilePictureUrl : '');
-      setProfileData({ ...(raw as any), business, picture });
+      const picture = typeof raw.picture === 'string'
+        ? raw.picture
+        : (typeof raw.profilePictureUrl === 'string' ? raw.profilePictureUrl : '');
+      setProfileData({ ...raw, business, picture });
     } catch (e: any) { console.error('handleFetchProfile:', e); setProfileData({}); }
   }
 
@@ -2130,26 +2150,26 @@ export default function WhatsAppChatPanel({
 
       {/* ── Contact profile panel ── */}
       {showProfilePanel && (
-        <div className="border-b px-4 py-3" style={{ borderColor: 'var(--notion-border)', background: 'var(--notion-card, white)' }}>
+        <div className="border-b px-4 py-3 max-h-[50vh] overflow-y-auto flex-shrink-0" style={{ borderColor: 'var(--notion-border)', background: 'var(--notion-card, white)' }}>
           <div className="flex items-center justify-between mb-2">
             <span className="text-xs font-semibold" style={{ color: 'var(--notion-text)' }}>{L.contactProfile}</span>
-            <button onClick={() => setShowProfilePanel(false)} className="text-xs" style={{ color: 'var(--notion-text-muted)' }}>✕</button>
+            <button onClick={() => setShowProfilePanel(false)} className="text-xs px-1" style={{ color: 'var(--notion-text-muted)' }}>✕</button>
           </div>
-          {profileData ? (
+          {profileData && typeof profileData === 'object' ? (
             <div className="space-y-1">
-              {profileData.name && <p className="text-[11px]"><span className="font-semibold">{L.name}:</span> {profileData.name}</p>}
-              {profileData.status && <p className="text-[11px]"><span className="font-semibold">{L.status}:</span> {profileData.status}</p>}
-              {profileData.picture && <img src={profileData.picture} alt="" className="w-12 h-12 rounded-full mt-1" />}
-              {profileData.business && Object.keys(profileData.business).length > 0 && (
+              {typeof profileData.name === 'string' && profileData.name && <p className="text-[11px]"><span className="font-semibold">{L.name}:</span> {profileData.name}</p>}
+              {typeof profileData.status === 'string' && profileData.status && <p className="text-[11px]"><span className="font-semibold">{L.status}:</span> {profileData.status}</p>}
+              {typeof profileData.picture === 'string' && profileData.picture && <img src={profileData.picture} alt="" className="w-12 h-12 rounded-full mt-1" />}
+              {profileData.business && typeof profileData.business === 'object' && !Array.isArray(profileData.business) && Object.keys(profileData.business).length > 0 && (
                 <div className="mt-2 p-2 rounded" style={{ background: 'rgba(0,0,0,0.03)' }}>
                   <p className="text-[10px] font-semibold mb-1" style={{ color: '#128C7E' }}>{L.businessProfile}</p>
-                  {profileData.business.description && <p className="text-[10px]">{profileData.business.description}</p>}
-                  {profileData.business.category && <p className="text-[10px]">{L.category}: {profileData.business.category}</p>}
-                  {profileData.business.website && (
+                  {profileData.business.description && <p className="text-[10px]">{String(profileData.business.description)}</p>}
+                  {profileData.business.category && <p className="text-[10px]">{L.category}: {String(profileData.business.category)}</p>}
+                  {typeof profileData.business.website === 'string' && profileData.business.website && (
                     <a href={profileData.business.website} target="_blank" rel="noopener noreferrer"
                       className="text-[10px] underline" style={{ color: '#1d4ed8' }}>{profileData.business.website}</a>
                   )}
-                  {profileData.business.email && <p className="text-[10px]">{L.email}: {profileData.business.email}</p>}
+                  {profileData.business.email && <p className="text-[10px]">{L.email}: {String(profileData.business.email)}</p>}
                 </div>
               )}
               {/* Product Catalog tab */}
@@ -2164,25 +2184,25 @@ export default function WhatsAppChatPanel({
                     <p className="text-[10px] font-semibold mb-1" style={{ color: '#128C7E' }}>{L.productCatalog}</p>
                     {catalogData === null ? (
                       <p className="text-[10px]" style={{ color: 'var(--notion-text-muted)' }}>{L.loadingText}</p>
-                    ) : catalogData.length === 0 ? (
+                    ) : !Array.isArray(catalogData) || catalogData.length === 0 ? (
                       <p className="text-[10px]" style={{ color: 'var(--notion-text-muted)' }}>{L.noProductsFound}</p>
                     ) : (
                       <div className="space-y-2 max-h-[200px] overflow-y-auto">
                         {catalogData.map((product: any, idx: number) => (
                           <div key={idx} className="flex gap-2 p-1.5 rounded border" style={{ borderColor: 'var(--notion-border)' }}>
-                            {product.productImage?.imageUrl && (
+                            {product?.productImage?.imageUrl && (
                               <img src={product.productImage.imageUrl} alt="" className="w-10 h-10 rounded object-cover flex-shrink-0" />
                             )}
                             <div className="min-w-0 flex-1">
                               <p className="text-[10px] font-medium truncate" style={{ color: 'var(--notion-text)' }}>
-                                {product.name || product.title || L.product}
+                                {product?.name || product?.title || L.product}
                               </p>
-                              {(product.price || product.priceAmount) && (
+                              {(product?.price || product?.priceAmount) && (
                                 <p className="text-[10px] font-semibold" style={{ color: '#15803d' }}>
                                   {product.currency || ''} {product.price || product.priceAmount}
                                 </p>
                               )}
-                              {product.description && (
+                              {product?.description && (
                                 <p className="text-[9px] truncate" style={{ color: 'var(--notion-text-muted)' }}>{product.description}</p>
                               )}
                             </div>

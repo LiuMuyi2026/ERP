@@ -731,15 +731,22 @@ export default function WhatsAppInbox() {
         if (idx >= 0) {
           const updated = { ...prev[idx] };
           const dir = ev.direction || ev.message?.direction || '';
+          const isInbound = dir !== 'outbound';
+          const hasServerUnread = Number.isFinite(ev.unread_count);
           updated.last_message_preview = `${dir === 'outbound' ? 'outbound' : 'inbound'}:${ev.message?.message_type || 'text'}:${ev.message?.content || ''}`;
           updated.last_message_at = ev.message?.timestamp || new Date().toISOString();
           // Only increment unread if this isn't the currently open chat
           const isOpen = selectedContact && (selectedContact.id === ev.contact_id ||
             (selectedContact.merge_key && ev.contact_jid && selectedContact.merge_key === ev.contact_jid.split('@')[0]));
-          if (!isOpen) {
+          if (isOpen) {
+            updated.unread_count = 0;
+          } else if (hasServerUnread) {
+            updated.unread_count = Math.max(0, Number(ev.unread_count) || 0);
+          } else if (isInbound) {
             updated.unread_count = (updated.unread_count || 0) + 1;
-            needsReload = true;
           }
+          // Reconcile only when webhook payload does not carry trusted unread count.
+          needsReload = !hasServerUnread;
           const rest = [...prev];
           rest.splice(idx, 1);
           return [updated, ...rest];

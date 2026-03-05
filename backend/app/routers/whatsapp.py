@@ -388,6 +388,28 @@ async def _ws_emit_for_account(db: AsyncSession, tenant_slug: str, account_id: s
         await wa_ws_manager.send_to_user(tenant_slug, uid, event)
 
 
+async def _emit_outbound_new_message(
+    db: AsyncSession,
+    tenant_slug: str,
+    account_id: str,
+    contact_id: str,
+    contact_jid: str,
+    message: dict,
+) -> None:
+    """Broadcast outbound message so all clients update immediately (no poll delay)."""
+    if not tenant_slug:
+        return
+    await _ws_emit_for_account(db, tenant_slug, account_id, {
+        "type": "new_message",
+        "contact_id": contact_id,
+        "contact_jid": contact_jid,
+        "account_id": account_id,
+        "direction": "outbound",
+        "message": message,
+        "unread_count": 0,
+    })
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 # Account management
 # ══════════════════════════════════════════════════════════════════════════════
@@ -743,12 +765,31 @@ async def send_message(contact_id: str, body: SendMessageBody, ctx: dict = Depen
     """), {"ts": now, "cid": contact_id})
     await db.commit()
 
-    bridge_result = await wa_bridge.send_message(
-        account_id, contact.wa_jid, body.content, body.message_type,
-        media_url=body.media_url, media_mime_type=body.media_mime_type,
-        filename=body.filename, caption=body.caption,
-        quoted_wa_key=quoted_wa_key,
-    )
+    try:
+        bridge_result = await wa_bridge.send_message(
+            account_id, contact.wa_jid, body.content, body.message_type,
+            media_url=body.media_url, media_mime_type=body.media_mime_type,
+            filename=body.filename, caption=body.caption,
+            quoted_wa_key=quoted_wa_key,
+        )
+    except BridgeError as e:
+        failed_meta = dict(metadata_payload)
+        failed_meta["bridge_error"] = str(e)
+        await db.execute(
+            text("UPDATE whatsapp_messages SET status = 'failed', metadata = :meta WHERE id = :id"),
+            {"id": msg_id, "meta": json.dumps(failed_meta)},
+        )
+        await db.commit()
+        raise
+    except Exception as e:
+        failed_meta = dict(metadata_payload)
+        failed_meta["bridge_error"] = str(e)
+        await db.execute(
+            text("UPDATE whatsapp_messages SET status = 'failed', metadata = :meta WHERE id = :id"),
+            {"id": msg_id, "meta": json.dumps(failed_meta)},
+        )
+        await db.commit()
+        raise
     wa_message_id = bridge_result.get("wa_message_id")
     wa_key = bridge_result.get("wa_key")
     status = bridge_result.get("status", "pending")
@@ -763,6 +804,26 @@ async def send_message(contact_id: str, body: SendMessageBody, ctx: dict = Depen
             {"mid": wa_message_id, "st": status, "id": msg_id, "meta": update_meta},
         )
         await db.commit()
+
+    await _emit_outbound_new_message(
+        db=db,
+        tenant_slug=ctx.get("tenant_slug", ""),
+        account_id=account_id,
+        contact_id=contact_id,
+        contact_jid=contact.wa_jid,
+        message={
+            "id": msg_id,
+            "wa_message_id": wa_message_id,
+            "message_type": body.message_type,
+            "content": body.content or body.caption or "",
+            "media_url": body.media_url,
+            "media_mime_type": body.media_mime_type,
+            "direction": "outbound",
+            "timestamp": now.isoformat(),
+            "status": status,
+            "reply_to_message_id": body.reply_to_message_id,
+        },
+    )
 
     return {"id": msg_id, "wa_message_id": wa_message_id, "status": status}
 
@@ -922,6 +983,22 @@ async def send_poll(contact_id: str, body: SendPollBody, ctx: dict = Depends(get
 
     await db.execute(text("UPDATE whatsapp_contacts SET last_message_at = :ts, updated_at = :ts WHERE id = :cid"), {"ts": now, "cid": contact_id})
     await db.commit()
+    await _emit_outbound_new_message(
+        db=db,
+        tenant_slug=ctx.get("tenant_slug", ""),
+        account_id=account_id,
+        contact_id=contact_id,
+        contact_jid=contact.wa_jid,
+        message={
+            "id": msg_id,
+            "wa_message_id": wa_message_id,
+            "message_type": "poll",
+            "content": body.question,
+            "direction": "outbound",
+            "timestamp": now.isoformat(),
+            "status": "sent",
+        },
+    )
     return {"id": msg_id, "wa_message_id": wa_message_id, "poll_id": poll_id, "status": "sent"}
 
 
@@ -1794,6 +1871,22 @@ async def send_buttons(contact_id: str, body: SendButtonsBody, ctx: dict = Depen
     })
     await db.execute(text("UPDATE whatsapp_contacts SET last_message_at = :ts, updated_at = :ts WHERE id = :cid"), {"ts": now, "cid": contact_id})
     await db.commit()
+    await _emit_outbound_new_message(
+        db=db,
+        tenant_slug=ctx.get("tenant_slug", ""),
+        account_id=account_id,
+        contact_id=contact_id,
+        contact_jid=contact.wa_jid,
+        message={
+            "id": msg_id,
+            "wa_message_id": wa_message_id,
+            "message_type": "buttons",
+            "content": body.title,
+            "direction": "outbound",
+            "timestamp": now.isoformat(),
+            "status": "sent",
+        },
+    )
     return {"id": msg_id, "wa_message_id": wa_message_id, "status": "sent"}
 
 
@@ -1824,6 +1917,22 @@ async def send_list(contact_id: str, body: SendListBody, ctx: dict = Depends(get
     })
     await db.execute(text("UPDATE whatsapp_contacts SET last_message_at = :ts, updated_at = :ts WHERE id = :cid"), {"ts": now, "cid": contact_id})
     await db.commit()
+    await _emit_outbound_new_message(
+        db=db,
+        tenant_slug=ctx.get("tenant_slug", ""),
+        account_id=account_id,
+        contact_id=contact_id,
+        contact_jid=contact.wa_jid,
+        message={
+            "id": msg_id,
+            "wa_message_id": wa_message_id,
+            "message_type": "list",
+            "content": body.title,
+            "direction": "outbound",
+            "timestamp": now.isoformat(),
+            "status": "sent",
+        },
+    )
     return {"id": msg_id, "wa_message_id": wa_message_id, "status": "sent"}
 
 
@@ -2805,6 +2914,22 @@ async def send_contact(contact_id: str, body: SendContactBody, ctx: dict = Depen
     })
     await db.execute(text("UPDATE whatsapp_contacts SET last_message_at = :ts, updated_at = :ts WHERE id = :cid"), {"ts": now, "cid": contact_id})
     await db.commit()
+    await _emit_outbound_new_message(
+        db=db,
+        tenant_slug=ctx.get("tenant_slug", ""),
+        account_id=account_id,
+        contact_id=contact_id,
+        contact_jid=contact.wa_jid,
+        message={
+            "id": msg_id,
+            "wa_message_id": wa_message_id,
+            "message_type": "contact",
+            "content": body.contact_name,
+            "direction": "outbound",
+            "timestamp": now.isoformat(),
+            "status": "sent",
+        },
+    )
     return {"id": msg_id, "wa_message_id": wa_message_id, "status": "sent"}
 
 
@@ -2834,6 +2959,22 @@ async def send_location(contact_id: str, body: SendLocationBody, ctx: dict = Dep
     })
     await db.execute(text("UPDATE whatsapp_contacts SET last_message_at = :ts, updated_at = :ts WHERE id = :cid"), {"ts": now, "cid": contact_id})
     await db.commit()
+    await _emit_outbound_new_message(
+        db=db,
+        tenant_slug=ctx.get("tenant_slug", ""),
+        account_id=account_id,
+        contact_id=contact_id,
+        contact_jid=contact.wa_jid,
+        message={
+            "id": msg_id,
+            "wa_message_id": wa_message_id,
+            "message_type": "location",
+            "content": f"{body.latitude},{body.longitude}",
+            "direction": "outbound",
+            "timestamp": now.isoformat(),
+            "status": "sent",
+        },
+    )
     return {"id": msg_id, "wa_message_id": wa_message_id, "status": "sent"}
 
 
@@ -2863,6 +3004,24 @@ async def send_voice_note(contact_id: str, body: SendVoiceNoteBody, ctx: dict = 
     })
     await db.execute(text("UPDATE whatsapp_contacts SET last_message_at = :ts, updated_at = :ts WHERE id = :cid"), {"ts": now, "cid": contact_id})
     await db.commit()
+    await _emit_outbound_new_message(
+        db=db,
+        tenant_slug=ctx.get("tenant_slug", ""),
+        account_id=account_id,
+        contact_id=contact_id,
+        contact_jid=contact.wa_jid,
+        message={
+            "id": msg_id,
+            "wa_message_id": wa_message_id,
+            "message_type": "voice_note",
+            "content": "",
+            "media_url": body.audio_url,
+            "media_mime_type": "audio/ogg",
+            "direction": "outbound",
+            "timestamp": now.isoformat(),
+            "status": "sent",
+        },
+    )
     return {"id": msg_id, "wa_message_id": wa_message_id, "status": "sent"}
 
 
@@ -2890,6 +3049,24 @@ async def send_sticker(contact_id: str, body: SendStickerBody, ctx: dict = Depen
     })
     await db.execute(text("UPDATE whatsapp_contacts SET last_message_at = :ts, updated_at = :ts WHERE id = :cid"), {"ts": now, "cid": contact_id})
     await db.commit()
+    await _emit_outbound_new_message(
+        db=db,
+        tenant_slug=ctx.get("tenant_slug", ""),
+        account_id=account_id,
+        contact_id=contact_id,
+        contact_jid=contact.wa_jid,
+        message={
+            "id": msg_id,
+            "wa_message_id": wa_message_id,
+            "message_type": "sticker",
+            "content": "",
+            "media_url": body.sticker_url,
+            "media_mime_type": "image/webp",
+            "direction": "outbound",
+            "timestamp": now.isoformat(),
+            "status": "sent",
+        },
+    )
     return {"id": msg_id, "wa_message_id": wa_message_id, "status": "sent"}
 
 
@@ -3265,7 +3442,10 @@ async def lookup_invite(body: LookupInviteBody, ctx: dict = Depends(get_current_
 async def get_catalog(contact_id: str, ctx: dict = Depends(get_current_user_with_tenant)):
     db = ctx["db"]
     contact = await _verify_contact_ownership(db, contact_id, ctx["sub"], ctx.get("role", ""))
-    result = await wa_bridge.fetch_catalogs(str(contact.wa_account_id), contact.wa_jid)
+    try:
+        result = await wa_bridge.fetch_catalogs(str(contact.wa_account_id), contact.wa_jid)
+    except BridgeError:
+        return []
     # Update has_catalog flag
     has_items = bool(result) and (isinstance(result, list) and len(result) > 0 or isinstance(result, dict) and result.get("data"))
     if has_items:
@@ -3280,7 +3460,10 @@ async def get_catalog(contact_id: str, ctx: dict = Depends(get_current_user_with
 async def get_collections(contact_id: str, ctx: dict = Depends(get_current_user_with_tenant)):
     db = ctx["db"]
     contact = await _verify_contact_ownership(db, contact_id, ctx["sub"], ctx.get("role", ""))
-    return await wa_bridge.fetch_collections(str(contact.wa_account_id), contact.wa_jid)
+    try:
+        return await wa_bridge.fetch_collections(str(contact.wa_account_id), contact.wa_jid)
+    except BridgeError:
+        return []
 
 
 @router.get("/accounts/{account_id}/my-catalog")
