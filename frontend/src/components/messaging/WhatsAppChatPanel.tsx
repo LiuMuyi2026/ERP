@@ -741,7 +741,6 @@ export default function WhatsAppChatPanel({
         !sameContactId &&
         localPhone &&
         evPhone &&
-        (!waAccountId || ev.account_id === waAccountId) &&
         localPhone === evPhone
       );
       if (sameContactId || sameThreadByPhone) {

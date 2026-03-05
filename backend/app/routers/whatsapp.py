@@ -717,18 +717,22 @@ async def get_messages(
         params["cid"] = contact_id
     else:
         wa_jid = str(getattr(contact, "wa_jid", "") or "")
-        account_id = str(getattr(contact, "wa_account_id", "") or "")
         phone = wa_jid.split("@")[0] if "@" in wa_jid else ""
-        if account_id and phone:
+        if phone:
             where_sql = """
                 m.wa_contact_id IN (
-                    SELECT id FROM whatsapp_contacts
-                    WHERE wa_account_id = CAST(:aid AS uuid)
-                      AND COALESCE(is_group, FALSE) = FALSE
-                      AND SPLIT_PART(wa_jid, '@', 1) = :phone
+                    SELECT c2.id
+                    FROM whatsapp_contacts c1
+                    JOIN whatsapp_accounts a1 ON a1.id = c1.wa_account_id
+                    JOIN whatsapp_accounts a2 ON a2.owner_user_id = a1.owner_user_id AND a2.is_active = TRUE
+                    JOIN whatsapp_contacts c2 ON c2.wa_account_id = a2.id
+                    WHERE c1.id = CAST(:cid AS uuid)
+                      AND COALESCE(c2.is_group, FALSE) = FALSE
+                      AND COALESCE(c2.is_deleted, FALSE) = FALSE
+                      AND SPLIT_PART(c2.wa_jid, '@', 1) = :phone
                 )
             """
-            params["aid"] = account_id
+            params["cid"] = contact_id
             params["phone"] = phone
         else:
             where_sql = "m.wa_contact_id = CAST(:cid AS uuid)"
@@ -932,16 +936,24 @@ async def mark_conversation_read(contact_id: str, ctx: dict = Depends(get_curren
             rows = await db.execute(text("""
                 SELECT m.wa_message_id
                 FROM whatsapp_messages m
-                JOIN whatsapp_contacts c ON c.id = m.wa_contact_id
-                WHERE c.wa_account_id = CAST(:aid AS uuid)
-                  AND COALESCE(c.is_group, FALSE) = FALSE
-                  AND SPLIT_PART(c.wa_jid, '@', 1) = :phone
+                JOIN whatsapp_contacts c2 ON c2.id = m.wa_contact_id
+                WHERE m.wa_contact_id IN (
+                    SELECT c_same.id
+                    FROM whatsapp_contacts c_ref
+                    JOIN whatsapp_accounts a_ref ON a_ref.id = c_ref.wa_account_id
+                    JOIN whatsapp_accounts a_same ON a_same.owner_user_id = a_ref.owner_user_id AND a_same.is_active = TRUE
+                    JOIN whatsapp_contacts c_same ON c_same.wa_account_id = a_same.id
+                    WHERE c_ref.id = CAST(:cid AS uuid)
+                      AND COALESCE(c_same.is_group, FALSE) = FALSE
+                      AND COALESCE(c_same.is_deleted, FALSE) = FALSE
+                      AND SPLIT_PART(c_same.wa_jid, '@', 1) = :phone
+                )
                   AND m.direction = 'inbound'
                   AND m.status != 'read'
                   AND m.wa_message_id IS NOT NULL
                 ORDER BY m.timestamp DESC
                 LIMIT 20
-            """), {"aid": account_id, "phone": phone})
+            """), {"cid": contact_id, "phone": phone})
     except Exception as e:
         logger.warning("mark_conversation_read fallback query activated: %s", e)
         rows = await db.execute(text("""
@@ -964,11 +976,18 @@ async def mark_conversation_read(contact_id: str, ctx: dict = Depends(get_curren
                 """
                 UPDATE whatsapp_contacts c
                 SET unread_count = 0, updated_at = NOW()
-                WHERE c.wa_account_id = :aid
+                WHERE c.wa_account_id IN (
+                    SELECT a_same.id
+                    FROM whatsapp_contacts c_ref
+                    JOIN whatsapp_accounts a_ref ON a_ref.id = c_ref.wa_account_id
+                    JOIN whatsapp_accounts a_same ON a_same.owner_user_id = a_ref.owner_user_id AND a_same.is_active = TRUE
+                    WHERE c_ref.id = CAST(:cid AS uuid)
+                )
                   AND COALESCE(c.is_group, FALSE) = FALSE
+                  AND COALESCE(c.is_deleted, FALSE) = FALSE
                   AND SPLIT_PART(c.wa_jid, '@', 1) = :phone
                 """
-            ), {"phone": phone, "aid": account_id})
+            ), {"phone": phone, "cid": contact_id})
         else:
             await db.execute(text("UPDATE whatsapp_contacts SET unread_count = 0, updated_at = NOW() WHERE id = :cid"), {"cid": contact_id})
     else:
@@ -1341,7 +1360,7 @@ async def dashboard(
                    CASE WHEN c.is_group THEN c.id::text
                         ELSE SPLIT_PART(c.wa_jid, '@', 1) END AS merge_key,
                    CASE WHEN c.is_group THEN c.id::text
-                        ELSE a.id::text || ':' || SPLIT_PART(c.wa_jid, '@', 1) END AS merge_bucket,
+                        ELSE a.owner_user_id::text || ':' || SPLIT_PART(c.wa_jid, '@', 1) END AS merge_bucket,
                    (SELECT wm.direction || ':' || wm.message_type || ':' || COALESCE(wm.content, '')
                     FROM whatsapp_messages wm WHERE wm.wa_contact_id = c.id
                     ORDER BY wm.timestamp DESC LIMIT 1) AS last_message_preview
@@ -1403,7 +1422,7 @@ async def dashboard(
                     FALSE AS is_pinned,
                     FALSE AS is_muted,
                     CASE WHEN c.is_group THEN c.id::text ELSE SPLIT_PART(c.wa_jid, '@', 1) END AS merge_key,
-                    CASE WHEN c.is_group THEN c.id::text ELSE a.id::text || ':' || SPLIT_PART(c.wa_jid, '@', 1) END AS merge_bucket,
+                    CASE WHEN c.is_group THEN c.id::text ELSE a.owner_user_id::text || ':' || SPLIT_PART(c.wa_jid, '@', 1) END AS merge_bucket,
                     (SELECT wm.direction || ':' || wm.message_type || ':' || COALESCE(wm.content, '')
                      FROM whatsapp_messages wm WHERE wm.wa_contact_id = c.id
                      ORDER BY wm.timestamp DESC LIMIT 1) AS last_message_preview
