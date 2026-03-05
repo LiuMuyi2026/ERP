@@ -3658,6 +3658,8 @@ async def _handle_messages_upsert(db: AsyncSession, instance: str, data: dict, t
     messages = data if isinstance(data, list) else [data]
     # Collect WS events to broadcast AFTER db.commit() so frontend API calls see committed data.
     _pending_ws_events: list[dict] = []
+    # Pre-resolve broadcast targets while search_path is still set (before commit may reset it).
+    _ws_targets: list[str] | None = None
 
     for msg_data in messages:
         key = msg_data.get("key", {})
@@ -3850,6 +3852,9 @@ async def _handle_messages_upsert(db: AsyncSession, instance: str, data: dict, t
 
                 # Queue new_message for broadcast AFTER commit
                 if tenant_slug and not is_history:
+                    # Pre-resolve targets once (while search_path is valid)
+                    if _ws_targets is None:
+                        _ws_targets = await _ws_targets_for_account(db, instance)
                     # Get updated unread count
                     uc_row = await db.execute(text(
                         "SELECT unread_count FROM whatsapp_contacts WHERE id = :cid"
@@ -3906,9 +3911,11 @@ async def _handle_messages_upsert(db: AsyncSession, instance: str, data: dict, t
 
     await db.commit()
 
-    # Broadcast WS events AFTER commit so frontend API calls see committed data
-    for evt in _pending_ws_events:
-        await _ws_emit_for_account(db, tenant_slug, instance, evt)
+    # Broadcast WS events AFTER commit using pre-resolved targets (no DB query needed)
+    if _pending_ws_events and _ws_targets and tenant_slug:
+        for evt in _pending_ws_events:
+            for uid in _ws_targets:
+                await wa_ws_manager.send_to_user(tenant_slug, uid, evt)
 
 
 async def _handle_messages_update(db: AsyncSession, instance: str, data: dict, tenant_slug: str = ""):
