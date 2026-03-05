@@ -604,7 +604,7 @@ export default function WhatsAppChatPanel({
       const normalizedData = (Array.isArray(data) ? data : []).map((m: any) => {
         const normalized: Message = {
           ...m,
-          id: messageIdentity(m),
+          id: (typeof m?.id === 'string' && m.id.trim()) ? m.id : messageIdentity(m),
           wa_message_id: typeof m?.wa_message_id === 'string' ? m.wa_message_id : undefined,
           status: normalizeMessageStatus(m?.status),
         };
@@ -748,7 +748,7 @@ export default function WhatsAppChatPanel({
         const m = ev.message;
         const incoming: Message = {
           ...m,
-          id: messageIdentity(m),
+          id: (typeof m?.id === 'string' && m.id.trim()) ? m.id : messageIdentity(m),
           wa_message_id: typeof m?.wa_message_id === 'string' ? m.wa_message_id : undefined,
           status: normalizeMessageStatus(m?.status),
         };
@@ -944,7 +944,7 @@ export default function WhatsAppChatPanel({
       attemptedContent = outgoingContent;
       attemptedMessageType = message_type;
 
-      await api.post(`/api/whatsapp/conversations/${effectiveContactId}/send`, {
+      const sendPayload: Record<string, any> = {
         content: outgoingContent,
         message_type,
         media_url,
@@ -956,7 +956,8 @@ export default function WhatsAppChatPanel({
         auto_translated: outgoingAutoTranslated,
         translation_source_language: outgoingAutoTranslated ? outgoingSourceLanguage : undefined,
         translation_target_language: outgoingAutoTranslated ? outgoingTargetLanguage : undefined,
-      });
+      };
+      await api.post(`/api/whatsapp/conversations/${effectiveContactId}/send`, sendPayload);
       setInput('');
       setAttachFile(null);
       setReplyTo(null);
@@ -964,6 +965,31 @@ export default function WhatsAppChatPanel({
       loadMessages(false, true);
     } catch (e: any) {
       console.error('sendMessage:', e);
+      const errMsg = String(e?.message || '');
+      const isReplyMissing = !!(
+        replyTo?.id &&
+        attemptedMessageType === 'text' &&
+        e instanceof ApiError &&
+        e.status === 404 &&
+        /message not found/i.test(errMsg)
+      );
+      if (isReplyMissing) {
+        try {
+          await api.post(`/api/whatsapp/conversations/${effectiveContactId}/send`, {
+            content: attemptedContent,
+            message_type: attemptedMessageType,
+            reply_to_message_id: undefined,
+          });
+          setInput('');
+          setAttachFile(null);
+          setReplyTo(null);
+          sendTyping('paused');
+          loadMessages(false, true);
+          return;
+        } catch {
+          // Fall through to existing handling.
+        }
+      }
       // Some backend/provider flows can return an error even after the message
       // is persisted/sent. Double-check latest outbound messages before showing
       // a hard failure toast to avoid false negatives in UI.
