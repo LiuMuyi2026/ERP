@@ -793,6 +793,29 @@ TENANT_SCHEMA_DDL = [
     )""",
     "CREATE INDEX IF NOT EXISTS idx_acq_req_status ON customer_acquisition_requests(status)",
     "CREATE INDEX IF NOT EXISTS idx_acq_req_owner ON customer_acquisition_requests(current_owner_id)",
+
+    # ── Entity Registry (unified UID system) ──────────────────────────────
+    """CREATE TABLE IF NOT EXISTS entity_registry (
+        uid VARCHAR(20) PRIMARY KEY,
+        entity_type VARCHAR(50) NOT NULL,
+        entity_id UUID NOT NULL,
+        display_name VARCHAR(255),
+        phone_e164 VARCHAR(20),
+        email_lower VARCHAR(255),
+        whatsapp_jid VARCHAR(50),
+        wechat_id VARCHAR(100),
+        priority INTEGER NOT NULL DEFAULT 50,
+        metadata JSONB DEFAULT '{}',
+        created_at TIMESTAMPTZ DEFAULT NOW(),
+        updated_at TIMESTAMPTZ DEFAULT NOW(),
+        UNIQUE(entity_type, entity_id)
+    )""",
+    "CREATE INDEX IF NOT EXISTS idx_er_phone ON entity_registry(phone_e164) WHERE phone_e164 IS NOT NULL",
+    "CREATE INDEX IF NOT EXISTS idx_er_email ON entity_registry(email_lower) WHERE email_lower IS NOT NULL",
+    "CREATE INDEX IF NOT EXISTS idx_er_whatsapp ON entity_registry(whatsapp_jid) WHERE whatsapp_jid IS NOT NULL",
+    "CREATE INDEX IF NOT EXISTS idx_er_wechat ON entity_registry(wechat_id) WHERE wechat_id IS NOT NULL",
+    "CREATE INDEX IF NOT EXISTS idx_er_type ON entity_registry(entity_type)",
+    "CREATE INDEX IF NOT EXISTS idx_er_entity ON entity_registry(entity_id)",
 ]
 
 
@@ -1406,6 +1429,29 @@ TENANT_MIGRATION_DDL = [
     "ALTER TABLE whatsapp_contacts ADD COLUMN IF NOT EXISTS assigned_to UUID",
     "CREATE INDEX IF NOT EXISTS idx_wa_contacts_assigned ON whatsapp_contacts(assigned_to)",
     "ALTER TABLE whatsapp_contacts ADD COLUMN IF NOT EXISTS is_deleted BOOLEAN DEFAULT FALSE",
+
+    # ── Entity Registry (unified UID system for cross-module identity) ────
+    """CREATE TABLE IF NOT EXISTS entity_registry (
+        uid VARCHAR(20) PRIMARY KEY,
+        entity_type VARCHAR(50) NOT NULL,
+        entity_id UUID NOT NULL,
+        display_name VARCHAR(255),
+        phone_e164 VARCHAR(20),
+        email_lower VARCHAR(255),
+        whatsapp_jid VARCHAR(50),
+        wechat_id VARCHAR(100),
+        priority INTEGER NOT NULL DEFAULT 50,
+        metadata JSONB DEFAULT '{}',
+        created_at TIMESTAMPTZ DEFAULT NOW(),
+        updated_at TIMESTAMPTZ DEFAULT NOW(),
+        UNIQUE(entity_type, entity_id)
+    )""",
+    "CREATE INDEX IF NOT EXISTS idx_er_phone ON entity_registry(phone_e164) WHERE phone_e164 IS NOT NULL",
+    "CREATE INDEX IF NOT EXISTS idx_er_email ON entity_registry(email_lower) WHERE email_lower IS NOT NULL",
+    "CREATE INDEX IF NOT EXISTS idx_er_whatsapp ON entity_registry(whatsapp_jid) WHERE whatsapp_jid IS NOT NULL",
+    "CREATE INDEX IF NOT EXISTS idx_er_wechat ON entity_registry(wechat_id) WHERE wechat_id IS NOT NULL",
+    "CREATE INDEX IF NOT EXISTS idx_er_type ON entity_registry(entity_type)",
+    "CREATE INDEX IF NOT EXISTS idx_er_entity ON entity_registry(entity_id)",
 ]
 
 

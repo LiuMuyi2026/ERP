@@ -21,6 +21,7 @@ from app.utils.sql import safe_set_search_path
 from app.services.ai.provider import generate_text_for_tenant
 from app.services.wa_bridge import wa_bridge, BridgeError
 from app.routers.ws_whatsapp import wa_ws_manager
+from app.core.entity_registry import lookup_by_whatsapp, lookup_by_phone, normalize_phone
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/whatsapp", tags=["whatsapp"])
@@ -1822,62 +1823,46 @@ async def batch_auto_link(ctx: dict = Depends(get_current_user_with_tenant)):
         """), {"uid": uid})
     contacts = rows.fetchall()
 
-    # Get all leads with phone/whatsapp numbers (scope by user for non-admin).
-    if is_admin:
-        lead_rows = await db.execute(text(
-            "SELECT id, phone, whatsapp FROM leads WHERE phone IS NOT NULL OR whatsapp IS NOT NULL"
-        ))
-    else:
-        lead_rows = await db.execute(text("""
-            SELECT id, phone, whatsapp
-            FROM leads
-            WHERE (phone IS NOT NULL OR whatsapp IS NOT NULL)
-              AND (assigned_to = CAST(:uid AS uuid) OR created_by = CAST(:uid AS uuid))
-        """), {"uid": uid})
-    leads = lead_rows.fetchall()
-
-    # Build phone -> lead_id lookup (normalized)
-    phone_to_lead: dict[str, str] = {}
-    for lead in leads:
-        for ph in [lead.phone, lead.whatsapp]:
-            norm = _normalize_phone_for_match(ph)
-            if norm and len(norm) >= 7:
-                phone_to_lead[norm] = str(lead.id)
-                # Also try last 10 digits for country code variance
-                if len(norm) > 10:
-                    phone_to_lead[norm[-10:]] = str(lead.id)
-
     linked_count = 0
     total_checked = len(contacts)
 
     for contact in contacts:
-        # Skip self-chat contacts: they are valid for messaging but cannot be CRM-linked.
+        # Skip self-chat contacts
         contact_digits = _chat_identity_digits(contact.wa_jid, contact.phone_number)
         account_digits = _chat_identity_digits(contact.account_wa_jid, contact.account_phone)
         if contact_digits and account_digits and contact_digits == account_digits:
             continue
 
-        # Try matching by phone_number or wa_jid (extract digits)
-        contact_phones = []
-        if contact.phone_number:
-            contact_phones.append(_normalize_phone_for_match(contact.phone_number))
-        if contact.wa_jid:
-            # wa_jid is like 1234567890@s.whatsapp.net
-            jid_digits = _normalize_phone_for_match(contact.wa_jid.split('@')[0])
-            if jid_digits:
-                contact_phones.append(jid_digits)
-
         matched_lead_id = None
-        for cp in contact_phones:
-            if not cp:
-                continue
-            if cp in phone_to_lead:
-                matched_lead_id = phone_to_lead[cp]
-                break
-            # Try last 10 digits
-            if len(cp) > 10 and cp[-10:] in phone_to_lead:
-                matched_lead_id = phone_to_lead[cp[-10:]]
-                break
+
+        # 1. Try entity_registry lookup by WhatsApp JID (exact match)
+        if contact.wa_jid:
+            entity = await lookup_by_whatsapp(db, contact.wa_jid)
+            if entity and entity.entity_type == "lead":
+                matched_lead_id = entity.entity_id
+
+        # 2. Fallback: lookup by E.164 phone
+        if not matched_lead_id and contact.phone_number:
+            normalized = normalize_phone(contact.phone_number)
+            if normalized:
+                entity = await lookup_by_phone(db, normalized)
+                if entity and entity.entity_type == "lead":
+                    matched_lead_id = entity.entity_id
+
+        # 3. Fallback: lookup by JID digits as phone
+        if not matched_lead_id and contact.wa_jid:
+            jid_phone = "+" + contact.wa_jid.split("@")[0]
+            entity = await lookup_by_phone(db, jid_phone)
+            if entity and entity.entity_type == "lead":
+                matched_lead_id = entity.entity_id
+
+        # 4. Scope check for non-admin
+        if matched_lead_id and not is_admin:
+            scope_check = await db.execute(text(
+                "SELECT 1 FROM leads WHERE id = CAST(:lid AS uuid) AND (assigned_to = CAST(:uid AS uuid) OR created_by = CAST(:uid AS uuid))"
+            ), {"lid": matched_lead_id, "uid": uid})
+            if not scope_check.fetchone():
+                matched_lead_id = None
 
         if matched_lead_id:
             # Also look up account_id from contracts
@@ -4170,30 +4155,32 @@ async def _handle_messages_upsert(db: AsyncSession, instance: str, data: dict, t
             except Exception:
                 pass
 
-        # Auto-match to lead by phone number if not already linked
+        # Auto-match to lead via entity_registry (exact E.164 / WhatsApp JID match)
         if contact_row and not contact_row.lead_id and not is_group:
-            raw_jid = remote_jid.split("@")[0] if "@" in remote_jid else remote_jid
-            phone_variants = [raw_jid, f"+{raw_jid}"]
-            if contact_row.phone_number:
-                phone_variants.append(contact_row.phone_number)
-                phone_variants.append(contact_row.phone_number.lstrip("+"))
-            phone_variants = list(set(v for v in phone_variants if v))
-            if phone_variants:
-                lead_match = await db.execute(text("""
-                    SELECT id FROM leads
-                    WHERE whatsapp IS NOT NULL AND whatsapp != ''
-                      AND REPLACE(REPLACE(REPLACE(whatsapp, '+', ''), '-', ''), ' ', '') = ANY(:phones)
-                    LIMIT 1
-                """), {"phones": [v.replace("+", "").replace("-", "").replace(" ", "") for v in phone_variants]})
-                matched_lead = lead_match.fetchone()
-                if matched_lead:
-                    acct_row = await db.execute(text(
-                        "SELECT account_id FROM crm_contracts WHERE lead_id = :lid AND account_id IS NOT NULL LIMIT 1"
-                    ), {"lid": str(matched_lead.id)})
-                    acct = acct_row.fetchone()
-                    await db.execute(text(
-                        "UPDATE whatsapp_contacts SET lead_id = :lid, account_id = :aid, updated_at = NOW() WHERE id = :cid"
-                    ), {"lid": str(matched_lead.id), "cid": contact_id, "aid": str(acct.account_id) if acct else None})
+            matched_lead_id = None
+
+            # 1. Lookup by WhatsApp JID in entity_registry
+            if remote_jid and "@s.whatsapp.net" in remote_jid:
+                entity = await lookup_by_whatsapp(db, remote_jid)
+                if entity and entity.entity_type == "lead":
+                    matched_lead_id = entity.entity_id
+
+            # 2. Fallback: lookup by E.164 phone
+            if not matched_lead_id:
+                jid_phone = "+" + remote_jid.split("@")[0] if "@" in remote_jid else None
+                if jid_phone:
+                    entity = await lookup_by_phone(db, jid_phone)
+                    if entity and entity.entity_type == "lead":
+                        matched_lead_id = entity.entity_id
+
+            if matched_lead_id:
+                acct_row = await db.execute(text(
+                    "SELECT account_id FROM crm_contracts WHERE lead_id = :lid AND account_id IS NOT NULL LIMIT 1"
+                ), {"lid": matched_lead_id})
+                acct = acct_row.fetchone()
+                await db.execute(text(
+                    "UPDATE whatsapp_contacts SET lead_id = :lid, account_id = :aid, updated_at = NOW() WHERE id = :cid"
+                ), {"lid": matched_lead_id, "cid": contact_id, "aid": str(acct.account_id) if acct else None})
 
         if contact_id:
             # Build metadata

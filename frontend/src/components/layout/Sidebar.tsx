@@ -727,8 +727,8 @@ export default function Sidebar({ tenant, userName, userRole, avatarUrl, collaps
   const [searching, setSearching] = useState(false);
   const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // App items with translated labels
-  const appItems = [
+  // App items with translated labels (static fallback + dynamic from module registry)
+  const defaultAppItems = [
     { key: 'customers',  label: tNav('customerCenter'),  path: 'crm/customers', icon: 'building',      bg: '#e0e7ff', color: '#4338ca' },
     { key: 'crm',        label: tNav('customerMgmt'),   path: 'crm',           icon: 'people-group',  bg: '#dbeafe', color: '#1e40af' },
     { key: 'messages',   label: tNav('messagesCenter'),  path: 'messages',      icon: 'chat-bubble',   bg: '#fce7f3', color: '#be185d' },
@@ -736,6 +736,34 @@ export default function Sidebar({ tenant, userName, userRole, avatarUrl, collaps
     { key: 'accounting', label: tNav('financeMgmt'),     path: 'accounting',    icon: 'money-bag',     bg: '#dcfce7', color: '#166534' },
     { key: 'hr',         label: tNav('peopleMgmt'),      path: 'hr',            icon: 'person',        bg: '#ede9fe', color: '#5b21b6' },
   ];
+
+  // Draggable app items (user can reorder)
+  const [appItemOrder, setAppItemOrder] = useState<string[]>(() => {
+    if (typeof window === 'undefined') return defaultAppItems.map(i => i.key);
+    const saved = localStorage.getItem(`nexus_nav_order_${tenant}`);
+    return saved ? JSON.parse(saved) : defaultAppItems.map(i => i.key);
+  });
+
+  const appItems = appItemOrder
+    .map(key => defaultAppItems.find(i => i.key === key))
+    .filter(Boolean) as typeof defaultAppItems;
+  // Add any new items not in the saved order
+  for (const item of defaultAppItems) {
+    if (!appItemOrder.includes(item.key)) appItems.push(item);
+  }
+
+  const navDragItem = useRef<number | null>(null);
+  const navDragOver = useRef<number | null>(null);
+  const handleNavDragEnd = () => {
+    if (navDragItem.current === null || navDragOver.current === null) return;
+    const newOrder = [...appItemOrder];
+    const item = newOrder.splice(navDragItem.current, 1)[0];
+    newOrder.splice(navDragOver.current, 0, item);
+    setAppItemOrder(newOrder);
+    localStorage.setItem(`nexus_nav_order_${tenant}`, JSON.stringify(newOrder));
+    navDragItem.current = null;
+    navDragOver.current = null;
+  };
 
   function handleToggleNode(id: string, siblingIds: string[]) {
     setExpandedIds(prev => {
@@ -1185,12 +1213,18 @@ export default function Sidebar({ tenant, userName, userRole, avatarUrl, collaps
           <div style={{ height: 1, background: 'var(--sb-border)', margin: '4px 4px 8px' }} />
           <SectionHeader label={tNav('businessModules')} />
           <div className="space-y-1">
-            {appItems.map(item => {
+            {appItems.map((item, idx) => {
               const perm = appPerms[item.key] ?? 'view';
               if (perm === 'none') return null;
               const href = `/${tenant}/${item.path}`;
               return (
-                <div key={item.key}>
+                <div key={item.key}
+                  draggable
+                  onDragStart={() => { navDragItem.current = idx; }}
+                  onDragEnter={() => { navDragOver.current = idx; }}
+                  onDragEnd={handleNavDragEnd}
+                  onDragOver={e => e.preventDefault()}
+                  className="group/nav">
                   <AppNavItem
                     icon={item.icon}
                     label={item.label}
