@@ -497,5 +497,13 @@
     "viewByLead": "依潛在客戶",
     "viewByChannel": "依頻道",
     "createdBy": "建立者"
+  },
+  "settings": {
+    "navAdminGroup": "Admin",
+    "navAdminMembers": "Members",
+    "navAdminPermissions": "Permissions"
+  },
+  "admin": {
+    "appOperations": "Operations"
   }
 }

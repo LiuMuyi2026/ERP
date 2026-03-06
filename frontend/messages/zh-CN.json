@@ -1186,7 +1186,8 @@
     "posNameReq": "职务名称 *",
     "posDescOptional": "职务描述（选填）",
     "posCreateBtn": "创建",
-    "savingBtn": "保存中..."
+    "savingBtn": "保存中...",
+    "appOperations": "业务运营"
   },
   "accounting": {
     "title": "财务管理",
@@ -2495,7 +2496,10 @@
     "integCreate": "创建",
     "integSave": "保存",
     "integStatus": "状态",
-    "integDeleteConfirm": "确定要删除此连接吗？"
+    "integDeleteConfirm": "确定要删除此连接吗？",
+    "navAdminGroup": "管理",
+    "navAdminMembers": "成员管理",
+    "navAdminPermissions": "权限配置"
   },
   "orders": {
     "title": "订单管理",

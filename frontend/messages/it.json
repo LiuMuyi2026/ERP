@@ -497,5 +497,13 @@
     "viewByLead": "Per lead",
     "viewByChannel": "Per canale",
     "createdBy": "Creato da"
+  },
+  "settings": {
+    "navAdminGroup": "Admin",
+    "navAdminMembers": "Members",
+    "navAdminPermissions": "Permissions"
+  },
+  "admin": {
+    "appOperations": "Operations"
   }
 }

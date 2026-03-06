@@ -877,7 +877,8 @@
     "posNameReq": "Position Name *",
     "posDescOptional": "Position Description (optional)",
     "posCreateBtn": "Create",
-    "savingBtn": "Saving..."
+    "savingBtn": "Saving...",
+    "appOperations": "Operations"
   },
   "accounting": {
     "title": "Accounting",
@@ -2187,7 +2188,10 @@
     "integCreate": "Create",
     "integSave": "Save",
     "integStatus": "Status",
-    "integDeleteConfirm": "Are you sure you want to delete this connection?"
+    "integDeleteConfirm": "Are you sure you want to delete this connection?",
+    "navAdminGroup": "Admin",
+    "navAdminMembers": "Members",
+    "navAdminPermissions": "Permissions"
   },
   "orders": {
     "title": "Orders",

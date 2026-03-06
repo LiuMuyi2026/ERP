@@ -497,5 +497,13 @@
     "viewByLead": "リード別",
     "viewByChannel": "チャネル別",
     "createdBy": "作成者"
+  },
+  "settings": {
+    "navAdminGroup": "Admin",
+    "navAdminMembers": "Members",
+    "navAdminPermissions": "Permissions"
+  },
+  "admin": {
+    "appOperations": "Operations"
   }
 }

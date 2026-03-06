@@ -22,20 +22,32 @@ const LANGUAGES: { code: LangCode; label: string; native: string }[] = [
   { code: 'pt', label: 'Portuguese', native: 'Português' },
 ];
 
-type Section = 'account' | 'appearance' | 'workspace' | 'members' | 'notifications' | 'email' | 'integrations' | 'ai' | 'ai-providers' | 'ai-finder' | 'whatsapp';
+type Section = 'account' | 'appearance' | 'workspace' | 'members' | 'notifications' | 'email' | 'integrations' | 'ai' | 'ai-providers' | 'ai-finder' | 'whatsapp' | 'admin-members' | 'admin-permissions' | 'admin-whatsapp' | 'admin-email' | 'admin-ai';
 
-const NAV_ITEMS: { id: Section; icon: string; labelKey: string }[] = [
-  { id: 'account', icon: 'person', labelKey: 'navAccount' },
-  { id: 'appearance', icon: 'palette', labelKey: 'navAppearance' },
-  { id: 'ai', icon: 'brain', labelKey: 'navAI' },
-  { id: 'ai-providers', icon: 'key', labelKey: 'navAIProviders' },
-  { id: 'ai-finder', icon: 'magnifier', labelKey: 'aiFinderNav' },
-  { id: 'workspace', icon: 'folder', labelKey: 'navWorkspace' },
-  { id: 'members', icon: 'people-group', labelKey: 'navMembers' },
-  { id: 'notifications', icon: 'bell', labelKey: 'navNotifications' },
-  { id: 'email', icon: 'envelope', labelKey: 'navEmail' },
-  { id: 'integrations', icon: 'plug', labelKey: 'navIntegrations' },
-  { id: 'whatsapp', icon: 'chat-bubble', labelKey: 'navWhatsApp' },
+interface NavGroup { group?: string; items: { id: Section; icon: string; labelKey: string }[] }
+
+const NAV_GROUPS: NavGroup[] = [
+  {
+    items: [
+      { id: 'account', icon: 'person', labelKey: 'navAccount' },
+      { id: 'appearance', icon: 'palette', labelKey: 'navAppearance' },
+      { id: 'ai', icon: 'brain', labelKey: 'navAI' },
+      { id: 'ai-finder', icon: 'magnifier', labelKey: 'aiFinderNav' },
+      { id: 'workspace', icon: 'folder', labelKey: 'navWorkspace' },
+      { id: 'notifications', icon: 'bell', labelKey: 'navNotifications' },
+      { id: 'integrations', icon: 'plug', labelKey: 'navIntegrations' },
+    ],
+  },
+  {
+    group: 'navAdminGroup',
+    items: [
+      { id: 'admin-members', icon: 'people-group', labelKey: 'navAdminMembers' },
+      { id: 'admin-permissions', icon: 'shield-lock', labelKey: 'navAdminPermissions' },
+      { id: 'admin-whatsapp', icon: 'chat-bubble', labelKey: 'navWhatsApp' },
+      { id: 'admin-email', icon: 'envelope', labelKey: 'navEmail' },
+      { id: 'admin-ai', icon: 'key', labelKey: 'navAIProviders' },
+    ],
+  },
 ];
 
 export default function SettingsPage() {
@@ -57,50 +69,596 @@ export default function SettingsPage() {
         </div>
 
         <div className="space-y-0.5">
-          {NAV_ITEMS.map(item => (
-            <button
-              key={item.id}
-              onClick={() => {
-                if (item.id === 'integrations') {
-                  router.push(`/${tenant}/settings/integrations`);
-                } else {
-                  setSection(item.id);
-                }
-              }}
-              className="w-full flex items-center gap-2.5 px-3 py-1.5 rounded-md text-sm transition-colors text-left"
-              style={{
-                background: section === item.id ? 'var(--notion-active)' : 'transparent',
-                color: section === item.id ? 'var(--notion-text)' : 'var(--notion-text-muted)',
-                fontWeight: section === item.id ? 500 : 400,
-              }}
-              onMouseEnter={e => { if (section !== item.id) e.currentTarget.style.background = 'var(--notion-hover)'; }}
-              onMouseLeave={e => { if (section !== item.id) e.currentTarget.style.background = 'transparent'; }}
-            >
-              <span className="w-5 flex-shrink-0 flex items-center justify-center"><HandIcon name={item.icon} size={16} /></span>
-              {tSettings(item.labelKey as any)}
-            </button>
+          {NAV_GROUPS.map((group, gi) => (
+            <div key={gi}>
+              {group.group && (
+                <div className="px-3 mt-5 mb-2">
+                  <h3 className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: 'var(--notion-text-muted)', opacity: 0.6 }}>
+                    {tSettings(group.group as any)}
+                  </h3>
+                </div>
+              )}
+              {group.items.map(item => (
+                <button
+                  key={item.id}
+                  onClick={() => {
+                    if (item.id === 'integrations') {
+                      router.push(`/${tenant}/settings/integrations`);
+                    } else {
+                      setSection(item.id);
+                    }
+                  }}
+                  className="w-full flex items-center gap-2.5 px-3 py-1.5 rounded-md text-sm transition-colors text-left"
+                  style={{
+                    background: section === item.id ? 'var(--notion-active)' : 'transparent',
+                    color: section === item.id ? 'var(--notion-text)' : 'var(--notion-text-muted)',
+                    fontWeight: section === item.id ? 500 : 400,
+                  }}
+                  onMouseEnter={e => { if (section !== item.id) e.currentTarget.style.background = 'var(--notion-hover)'; }}
+                  onMouseLeave={e => { if (section !== item.id) e.currentTarget.style.background = 'transparent'; }}
+                >
+                  <span className="w-5 flex-shrink-0 flex items-center justify-center"><HandIcon name={item.icon} size={16} /></span>
+                  {tSettings(item.labelKey as any)}
+                </button>
+              ))}
+            </div>
           ))}
         </div>
       </div>
 
       {/* Settings content */}
       <div className="flex-1 overflow-y-auto">
-        <div className="max-w-2xl mx-auto px-10 py-8">
-          {section === 'account' && <AccountSection />}
-          {section === 'appearance' && <AppearanceSection />}
-          {section === 'ai' && <AISection />}
-          {section === 'ai-providers' && <AIProvidersSection />}
-          {section === 'ai-finder' && <AIFinderSettingsSection />}
-          {section === 'workspace' && <WorkspaceSection tenant={tenant} />}
-          {section === 'members' && <MembersSection />}
-          {section === 'notifications' && <NotificationsSection />}
-          {section === 'email' && <EmailSettingsSection />}
-          {section === 'whatsapp' && <WhatsAppSettingsSection />}
+        {section.startsWith('admin-') ? (
+          <div className="px-8 py-8">
+            {section === 'admin-members' && <AdminMembersSection />}
+            {section === 'admin-permissions' && <AdminPermissionsSection />}
+            {section === 'admin-whatsapp' && <WhatsAppSettingsSection />}
+            {section === 'admin-email' && <EmailSettingsSection />}
+            {section === 'admin-ai' && <AIProvidersSection />}
+          </div>
+        ) : (
+          <div className="max-w-2xl mx-auto px-10 py-8">
+            {section === 'account' && <AccountSection />}
+            {section === 'appearance' && <AppearanceSection />}
+            {section === 'ai' && <AISection />}
+            {section === 'ai-providers' && <AIProvidersSection />}
+            {section === 'ai-finder' && <AIFinderSettingsSection />}
+            {section === 'workspace' && <WorkspaceSection tenant={tenant} />}
+            {section === 'members' && <MembersSection />}
+            {section === 'notifications' && <NotificationsSection />}
+            {section === 'email' && <EmailSettingsSection />}
+            {section === 'whatsapp' && <WhatsAppSettingsSection />}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── Admin Members Section ──────────────────────────────────────────────────
+
+const DEFAULT_PASSWORD = 'Happy2026';
+
+function AdminMembersSection() {
+  const t = useTranslations('admin');
+  const [staff, setStaff] = useState<any[]>([]);
+  const [positions, setPositions] = useState<any[]>([]);
+  const [departments, setDepartments] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [showInvite, setShowInvite] = useState(false);
+  const EMPTY_INVITE = {
+    email: '', full_name: '', password: DEFAULT_PASSWORD, role: 'tenant_user',
+    phone: '', department_id: '', position_id: '', title: '',
+    employment_type: 'full_time', start_date: '',
+  };
+  const [inviteForm, setInviteForm] = useState(EMPTY_INVITE);
+  const [inviting, setInviting] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editPatch, setEditPatch] = useState<any>({});
+  const [pwdVisible, setPwdVisible] = useState<Set<string>>(new Set());
+
+  const ROLE_COLORS: Record<string, { bg: string; color: string }> = {
+    tenant_admin: { bg: '#ede9fe', color: '#7c3aed' },
+    tenant_user:  { bg: '#dbeafe', color: '#1d4ed8' },
+    manager:      { bg: '#dcfce7', color: '#15803d' },
+  };
+  const ROLE_LABELS: Record<string, string> = {
+    tenant_admin: t('roleSuperAdmin'), tenant_user: t('roleUser'), manager: t('roleManager'),
+  };
+  const EMP_LABELS: Record<string, string> = {
+    full_time: t('empTypeFullTime'), part_time: t('empTypePartTime'), contract: t('empTypeContract'), intern: t('empTypeIntern'),
+  };
+
+  useEffect(() => {
+    Promise.all([
+      api.get('/api/hr/staff').catch(() => []),
+      api.get('/api/admin/positions').catch(() => []),
+      api.get('/api/hr/departments').catch(() => []),
+      api.get('/api/admin/users').catch(() => []),
+    ]).then(([staffList, pos, depts, adminUsers]) => {
+      const pwdMap: Record<string, string> = {};
+      for (const u of (Array.isArray(adminUsers) ? adminUsers : [])) {
+        if (u.id) pwdMap[u.id] = u.plain_password ?? '';
+      }
+      setStaff((Array.isArray(staffList) ? staffList : []).map((s: any) => ({
+        ...s, plain_password: pwdMap[s.user_id] ?? s.plain_password ?? '',
+      })));
+      setPositions(Array.isArray(pos) ? pos : []);
+      setDepartments(Array.isArray(depts) ? depts : []);
+    }).finally(() => setLoading(false));
+  }, []);
+
+  async function createStaff(e: React.FormEvent) {
+    e.preventDefault();
+    setInviting(true);
+    try {
+      const res = await api.post('/api/hr/staff', inviteForm);
+      const dept = departments.find(d => d.id === inviteForm.department_id);
+      const pos = positions.find(p => p.id === inviteForm.position_id);
+      setStaff(prev => [...prev, { ...res, department_name: dept?.name, position_name: pos?.name, plain_password: inviteForm.password }]);
+      setInviteForm(EMPTY_INVITE);
+      setShowInvite(false);
+    } catch { /* */ }
+    setInviting(false);
+  }
+
+  async function saveEdit(userId: string) {
+    try {
+      await api.patch(`/api/hr/staff/${userId}`, editPatch);
+      setStaff(prev => prev.map(s => s.user_id === userId ? { ...s, ...editPatch,
+        department_name: departments.find(d => d.id === editPatch.department_id)?.name ?? s.department_name,
+        position_name: positions.find(p => p.id === editPatch.position_id)?.name ?? s.position_name,
+      } : s));
+      setEditingId(null);
+    } catch { /* */ }
+  }
+
+  async function toggleAdmin(userId: string, isAdmin: boolean) {
+    try {
+      await api.patch(`/api/admin/users/${userId}/promote?is_admin=${isAdmin}`, {});
+      setStaff(prev => prev.map(s => s.user_id === userId ? { ...s, is_admin: isAdmin } : s));
+    } catch { /* */ }
+  }
+
+  async function resetPassword(userId: string) {
+    try {
+      const res = await api.patch(`/api/admin/users/${userId}/reset-password`, { password: DEFAULT_PASSWORD });
+      setStaff(prev => prev.map(s => s.user_id === userId ? { ...s, plain_password: res.plain_password || DEFAULT_PASSWORD } : s));
+    } catch { /* */ }
+  }
+
+  if (loading) return <div className="py-16 text-center text-sm" style={{ color: 'var(--notion-text-muted)' }}>{t('loading')}</div>;
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-6">
+        <div>
+          <h2 className="text-lg font-semibold" style={{ color: 'var(--notion-text)' }}>{t('tabUsers')}</h2>
+          <p className="text-sm mt-1" style={{ color: 'var(--notion-text-muted)' }}>{t('staffCount', { name: '', n: staff.length })}</p>
+        </div>
+        <button onClick={() => setShowInvite(!showInvite)}
+          className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-medium text-white"
+          style={{ background: '#6366f1' }}>
+          <HandIcon name="plus" size={14} /> {t('newStaff')}
+        </button>
+      </div>
+
+      {/* Invite form */}
+      {showInvite && (
+        <form onSubmit={createStaff} className="mb-6 p-5 rounded-2xl space-y-3"
+          style={{ border: '1px solid var(--notion-border)', background: 'var(--notion-card, white)' }}>
+          <div className="grid grid-cols-3 gap-3">
+            <input required placeholder="姓名" value={inviteForm.full_name} onChange={e => setInviteForm({ ...inviteForm, full_name: e.target.value })}
+              className="px-3 py-2 rounded-lg text-sm outline-none" style={{ border: '1px solid var(--notion-border)' }} />
+            <input required type="email" placeholder="邮箱" value={inviteForm.email} onChange={e => setInviteForm({ ...inviteForm, email: e.target.value })}
+              className="px-3 py-2 rounded-lg text-sm outline-none" style={{ border: '1px solid var(--notion-border)' }} />
+            <input placeholder={t('passwordReq')} value={inviteForm.password} onChange={e => setInviteForm({ ...inviteForm, password: e.target.value })}
+              className="px-3 py-2 rounded-lg text-sm outline-none" style={{ border: '1px solid var(--notion-border)' }} />
+          </div>
+          <div className="grid grid-cols-3 gap-3">
+            <select value={inviteForm.department_id} onChange={e => setInviteForm({ ...inviteForm, department_id: e.target.value })}
+              className="px-3 py-2 rounded-lg text-sm outline-none" style={{ border: '1px solid var(--notion-border)' }}>
+              <option value="">部门</option>
+              {departments.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
+            </select>
+            <select value={inviteForm.position_id} onChange={e => setInviteForm({ ...inviteForm, position_id: e.target.value })}
+              className="px-3 py-2 rounded-lg text-sm outline-none" style={{ border: '1px solid var(--notion-border)' }}>
+              <option value="">{t('thPosition')}</option>
+              {positions.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+            </select>
+            <select value={inviteForm.role} onChange={e => setInviteForm({ ...inviteForm, role: e.target.value })}
+              className="px-3 py-2 rounded-lg text-sm outline-none" style={{ border: '1px solid var(--notion-border)' }}>
+              {Object.entries(ROLE_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+            </select>
+          </div>
+          <div className="flex gap-2">
+            <button type="submit" disabled={inviting} className="px-4 py-2 rounded-lg text-sm font-medium text-white" style={{ background: '#6366f1' }}>
+              {inviting ? '...' : t('createStaff')}
+            </button>
+            <button type="button" onClick={() => setShowInvite(false)} className="px-4 py-2 rounded-lg text-sm" style={{ color: 'var(--notion-text-muted)' }}>
+              {t('cancelBtn')}
+            </button>
+          </div>
+        </form>
+      )}
+
+      {/* Staff table */}
+      <div className="rounded-2xl overflow-hidden" style={{ border: '1px solid var(--notion-border)', background: 'var(--notion-card, white)' }}>
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-max">
+            <thead>
+              <tr style={{ borderBottom: '1px solid var(--notion-border)', background: 'var(--notion-hover)' }}>
+                {['姓名', '邮箱', t('thPassword'), '部门', t('thPosition'), '角色', '管理员', '操作'].map(h => (
+                  <th key={h} className="text-left px-4 py-2.5 text-[11px] font-semibold uppercase tracking-wider" style={{ color: '#9B9A97' }}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {staff.map((s, i) => {
+                const isEditing = editingId === s.user_id;
+                const rc = ROLE_COLORS[s.role] ?? ROLE_COLORS.tenant_user;
+                return (
+                  <tr key={s.user_id} style={{ borderBottom: i < staff.length - 1 ? '1px solid var(--notion-border)' : 'none' }}
+                    onMouseEnter={e => e.currentTarget.style.background = 'var(--notion-hover)'}
+                    onMouseLeave={e => e.currentTarget.style.background = ''}>
+                    <td className="px-4 py-2.5 text-sm font-medium" style={{ color: 'var(--notion-text)' }}>
+                      {isEditing ? <input value={editPatch.full_name ?? s.full_name} onChange={e => setEditPatch({ ...editPatch, full_name: e.target.value })}
+                        className="px-2 py-1 rounded text-sm outline-none w-28" style={{ border: '1px solid var(--notion-border)' }} /> : s.full_name}
+                    </td>
+                    <td className="px-4 py-2.5 text-sm" style={{ color: 'var(--notion-text-muted)' }}>{s.email}</td>
+                    <td className="px-4 py-2.5">
+                      <span className="text-xs font-mono" style={{ color: 'var(--notion-text-muted)' }}>
+                        {pwdVisible.has(s.user_id) ? (s.plain_password || '***') : '••••••'}
+                      </span>
+                      <button onClick={() => setPwdVisible(prev => { const n = new Set(prev); n.has(s.user_id) ? n.delete(s.user_id) : n.add(s.user_id); return n; })}
+                        className="ml-1 text-[10px]" style={{ color: '#9B9A97' }}>
+                        {pwdVisible.has(s.user_id) ? '🙈' : '👁'}
+                      </button>
+                    </td>
+                    <td className="px-4 py-2.5 text-sm" style={{ color: 'var(--notion-text-muted)' }}>
+                      {isEditing ? <select value={editPatch.department_id ?? s.department_id ?? ''} onChange={e => setEditPatch({ ...editPatch, department_id: e.target.value })}
+                        className="px-2 py-1 rounded text-sm outline-none" style={{ border: '1px solid var(--notion-border)' }}>
+                        <option value="">-</option>{departments.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
+                      </select> : (s.department_name || '-')}
+                    </td>
+                    <td className="px-4 py-2.5 text-sm" style={{ color: 'var(--notion-text-muted)' }}>
+                      {isEditing ? <select value={editPatch.position_id ?? s.position_id ?? ''} onChange={e => setEditPatch({ ...editPatch, position_id: e.target.value })}
+                        className="px-2 py-1 rounded text-sm outline-none" style={{ border: '1px solid var(--notion-border)' }}>
+                        <option value="">-</option>{positions.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                      </select> : (s.position_name || '-')}
+                    </td>
+                    <td className="px-4 py-2.5">
+                      <span className="inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium"
+                        style={{ background: rc.bg, color: rc.color }}>{ROLE_LABELS[s.role] || s.role}</span>
+                    </td>
+                    <td className="px-4 py-2.5">
+                      <button onClick={() => toggleAdmin(s.user_id, !s.is_admin)}
+                        className="w-8 h-5 rounded-full relative transition-colors"
+                        style={{ background: s.is_admin ? '#6366f1' : '#d1d5db' }}>
+                        <span className="absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform"
+                          style={{ left: s.is_admin ? 16 : 2 }} />
+                      </button>
+                    </td>
+                    <td className="px-4 py-2.5">
+                      <div className="flex items-center gap-1">
+                        {isEditing ? (
+                          <>
+                            <button onClick={() => saveEdit(s.user_id)} className="text-xs px-2 py-1 rounded" style={{ background: '#dcfce7', color: '#15803d' }}>{t('saveBtn')}</button>
+                            <button onClick={() => setEditingId(null)} className="text-xs px-2 py-1 rounded" style={{ color: '#9B9A97' }}>{t('cancelBtn')}</button>
+                          </>
+                        ) : (
+                          <>
+                            <button onClick={() => { setEditingId(s.user_id); setEditPatch({}); }}
+                              className="text-xs px-2 py-1 rounded" style={{ color: '#6366f1' }}>{t('editBtn')}</button>
+                            <button onClick={() => resetPassword(s.user_id)}
+                              className="text-xs px-2 py-1 rounded" style={{ color: '#f59e0b' }}>{t('resetPwd')}</button>
+                          </>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
         </div>
       </div>
     </div>
   );
 }
+
+// ── Admin Permissions Section ──────────────────────────────────────────────
+
+function PermCell({ value, onChange, options }: { value: string; onChange: (v: string) => void; options: { value: string; label: string; color: string; bg: string }[] }) {
+  const cur = options.find(p => p.value === value) ?? options[1];
+  return (
+    <select value={value} onChange={e => onChange(e.target.value)}
+      className="text-xs rounded-lg px-2 py-1 font-medium border-0 outline-none cursor-pointer"
+      style={{ background: cur.bg, color: cur.color }}>
+      {options.map(p => <option key={p.value} value={p.value}>{p.label}</option>)}
+    </select>
+  );
+}
+
+function AdminPermissionsSection() {
+  const t = useTranslations('admin');
+  const [loading, setLoading] = useState(true);
+  const [positions, setPositions] = useState<any[]>([]);
+  const [departments, setDepartments] = useState<any[]>([]);
+  const [staff, setStaff] = useState<any[]>([]);
+  const [permOverrides, setPermOverrides] = useState<Record<string, string>>({});
+  const [savingPerms, setSavingPerms] = useState(false);
+  const [permTarget, setPermTarget] = useState<'position' | 'user'>('position');
+
+  // Position management
+  const [showAddPos, setShowAddPos] = useState(false);
+  const [posForm, setPosForm] = useState({ name: '', description: '' });
+  const [editingPos, setEditingPos] = useState<any | null>(null);
+
+  const APPS = [
+    { key: 'workspace',  label: t('appWorkspace'),   icon: 'folder' },
+    { key: 'crm',        label: t('appCrm'),         icon: 'people-group' },
+    { key: 'hr',         label: t('appHr'),           icon: 'necktie' },
+    { key: 'accounting', label: t('appAccounting'),   icon: 'money-bag' },
+    { key: 'inventory',  label: t('appInventory'),    icon: 'package' },
+    { key: 'operations', label: t('appOperations') ?? '业务运营',    icon: 'globe' },
+  ];
+  const PERM_OPTIONS = [
+    { value: 'edit', label: t('permEdit'), color: '#15803d', bg: '#dcfce7' },
+    { value: 'view', label: t('permView'), color: '#1d4ed8', bg: '#dbeafe' },
+    { value: 'none', label: t('permNone'), color: '#6b7280', bg: '#f3f4f6' },
+  ];
+
+  useEffect(() => {
+    Promise.all([
+      api.get('/api/admin/positions').catch(() => []),
+      api.get('/api/hr/departments').catch(() => []),
+      api.get('/api/admin/app-permissions').catch(() => null),
+      api.get('/api/hr/staff').catch(() => []),
+    ]).then(([pos, depts, perms, staffList]) => {
+      setPositions(Array.isArray(pos) ? pos : []);
+      setDepartments(Array.isArray(depts) ? depts : []);
+      setStaff(Array.isArray(staffList) ? staffList : []);
+      if (perms) {
+        const map: Record<string, string> = {};
+        for (const p of (perms.permissions ?? [])) {
+          map[`${p.app}:${p.target_type}:${p.target_id}`] = p.permission;
+        }
+        setPermOverrides(map);
+      }
+    }).finally(() => setLoading(false));
+  }, []);
+
+  function getPerm(app: string, targetType: string, targetId: string): string {
+    return permOverrides[`${app}:${targetType}:${targetId}`] ?? 'view';
+  }
+  function setPerm(app: string, targetType: string, targetId: string, value: string) {
+    setPermOverrides(prev => ({ ...prev, [`${app}:${targetType}:${targetId}`]: value }));
+  }
+
+  // For user-level: show effective = position default + user override
+  function getEffective(app: string, userId: string): { effective: string; source: 'user' | 'position' | 'default' } {
+    const userPerm = permOverrides[`${app}:user:${userId}`];
+    if (userPerm) return { effective: userPerm, source: 'user' };
+    const userStaff = staff.find(s => s.user_id === userId);
+    if (userStaff?.position_id) {
+      const posPerm = permOverrides[`${app}:position:${userStaff.position_id}`];
+      if (posPerm) return { effective: posPerm, source: 'position' };
+    }
+    return { effective: 'view', source: 'default' };
+  }
+
+  async function savePermissions() {
+    setSavingPerms(true);
+    try {
+      const rules = Object.entries(permOverrides).map(([key, permission]) => {
+        const [app, target_type, target_id] = key.split(':');
+        return { app, target_type, target_id, permission };
+      });
+      await api.patch('/api/admin/app-permissions', { rules });
+    } catch { /* */ }
+    setSavingPerms(false);
+  }
+
+  async function addPosition(e: React.FormEvent) {
+    e.preventDefault();
+    try {
+      const res = await api.post('/api/admin/positions', posForm);
+      setPositions(prev => [...prev, res]);
+      setPosForm({ name: '', description: '' });
+      setShowAddPos(false);
+    } catch { /* */ }
+  }
+
+  async function updatePosition(posId: string) {
+    if (!editingPos) return;
+    try {
+      await api.patch(`/api/admin/positions/${posId}`, { name: editingPos.name, description: editingPos.description });
+      setPositions(prev => prev.map(p => p.id === posId ? { ...p, ...editingPos } : p));
+      setEditingPos(null);
+    } catch { /* */ }
+  }
+
+  async function deletePosition(posId: string) {
+    try {
+      await api.delete(`/api/admin/positions/${posId}`);
+      setPositions(prev => prev.filter(p => p.id !== posId));
+    } catch { /* */ }
+  }
+
+  if (loading) return <div className="py-16 text-center text-sm" style={{ color: 'var(--notion-text-muted)' }}>{t('loading')}</div>;
+
+  const targets = permTarget === 'position' ? positions : staff;
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-6">
+        <div>
+          <h2 className="text-lg font-semibold" style={{ color: 'var(--notion-text)' }}>{t('tabPermissions')}</h2>
+          <p className="text-xs mt-1" style={{ color: 'var(--notion-text-muted)' }}>
+            职务权限为默认权限，个人权限为最终权限。权限控制模块是否可见。
+          </p>
+        </div>
+        <button onClick={savePermissions} disabled={savingPerms}
+          className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-medium text-white"
+          style={{ background: savingPerms ? '#a5b4fc' : '#6366f1' }}>
+          <HandIcon name="checkmark" size={14} /> {savingPerms ? '...' : t('savePermissions')}
+        </button>
+      </div>
+
+      {/* Target type switcher: Position vs User */}
+      <div className="flex items-center gap-4 mb-4">
+        <div className="flex items-center gap-1 p-1 rounded-xl" style={{ background: 'var(--notion-active)' }}>
+          {([
+            { key: 'position' as const, icon: 'tag', label: t('byPosition') },
+            { key: 'user' as const, icon: 'person', label: '按用户' },
+          ]).map(pt => (
+            <button key={pt.key} onClick={() => setPermTarget(pt.key)}
+              className="px-4 py-1.5 rounded-lg text-sm font-medium transition-all"
+              style={{
+                background: permTarget === pt.key ? 'white' : 'transparent',
+                color: permTarget === pt.key ? 'var(--notion-text)' : '#9B9A97',
+                boxShadow: permTarget === pt.key ? '0 1px 4px rgba(0,0,0,0.08)' : 'none',
+              }}>
+              <span className="inline-flex items-center gap-1"><HandIcon name={pt.icon} size={13} />{pt.label}</span>
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Position management (only show in position mode) */}
+      {permTarget === 'position' && (
+        <div className="mb-6">
+          <div className="flex items-center gap-2 mb-3">
+            <h3 className="text-sm font-medium" style={{ color: 'var(--notion-text)' }}>{t('tabPositions')}</h3>
+            <button onClick={() => setShowAddPos(!showAddPos)} className="text-xs px-2 py-1 rounded-lg"
+              style={{ background: '#ede9fe', color: '#6366f1' }}>
+              <HandIcon name="plus" size={11} /> {t('newPosition')}
+            </button>
+          </div>
+
+          {showAddPos && (
+            <form onSubmit={addPosition} className="flex items-center gap-2 mb-3">
+              <input required placeholder="职务名称" value={posForm.name} onChange={e => setPosForm({ ...posForm, name: e.target.value })}
+                className="px-3 py-1.5 rounded-lg text-sm outline-none flex-1" style={{ border: '1px solid var(--notion-border)' }} />
+              <input placeholder="描述" value={posForm.description} onChange={e => setPosForm({ ...posForm, description: e.target.value })}
+                className="px-3 py-1.5 rounded-lg text-sm outline-none flex-1" style={{ border: '1px solid var(--notion-border)' }} />
+              <button type="submit" className="px-3 py-1.5 rounded-lg text-sm text-white" style={{ background: '#6366f1' }}>{t('addBtn')}</button>
+            </form>
+          )}
+
+          <div className="flex flex-wrap gap-2">
+            {positions.map(p => (
+              <div key={p.id} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm"
+                style={{ border: '1px solid var(--notion-border)', background: 'var(--notion-card, white)' }}>
+                {editingPos?.id === p.id ? (
+                  <>
+                    <input value={editingPos.name} onChange={e => setEditingPos({ ...editingPos, name: e.target.value })}
+                      className="px-1 py-0.5 rounded text-sm outline-none w-20" style={{ border: '1px solid var(--notion-border)' }} />
+                    <button onClick={() => updatePosition(p.id)} className="text-[10px]" style={{ color: '#15803d' }}>✓</button>
+                    <button onClick={() => setEditingPos(null)} className="text-[10px]" style={{ color: '#9B9A97' }}>✕</button>
+                  </>
+                ) : (
+                  <>
+                    <span style={{ color: 'var(--notion-text)' }}>{p.name}</span>
+                    <button onClick={() => setEditingPos(p)} className="text-[10px]" style={{ color: '#9B9A97' }}>✎</button>
+                    {!p.is_builtin && <button onClick={() => deletePosition(p.id)} className="text-[10px]" style={{ color: '#ef4444' }}>✕</button>}
+                  </>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Permission matrix */}
+      {targets.length === 0 ? (
+        <div className="py-16 text-center rounded-2xl" style={{ border: '1px solid var(--notion-border)', background: 'var(--notion-card, white)' }}>
+          <p className="text-sm" style={{ color: '#9B9A97' }}>
+            {permTarget === 'position' ? t('noPositionsForPerm') : '暂无用户'}
+          </p>
+        </div>
+      ) : (
+        <div className="rounded-2xl overflow-hidden" style={{ border: '1px solid var(--notion-border)', background: 'var(--notion-card, white)' }}>
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-max">
+              <thead>
+                <tr style={{ borderBottom: '1px solid var(--notion-border)', background: 'var(--notion-hover)' }}>
+                  <th className="text-left px-5 py-3 text-[11px] font-semibold uppercase tracking-wider" style={{ color: '#9B9A97', minWidth: 160 }}>
+                    {permTarget === 'position' ? t('colPositionOrDept') : '用户'}
+                  </th>
+                  {permTarget === 'user' && (
+                    <th className="text-left px-3 py-3 text-[11px] font-semibold uppercase tracking-wider" style={{ color: '#9B9A97' }}>
+                      职务
+                    </th>
+                  )}
+                  {APPS.map(a => (
+                    <th key={a.key} className="text-center px-3 py-3 text-[11px] font-semibold uppercase tracking-wider" style={{ color: '#9B9A97', minWidth: 100 }}>
+                      <span className="inline-flex items-center justify-center gap-1"><HandIcon name={a.icon} size={13} />{a.label}</span>
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {targets.map((target: any, i: number) => {
+                  const targetId = permTarget === 'position' ? target.id : target.user_id;
+                  const targetName = permTarget === 'position' ? target.name : target.full_name;
+                  return (
+                    <tr key={targetId}
+                      style={{ borderBottom: i < targets.length - 1 ? '1px solid var(--notion-border)' : 'none' }}
+                      onMouseEnter={e => e.currentTarget.style.background = 'var(--notion-hover)'}
+                      onMouseLeave={e => e.currentTarget.style.background = ''}>
+                      <td className="px-5 py-3">
+                        <span className="text-sm font-medium" style={{ color: 'var(--notion-text)' }}>{targetName}</span>
+                      </td>
+                      {permTarget === 'user' && (
+                        <td className="px-3 py-3">
+                          <span className="text-xs" style={{ color: '#9B9A97' }}>{target.position_name || '-'}</span>
+                        </td>
+                      )}
+                      {APPS.map(a => {
+                        if (permTarget === 'user') {
+                          const eff = getEffective(a.key, targetId);
+                          const hasUserOverride = permOverrides[`${a.key}:user:${targetId}`] !== undefined;
+                          return (
+                            <td key={a.key} className="px-3 py-3 text-center">
+                              <div className="flex flex-col items-center gap-0.5">
+                                <PermCell
+                                  value={getPerm(a.key, 'user', targetId)}
+                                  onChange={v => setPerm(a.key, 'user', targetId, v)}
+                                  options={PERM_OPTIONS}
+                                />
+                                {!hasUserOverride && (
+                                  <span className="text-[9px]" style={{ color: '#9B9A97' }}>
+                                    {eff.source === 'position' ? '← 职务' : '← 默认'}
+                                  </span>
+                                )}
+                              </div>
+                            </td>
+                          );
+                        }
+                        return (
+                          <td key={a.key} className="px-3 py-3 text-center">
+                            <PermCell
+                              value={getPerm(a.key, 'position', targetId)}
+                              onChange={v => setPerm(a.key, 'position', targetId, v)}
+                              options={PERM_OPTIONS}
+                            />
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 
 // ── AI Section ────────────────────────────────────────────────────────────
 
