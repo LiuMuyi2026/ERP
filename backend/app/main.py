@@ -32,6 +32,10 @@ async def lifespan(app: FastAPI):
     module_registry.register_events()
     module_registry.register_routes(app, prefix="/api/v2")
 
+    # Register AI event hooks
+    from app.core.ai import register_ai_hooks
+    register_ai_hooks()
+
     # Install entity_registry table in all provisioned tenant schemas
     try:
         async with AsyncSessionLocal() as session:
