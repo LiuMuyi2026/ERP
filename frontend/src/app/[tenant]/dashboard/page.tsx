@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { api } from '@/lib/api';
+import DocumentGenerator from '@/components/ai/DocumentGenerator';
 
 type InsightItem = {
   type: string;
@@ -396,6 +397,20 @@ export default function DashboardPage() {
             )}
           </div>
         )}
+      </div>
+
+      {/* Document Generator */}
+      <div style={{
+        background: 'var(--notion-bg-primary, #fff)',
+        border: '1px solid var(--notion-border, #e5e5e5)',
+        borderRadius: 12,
+        padding: 20,
+        marginTop: 24,
+      }}>
+        <h2 style={{ fontSize: 16, fontWeight: 600, color: 'var(--notion-text-primary, #37352f)', margin: '0 0 16px 0' }}>
+          AI Document Generator
+        </h2>
+        <DocumentGenerator />
       </div>
     </div>
   );

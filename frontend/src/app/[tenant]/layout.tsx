@@ -112,6 +112,7 @@ export default function TenantLayout({ children }: { children: React.ReactNode }
 
   const openCmd = useCallback(() => setCmdOpen(true), []);
   const navItems: MobileNavItem[] = [
+    { key: 'dashboard', label: 'AI Dashboard', href: `/${tenant}/dashboard` },
     { key: 'workspace', label: 'Workspace', href: `/${tenant}/workspace` },
     { key: 'crm', label: 'CRM', href: `/${tenant}/crm` },
     { key: 'messages', label: 'Messages', href: `/${tenant}/messages` },
@@ -148,6 +149,7 @@ export default function TenantLayout({ children }: { children: React.ReactNode }
   }
 
   const titleMap: Record<string, string> = {
+    dashboard: 'AI Dashboard',
     workspace: 'Workspace',
     crm: 'CRM',
     messages: 'Messages',

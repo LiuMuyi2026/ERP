@@ -17,6 +17,7 @@ type Lead = {
   follow_up_status?: string; ai_summary?: string; assigned_to?: string;
   created_by?: string; created_at?: string; updated_at?: string; last_contacted_at?: string;
   is_cold?: boolean; cold_lead_reason?: string;
+  ai_score?: number; ai_score_reasons?: any[];
   custom_fields?: Record<string, any>;
 };
 type Contract = {
@@ -1354,7 +1355,8 @@ function LeadsTab({ leads, users, onCreateLead, defaultStatusFilter }: {
       { col: 'source_channel',  label: tCrm('colSourceChannel') },
       { col: 'customer_type',   label: tCrm('colCustomerType') },
       { col: 'created_by_name', label: tCrm('colAssignedTo') },
-      { col: 'actions',         label: '' },
+      { col: 'ai_score',       label: 'AI' },
+      { col: 'actions',        label: '' },
     ];
     return (
       <div className="overflow-x-auto rounded-xl" style={{ border: '1px solid var(--notion-border)' }}>
@@ -1370,7 +1372,7 @@ function LeadsTab({ leads, users, onCreateLead, defaultStatusFilter }: {
           </thead>
           <tbody>
             {filtered.length === 0 ? (
-              <tr><td colSpan={8} className="px-4 py-12 text-center text-sm" style={{ color: '#9B9A97' }}>
+              <tr><td colSpan={9} className="px-4 py-12 text-center text-sm" style={{ color: '#9B9A97' }}>
                 {hasFilters ? tCrm('noMatchingLeads') : tCrm('noLeads')}
                 {!hasFilters && <button onClick={onCreateLead} className="ml-3 text-xs px-3 py-1 rounded-md text-white" style={{ background: '#7c3aed' }}>{tCrm('newLeadBtn')}</button>}
               </td></tr>
@@ -1434,6 +1436,19 @@ function LeadsTab({ leads, users, onCreateLead, defaultStatusFilter }: {
                   <td className="px-4 py-2.5 text-xs" style={{ color: '#5F5E5B' }}>{channel || <span style={{ color: '#C2C0BC' }}>—</span>}</td>
                   <td className="px-4 py-2.5 text-xs" style={{ color: '#5F5E5B' }}>{custType || <span style={{ color: '#C2C0BC' }}>—</span>}</td>
                   <td className="px-4 py-2.5 text-xs" style={{ color: '#5F5E5B' }}>{creatorName}</td>
+                  <td className="px-4 py-2.5">
+                    {lead.ai_score != null ? (
+                      <span className="inline-flex items-center justify-center w-7 h-7 rounded-full text-[10px] font-bold"
+                        style={{
+                          background: lead.ai_score >= 75 ? '#e6f7f2' : lead.ai_score >= 50 ? '#fef9e7' : lead.ai_score >= 25 ? '#fef3e2' : '#fce8e8',
+                          color: lead.ai_score >= 75 ? '#0f7b6c' : lead.ai_score >= 50 ? '#dfab01' : lead.ai_score >= 25 ? '#e08b00' : '#e03e3e',
+                        }}>
+                        {lead.ai_score}
+                      </span>
+                    ) : (
+                      <span className="text-[10px]" style={{ color: '#C2C0BC' }}>—</span>
+                    )}
+                  </td>
                   {/* Actions */}
                   <td className="px-3 py-2.5">
                     <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-all">
