@@ -9,7 +9,7 @@ import type { PipelineConfig, StatusValue, FileCategory, WorkflowStageDef, Workf
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
-type Tab = 'workflow' | 'statuses' | 'files';
+// Single-page layout — no tabs
 
 // ── Shared UI ─────────────────────────────────────────────────────────────────
 
@@ -536,7 +536,6 @@ export default function PipelineConfigSection() {
   const tc = useTranslations('common');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [tab, setTab] = useState<Tab>('workflow');
   const [dirty, setDirty] = useState(false);
 
   // Config state
@@ -612,12 +611,6 @@ export default function PipelineConfigSection() {
     );
   }
 
-  const TABS: { key: Tab; labelKey: string; icon: string }[] = [
-    { key: 'workflow', labelKey: 'tabWorkflow', icon: 'briefcase' },
-    { key: 'statuses', labelKey: 'tabStatuses', icon: 'tag' },
-    { key: 'files', labelKey: 'tabFiles', icon: 'folder' },
-  ];
-
   return (
     <div>
       {/* Header */}
@@ -641,39 +634,23 @@ export default function PipelineConfigSection() {
         </button>
       </div>
 
-      {/* Tab bar */}
-      <div className="flex items-center gap-1 mb-6 pb-2" style={{ borderBottom: '1px solid var(--notion-border)' }}>
-        {TABS.map(tb => (
-          <button key={tb.key} onClick={() => setTab(tb.key)}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm transition-colors"
-            style={{
-              background: tab === tb.key ? 'var(--notion-active)' : 'transparent',
-              color: tab === tb.key ? 'var(--notion-text)' : 'var(--notion-text-muted)',
-              fontWeight: tab === tb.key ? 600 : 400,
-            }}>
-            <HandIcon name={tb.icon} size={14} />
-            {t(tb.labelKey as any)}
-          </button>
-        ))}
-      </div>
-
-      {/* Content */}
-      {tab === 'workflow' && (
+      {/* All sections on one page */}
+      <div className="space-y-10">
         <WorkflowStagesEditor stages={workflowStages} onChange={markDirty(setWorkflowStages)} />
-      )}
-      {tab === 'statuses' && (
-        <>
+
+        <div style={{ borderTop: '1px solid var(--notion-border)', paddingTop: '2rem' }}>
           <StatusesEditor statuses={statuses} stageKeys={pipelineStageKeys} onChange={markDirty(setStatuses)} />
           <TransitionsEditor
             transitions={transitions}
             statuses={statuses}
             onChange={tr => { setTransitions(tr); setDirty(true); }}
           />
-        </>
-      )}
-      {tab === 'files' && (
-        <FileCategoriesEditor categories={fileCategories} onChange={markDirty(setFileCategories)} />
-      )}
+        </div>
+
+        <div style={{ borderTop: '1px solid var(--notion-border)', paddingTop: '2rem' }}>
+          <FileCategoriesEditor categories={fileCategories} onChange={markDirty(setFileCategories)} />
+        </div>
+      </div>
     </div>
   );
 }
