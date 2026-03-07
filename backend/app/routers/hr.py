@@ -28,6 +28,63 @@ async def _next_employee_number(db) -> str:
     return f"EMP{next_no:04d}"
 
 
+async def ensure_employee_for_user(db, user_id: str, full_name: str, email: str) -> None:
+    """Ensure a user has a linked employee record. Link existing or create new."""
+    # 1. Try to link an existing unlinked employee with same email
+    r = await db.execute(
+        text("UPDATE employees SET user_id = :uid WHERE email = :email AND user_id IS NULL RETURNING id"),
+        {"uid": user_id, "email": email},
+    )
+    if r.fetchone():
+        return  # linked existing
+    # 2. Already has one?
+    r = await db.execute(text("SELECT 1 FROM employees WHERE user_id = :uid"), {"uid": user_id})
+    if r.fetchone():
+        return  # already exists
+    # 3. Create new employee
+    emp_number = await _next_employee_number(db)
+    await db.execute(
+        text("""INSERT INTO employees (id, user_id, employee_number, full_name, email)
+                VALUES (gen_random_uuid(), :uid, :num, :name, :email)
+                ON CONFLICT (employee_number) DO NOTHING"""),
+        {"uid": user_id, "num": emp_number, "name": full_name, "email": email},
+    )
+
+
+async def reconcile_users_employees(db) -> int:
+    """One-time bulk sync: link + create employee records for all users missing them.
+    Returns the number of records affected."""
+    # 1. Bulk-link by email
+    r1 = await db.execute(text("""
+        UPDATE employees e SET user_id = u.id
+        FROM users u
+        WHERE e.email = u.email AND e.user_id IS NULL
+    """))
+    # 2. Bulk-create missing
+    r2 = await db.execute(text("""
+        WITH base AS (
+            SELECT COALESCE(
+                MAX(NULLIF(regexp_replace(COALESCE(employee_number, ''), '[^0-9]', '', 'g'), '')::int),
+                0
+            ) AS max_no FROM employees
+        ),
+        pending AS (
+            SELECT u.id, u.created_at,
+                   COALESCE(NULLIF(u.full_name, ''), SPLIT_PART(u.email, '@', 1), 'User') AS full_name,
+                   u.email
+            FROM users u
+            WHERE NOT EXISTS (SELECT 1 FROM employees e WHERE e.user_id = u.id)
+        )
+        INSERT INTO employees (id, user_id, employee_number, full_name, email)
+        SELECT gen_random_uuid(), p.id,
+               'EMP' || LPAD((b.max_no + ROW_NUMBER() OVER (ORDER BY p.created_at, p.id))::text, 4, '0'),
+               p.full_name, p.email
+        FROM pending p CROSS JOIN base b
+        ON CONFLICT (employee_number) DO NOTHING
+    """))
+    return (r1.rowcount or 0) + (r2.rowcount or 0)
+
+
 class EmployeeCreate(BaseModel):
     full_name: str
     email: Optional[str] = None
@@ -88,44 +145,6 @@ class RejectBody(BaseModel):
 @router.get("/employees")
 async def list_employees(department_id: Optional[str] = None, search: Optional[str] = None, ctx: dict = Depends(get_current_user_with_tenant)):
     db = ctx["db"]
-    # Silently auto-link employees → users by matching email
-    await db.execute(text("""
-        UPDATE employees e
-        SET user_id = u.id
-        FROM users u
-        WHERE e.email = u.email AND e.user_id IS NULL
-    """))
-    # Auto-create employee records for users that have none
-    await db.execute(text("""
-        WITH base AS (
-            SELECT COALESCE(
-                MAX(NULLIF(regexp_replace(COALESCE(employee_number, ''), '[^0-9]', '', 'g'), '')::int),
-                0
-            ) AS max_no
-            FROM employees
-        ),
-        pending AS (
-            SELECT
-                u.id,
-                u.created_at,
-                COALESCE(NULLIF(u.full_name, ''), SPLIT_PART(u.email, '@', 1), 'User') AS full_name,
-                u.email
-            FROM users u
-            WHERE NOT EXISTS (SELECT 1 FROM employees e WHERE e.user_id = u.id)
-        )
-        INSERT INTO employees (id, user_id, employee_number, full_name, email)
-        SELECT
-            gen_random_uuid(),
-            p.id,
-            'EMP' || LPAD((b.max_no + ROW_NUMBER() OVER (ORDER BY p.created_at, p.id))::text, 4, '0'),
-            p.full_name,
-            p.email
-        FROM pending p
-        CROSS JOIN base b
-        ON CONFLICT (employee_number) DO NOTHING
-    """))
-    await db.commit()
-
     conditions = ["e.status != 'terminated'"]
     params: dict = {}
     if department_id:
@@ -391,17 +410,8 @@ async def link_employees_by_email(ctx: dict = Depends(get_current_user_with_tena
 
 @router.get("/staff")
 async def list_staff(ctx: dict = Depends(get_current_user_with_tenant)):
-    """Return all users with their linked employee profile merged into one row.
-    Also silently auto-links any employees whose email matches a user account."""
+    """Return all users with their linked employee profile merged into one row."""
     db = ctx["db"]
-    # Silently auto-link employees → users by matching email
-    await db.execute(text("""
-        UPDATE employees e
-        SET user_id = u.id
-        FROM users u
-        WHERE e.email = u.email AND e.user_id IS NULL
-    """))
-    await db.commit()
     result = await db.execute(text("""
         SELECT
             u.id               AS user_id,

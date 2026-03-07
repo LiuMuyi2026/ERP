@@ -36,7 +36,7 @@ async def lifespan(app: FastAPI):
     from app.core.ai import register_ai_hooks
     register_ai_hooks()
 
-    # Install entity_registry table in all provisioned tenant schemas
+    # Install entity_registry table and reconcile users↔employees in all provisioned tenant schemas
     try:
         async with AsyncSessionLocal() as session:
             result = await session.execute(text("SELECT slug FROM platform.tenants WHERE schema_provisioned = TRUE"))
@@ -50,8 +50,17 @@ async def lifespan(app: FastAPI):
                         await session.execute(text(stmt))
                 await session.commit()
                 logger.info(f"Entity registry installed for tenant: {slug}")
+
+            # Reconcile users ↔ employees (link + auto-create missing)
+            async with AsyncSessionLocal() as session:
+                await session.execute(text(f'SET search_path TO "tenant_{slug}", public'))
+                from app.routers.hr import reconcile_users_employees
+                n = await reconcile_users_employees(session)
+                await session.commit()
+                if n > 0:
+                    logger.info(f"Reconciled {n} user↔employee records for tenant: {slug}")
     except Exception as e:
-        logger.warning(f"Entity registry migration warning: {e}")
+        logger.warning(f"Startup migration warning: {e}")
 
     yield
     logger.info("Shutting down...")

@@ -11,6 +11,7 @@ from app.services.tenant import provision_tenant_schema
 from app.services.auth import get_password_hash, create_token_for_tenant_user
 from app.services.pipeline_defaults import DEFAULT_PIPELINE_DEFINITION
 from app.utils.sql import safe_set_search_path, build_update_clause, validate_tenant_slug
+from app.routers.hr import ensure_employee_for_user
 
 router = APIRouter(prefix="/platform", tags=["platform"])
 
@@ -190,6 +191,7 @@ async def create_tenant(body: CreateTenantRequest, db: AsyncSession = Depends(ge
         text("INSERT INTO users (id, email, hashed_password, full_name, role) VALUES (:id, :email, :pw, :name, 'tenant_admin')"),
         {"id": user_id, "email": body.admin_email, "pw": hashed, "name": body.admin_name}
     )
+    await ensure_employee_for_user(db, user_id, body.admin_name, body.admin_email)
     await db.execute(text("SET search_path TO platform, public"))
     await db.execute(
         text("UPDATE platform.tenants SET schema_provisioned = TRUE WHERE id = :id"),

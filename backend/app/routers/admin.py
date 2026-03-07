@@ -12,6 +12,7 @@ from app.services.auth import get_password_hash
 from app.services.tenant_limits import ensure_tenant_user_capacity
 from app.utils.sql import build_update_clause
 from app.utils.crypto import encrypt_api_key
+from app.routers.hr import ensure_employee_for_user
 
 _PASSWORD_RE = re.compile(r"^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{8,}$")
 DEFAULT_PASSWORD = "Happy2026"
@@ -91,21 +92,6 @@ class BulkPermissionUpdate(BaseModel):
 
 # ── Users ─────────────────────────────────────────────────────────────────────
 
-async def _next_employee_number(db) -> str:
-    row = await db.execute(
-        text(
-            """
-            SELECT COALESCE(
-                MAX(NULLIF(regexp_replace(COALESCE(employee_number, ''), '[^0-9]', '', 'g'), '')::int),
-                0
-            )
-            FROM employees
-            """
-        )
-    )
-    next_no = int(row.scalar() or 0) + 1
-    return f"EMP{next_no:04d}"
-
 
 @router.get("/users-lite")
 async def list_users_lite(ctx: dict = Depends(get_current_user_with_tenant)):
@@ -173,28 +159,7 @@ async def invite_user(body: InviteUser, ctx: dict = Depends(get_current_user_wit
         text("INSERT INTO users (id, email, hashed_password, plain_password, full_name, role) VALUES (:id, :email, :pw, :plain, :name, :role)"),
         {"id": user_id, "email": body.email, "pw": hashed, "plain": plain_pw, "name": body.full_name, "role": body.role}
     )
-    # Auto-link or create employee record
-    emp_result = await db.execute(
-        text("SELECT id FROM employees WHERE email = :email AND user_id IS NULL"),
-        {"email": body.email}
-    )
-    emp_row = emp_result.fetchone()
-    if emp_row:
-        # Link existing unlinked employee to this new user
-        await db.execute(
-            text("UPDATE employees SET user_id = :uid WHERE id = :eid"),
-            {"uid": user_id, "eid": str(emp_row.id)}
-        )
-    else:
-        # Create a new employee record linked to this user
-        emp_id = str(uuid.uuid4())
-        emp_number = await _next_employee_number(db)
-        await db.execute(
-            text("""INSERT INTO employees (id, user_id, employee_number, full_name, email)
-                    VALUES (:id, :uid, :num, :name, :email)"""),
-            {"id": emp_id, "uid": user_id, "num": emp_number,
-             "name": body.full_name, "email": body.email}
-        )
+    await ensure_employee_for_user(db, user_id, body.full_name, body.email)
     await db.commit()
     return {"id": user_id, "email": body.email}
 
