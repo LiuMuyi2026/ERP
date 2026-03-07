@@ -34,6 +34,7 @@ const NAV_GROUPS: NavGroup[] = [
       { id: 'ai', icon: 'brain', labelKey: 'navAI' },
       { id: 'ai-finder', icon: 'magnifier', labelKey: 'aiFinderNav' },
       { id: 'workspace', icon: 'folder', labelKey: 'navWorkspace' },
+      { id: 'whatsapp', icon: 'chat-bubble', labelKey: 'navWhatsApp' },
       { id: 'notifications', icon: 'bell', labelKey: 'navNotifications' },
       { id: 'integrations', icon: 'plug', labelKey: 'navIntegrations' },
     ],
@@ -112,7 +113,7 @@ export default function SettingsPage() {
           <div className="px-8 py-8">
             {section === 'admin-members' && <AdminMembersSection />}
             {section === 'admin-permissions' && <AdminPermissionsSection />}
-            {section === 'admin-whatsapp' && <WhatsAppSettingsSection />}
+            {section === 'admin-whatsapp' && <WhatsAppAdminSection />}
             {section === 'admin-email' && <EmailSettingsSection />}
             {section === 'admin-ai' && <AIProvidersSection />}
           </div>
@@ -127,7 +128,7 @@ export default function SettingsPage() {
             {section === 'members' && <MembersSection />}
             {section === 'notifications' && <NotificationsSection />}
             {section === 'email' && <EmailSettingsSection />}
-            {section === 'whatsapp' && <WhatsAppSettingsSection />}
+            {section === 'whatsapp' && <WhatsAppUserSection />}
           </div>
         )}
       </div>
@@ -2643,7 +2644,7 @@ function EmailSettingsSection() {
   );
 }
 
-// ── WhatsApp Settings Section ────────────────────────────────────────────────
+// ── WhatsApp User Section (personal settings) ──────────────────────────────
 
 type WaSettingsAccount = {
   id: string; display_name?: string; phone_number?: string; status: string;
@@ -2651,31 +2652,14 @@ type WaSettingsAccount = {
   wa_jid?: string; owner_user_id?: string;
 };
 
-type WaAdminAccount = WaSettingsAccount & {
-  owner_name?: string; owner_email?: string; employee_name?: string;
-};
-
-function WhatsAppSettingsSection() {
+function WhatsAppUserSection() {
   const tSettings = useTranslations('settings');
-  const currentUser = getCurrentUser();
-  const isAdmin = currentUser?.role === 'tenant_admin' || currentUser?.role === 'platform_admin' || currentUser?.role === 'manager';
-
   const [accounts, setAccounts] = useState<WaSettingsAccount[]>([]);
   const [loading, setLoading] = useState(true);
   const [showQrModal, setShowQrModal] = useState<string | null>(null);
   const [qrData, setQrData] = useState<string>('');
   const [qrStatus, setQrStatus] = useState<string>('');
   const [creating, setCreating] = useState(false);
-
-  // Admin state
-  const [adminAccounts, setAdminAccounts] = useState<WaAdminAccount[]>([]);
-  const [employees, setEmployees] = useState<{ id: string; full_name: string; user_id?: string }[]>([]);
-  const [transferTarget, setTransferTarget] = useState<{ accountId: string; employeeId: string } | null>(null);
-
-  // Number check state
-  const [checkPhone, setCheckPhone] = useState('');
-  const [checkResult, setCheckResult] = useState<null | { exists: boolean; jid?: string }>(null);
-  const [checking, setChecking] = useState(false);
 
   async function loadAccounts() {
     try {
@@ -2685,26 +2669,8 @@ function WhatsAppSettingsSection() {
     finally { setLoading(false); }
   }
 
-  async function loadAdminAccounts() {
-    try {
-      const data = await api.get('/api/whatsapp/admin/accounts');
-      setAdminAccounts(Array.isArray(data) ? data : []);
-    } catch {}
-  }
+  useEffect(() => { loadAccounts(); }, []);
 
-  async function loadEmployees() {
-    try {
-      const data = await api.get('/api/hr/employees');
-      setEmployees(Array.isArray(data) ? data : []);
-    } catch {}
-  }
-
-  useEffect(() => {
-    loadAccounts();
-    if (isAdmin) { loadAdminAccounts(); loadEmployees(); }
-  }, []);
-
-  // Poll QR when modal is open
   useEffect(() => {
     if (!showQrModal) return;
     let active = true;
@@ -2714,7 +2680,7 @@ function WhatsAppSettingsSection() {
         if (!active) return;
         setQrData(data.qr_data || '');
         setQrStatus(data.status || '');
-        if (data.status === 'connected') { setShowQrModal(null); loadAccounts(); if (isAdmin) loadAdminAccounts(); }
+        if (data.status === 'connected') { setShowQrModal(null); loadAccounts(); }
       } catch {}
     };
     poll();
@@ -2737,40 +2703,14 @@ function WhatsAppSettingsSection() {
 
   async function disconnect(id: string) {
     if (!confirm('Disconnect this WhatsApp account?')) return;
-    try { await api.delete(`/api/whatsapp/accounts/${id}`); loadAccounts(); if (isAdmin) loadAdminAccounts(); } catch {}
-  }
-
-  async function adminTransfer(accountId: string, employeeId: string) {
-    if (!confirm(tSettings('waTransferConfirm', { name: employees.find(e => e.id === employeeId)?.full_name || '' }))) return;
-    try { await api.post(`/api/whatsapp/admin/accounts/${accountId}/transfer`, { target_employee_id: employeeId }); loadAdminAccounts(); loadAccounts(); } catch {}
-    setTransferTarget(null);
-  }
-
-  async function adminUnbind(accountId: string) {
-    if (!confirm(tSettings('waUnbindConfirm'))) return;
-    try { await api.post(`/api/whatsapp/admin/accounts/${accountId}/unbind`, {}); loadAdminAccounts(); } catch {}
-  }
-
-  async function adminLogout(accountId: string) {
-    if (!confirm(tSettings('waLogoutConfirm'))) return;
-    try { await api.post(`/api/whatsapp/admin/accounts/${accountId}/logout`, {}); loadAdminAccounts(); loadAccounts(); } catch {}
-  }
-
-  async function checkNumber() {
-    if (!checkPhone.trim() || accounts.length === 0) return;
-    setChecking(true);
-    setCheckResult(null);
-    try {
-      const res = await api.post('/api/whatsapp/check-numbers', { phone_numbers: [checkPhone.trim()], account_id: accounts[0].id });
-      const results = res.results || [];
-      setCheckResult(results[0] || { exists: false });
-    } catch { setCheckResult({ exists: false }); }
-    finally { setChecking(false); }
+    try { await api.delete(`/api/whatsapp/accounts/${id}`); loadAccounts(); } catch {}
   }
 
   const statusColors: Record<string, string> = {
     connected: '#16a34a', pending_qr: '#d97706', disconnected: '#9ca3af',
   };
+
+  const connectedAccounts = accounts.filter(a => a.status === 'connected');
 
   if (loading) return <div className="text-sm" style={{ color: 'var(--notion-text-muted)' }}>Loading WhatsApp...</div>;
 
@@ -2799,11 +2739,6 @@ function WhatsAppSettingsSection() {
                 {acc.phone_number && (
                   <p className="text-xs mt-0.5" style={{ color: 'var(--notion-text-muted)' }}>
                     {tSettings('waPhoneNumber')}: {acc.phone_number}
-                  </p>
-                )}
-                {acc.wa_jid && (
-                  <p className="text-xs mt-0.5 font-mono" style={{ color: 'var(--notion-text-muted)', fontSize: 10 }}>
-                    {tSettings('waJid')}: {acc.wa_jid}
                   </p>
                 )}
                 {acc.last_seen_at && (
@@ -2837,143 +2772,49 @@ function WhatsAppSettingsSection() {
         </button>
       </div>
 
-      {/* ── Admin Panel ── */}
-      {isAdmin && adminAccounts.length > 0 && (
-        <div className="mt-8">
-          <h2 className="text-sm font-bold mb-3" style={{ color: 'var(--notion-text)' }}>{tSettings('waAdminPanel')}</h2>
-          <p className="text-xs mb-4" style={{ color: 'var(--notion-text-muted)' }}>{tSettings('waAllTenantAccounts')}</p>
-          <div className="space-y-3">
-            {adminAccounts.map(acc => (
-              <SettingsCard key={acc.id}>
-                <div className="flex items-start gap-3">
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 mb-1">
-                      <span className="text-sm font-medium" style={{ color: 'var(--notion-text)' }}>
-                        {acc.display_name || acc.phone_number || acc.label || 'Account'}
-                      </span>
-                      <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: statusColors[acc.status] || '#9ca3af' }} />
-                    </div>
-                    <p className="text-xs" style={{ color: 'var(--notion-text-muted)' }}>
-                      {tSettings('waOwner')}: {acc.owner_name || acc.employee_name || '-'}
-                      {acc.owner_email && <span className="ml-1">({acc.owner_email})</span>}
-                    </p>
-                    {acc.phone_number && (
-                      <p className="text-xs" style={{ color: 'var(--notion-text-muted)' }}>{acc.phone_number}</p>
-                    )}
-                    {acc.wa_jid && (
-                      <p className="text-xs font-mono" style={{ color: 'var(--notion-text-muted)', fontSize: 10 }}>{acc.wa_jid}</p>
-                    )}
-                  </div>
-                  <div className="flex items-center gap-1.5 flex-shrink-0">
-                    {/* Transfer */}
-                    {transferTarget?.accountId === acc.id ? (
-                      <div className="flex items-center gap-1">
-                        <select value={transferTarget.employeeId}
-                          onChange={e => setTransferTarget({ accountId: acc.id, employeeId: e.target.value })}
-                          className="text-xs h-7 rounded px-1.5 border outline-none"
-                          style={{ borderColor: 'var(--notion-border)', color: 'var(--notion-text)', background: 'var(--notion-bg)' }}>
-                          <option value="">{tSettings('waSelectEmployee')}</option>
-                          {employees.map(emp => <option key={emp.id} value={emp.id}>{emp.full_name}</option>)}
-                        </select>
-                        <button onClick={() => transferTarget.employeeId && adminTransfer(acc.id, transferTarget.employeeId)}
-                          disabled={!transferTarget.employeeId}
-                          className="px-2 py-1 rounded text-xs font-medium text-white disabled:opacity-40"
-                          style={{ background: '#25D366' }}>OK</button>
-                        <button onClick={() => setTransferTarget(null)}
-                          className="px-2 py-1 rounded text-xs border"
-                          style={{ borderColor: 'var(--notion-border)', color: 'var(--notion-text-muted)' }}>X</button>
-                      </div>
-                    ) : (
-                      <button onClick={() => setTransferTarget({ accountId: acc.id, employeeId: '' })}
-                        className="px-2 py-1 rounded text-xs font-medium border"
-                        style={{ borderColor: 'var(--notion-border)', color: 'var(--notion-text)' }}>
-                        {tSettings('waTransfer')}
-                      </button>
-                    )}
-                    <button onClick={() => adminUnbind(acc.id)}
-                      className="px-2 py-1 rounded text-xs font-medium border"
-                      style={{ borderColor: 'var(--notion-border)', color: '#d97706' }}>
-                      {tSettings('waUnbind')}
-                    </button>
-                    <button onClick={() => adminLogout(acc.id)}
-                      className="px-2 py-1 rounded text-xs font-medium border"
-                      style={{ borderColor: '#dc262640', color: '#dc2626' }}>
-                      {tSettings('waForceLogout')}
-                    </button>
-                  </div>
-                </div>
-              </SettingsCard>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* ── Number Check ── */}
-      {accounts.length > 0 && (
-        <div className="mt-8">
-          <h2 className="text-sm font-bold mb-3" style={{ color: 'var(--notion-text)' }}>{tSettings('waCheckNumber')}</h2>
-          <SettingsCard>
-            <div className="flex items-center gap-2">
-              <input value={checkPhone} onChange={e => setCheckPhone(e.target.value)}
-                placeholder={tSettings('waCheckPlaceholder')}
-                onKeyDown={e => { if (e.key === 'Enter') checkNumber(); }}
-                className="flex-1 text-sm px-3 py-2 rounded-md border outline-none"
-                style={{ borderColor: 'var(--notion-border)', color: 'var(--notion-text)', background: 'var(--notion-bg)' }} />
-              <button onClick={checkNumber} disabled={checking || !checkPhone.trim()}
-                className="px-4 py-2 rounded-md text-sm font-medium text-white disabled:opacity-40"
-                style={{ background: '#25D366' }}>
-                {checking ? '...' : tSettings('waCheckBtn')}
-              </button>
-            </div>
-            {checkResult && (
-              <p className="text-sm mt-3 flex items-center gap-2" style={{ color: checkResult.exists ? '#16a34a' : '#dc2626' }}>
-                <span>{checkResult.exists ? '\u2705' : '\u274C'}</span>
-                {checkResult.exists ? tSettings('waNumberRegistered') : tSettings('waNumberNotRegistered')}
-                {checkResult.jid && <span className="text-xs font-mono" style={{ color: 'var(--notion-text-muted)' }}>({checkResult.jid})</span>}
-              </p>
-            )}
-          </SettingsCard>
-        </div>
-      )}
-
       {/* ── Reply Templates ── */}
-      <div className="mt-8">
-        <h2 className="text-sm font-bold mb-3" style={{ color: 'var(--notion-text)' }}>Reply Templates</h2>
+      <div className="mt-10">
+        <div className="flex items-center gap-3 mb-1">
+          <h2 className="text-sm font-bold" style={{ color: 'var(--notion-text)' }}>快捷回复模板</h2>
+          <span className="text-[10px] px-2 py-0.5 rounded-full font-medium" style={{ background: '#25D36620', color: '#25D366' }}>Quick Reply</span>
+        </div>
+        <p className="text-xs mb-4" style={{ color: 'var(--notion-text-muted)', lineHeight: 1.6 }}>
+          创建常用回复模板，在 WhatsApp 聊天中输入 <code className="px-1.5 py-0.5 rounded text-[10px] font-mono" style={{ background: 'var(--notion-hover)', color: '#7c3aed' }}>/快捷词</code> 即可快速插入。适合常用问候、报价、跟进等话术。
+        </p>
         <TemplateManager />
       </div>
 
       {/* ── Profile & Privacy ── */}
-      {accounts.length > 0 && (
-        <div className="mt-8">
-          <h2 className="text-sm font-bold mb-3" style={{ color: 'var(--notion-text)' }}>Profile & Privacy</h2>
-          {accounts.filter(a => a.status === 'connected').map(acc => (
+      {connectedAccounts.length > 0 && (
+        <div className="mt-10">
+          <h2 className="text-sm font-bold mb-1" style={{ color: 'var(--notion-text)' }}>账号资料</h2>
+          <p className="text-xs mb-4" style={{ color: 'var(--notion-text-muted)' }}>
+            修改 WhatsApp 显示名称和个性签名，客户会看到这些信息。
+          </p>
+          {connectedAccounts.map(acc => (
             <ProfileEditor key={acc.id} accountId={acc.id} displayName={acc.display_name || ''} />
           ))}
         </div>
       )}
 
-      {/* ── WhatsApp Status ── */}
-      {accounts.filter(a => a.status === 'connected').length > 0 && (
-        <div className="mt-8">
-          <h2 className="text-sm font-bold mb-3" style={{ color: 'var(--notion-text)' }}>Publish Status</h2>
-          <StatusPublisher accountId={accounts.find(a => a.status === 'connected')!.id} />
-        </div>
-      )}
-
-      {/* ── AI Chatbot ── */}
-      {accounts.filter(a => a.status === 'connected').length > 0 && (
-        <div className="mt-8">
-          <h2 className="text-sm font-bold mb-3" style={{ color: 'var(--notion-text)' }}>AI Auto-Reply (Chatbot)</h2>
-          {accounts.filter(a => a.status === 'connected').map(acc => (
-            <ChatbotConfig key={acc.id} accountId={acc.id} accountName={acc.display_name || acc.phone_number || acc.id} />
-          ))}
+      {/* ── Publish Status ── */}
+      {connectedAccounts.length > 0 && (
+        <div className="mt-10">
+          <h2 className="text-sm font-bold mb-1" style={{ color: 'var(--notion-text)' }}>发布状态</h2>
+          <p className="text-xs mb-4" style={{ color: 'var(--notion-text-muted)' }}>
+            发布 WhatsApp 状态（类似朋友圈），所有联系人可见。适合发布促销活动、公司公告等。
+          </p>
+          <StatusPublisher accountId={connectedAccounts[0].id} />
         </div>
       )}
 
       {/* ── Broadcast ── */}
       {accounts.length > 0 && (
-        <div className="mt-8">
-          <h2 className="text-sm font-bold mb-3" style={{ color: 'var(--notion-text)' }}>Broadcast Messages</h2>
+        <div className="mt-10">
+          <h2 className="text-sm font-bold mb-1" style={{ color: 'var(--notion-text)' }}>群发消息</h2>
+          <p className="text-xs mb-4" style={{ color: 'var(--notion-text-muted)' }}>
+            向多个联系人发送相同消息，每条消息独立发送（非群聊）。
+          </p>
           <BroadcastManager />
         </div>
       )}
@@ -3028,6 +2869,138 @@ function WhatsAppSettingsSection() {
               Close
             </button>
           </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── WhatsApp Admin Section ──────────────────────────────────────────────────
+
+type WaAdminAccount = WaSettingsAccount & {
+  owner_name?: string; owner_email?: string; employee_name?: string;
+};
+
+function WhatsAppAdminSection() {
+  const tSettings = useTranslations('settings');
+  const [adminAccounts, setAdminAccounts] = useState<WaAdminAccount[]>([]);
+  const [employees, setEmployees] = useState<{ id: string; full_name: string; user_id?: string }[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [transferTarget, setTransferTarget] = useState<{ accountId: string; employeeId: string } | null>(null);
+
+  async function loadAdminAccounts() {
+    try {
+      const data = await api.get('/api/whatsapp/admin/accounts');
+      setAdminAccounts(Array.isArray(data) ? data : []);
+    } catch {}
+    finally { setLoading(false); }
+  }
+
+  async function loadEmployees() {
+    try {
+      const data = await api.get('/api/hr/employees');
+      setEmployees(Array.isArray(data) ? data : []);
+    } catch {}
+  }
+
+  useEffect(() => { loadAdminAccounts(); loadEmployees(); }, []);
+
+  async function adminTransfer(accountId: string, employeeId: string) {
+    if (!confirm(tSettings('waTransferConfirm', { name: employees.find(e => e.id === employeeId)?.full_name || '' }))) return;
+    try { await api.post(`/api/whatsapp/admin/accounts/${accountId}/transfer`, { target_employee_id: employeeId }); loadAdminAccounts(); } catch {}
+    setTransferTarget(null);
+  }
+
+  async function adminUnbind(accountId: string) {
+    if (!confirm(tSettings('waUnbindConfirm'))) return;
+    try { await api.post(`/api/whatsapp/admin/accounts/${accountId}/unbind`, {}); loadAdminAccounts(); } catch {}
+  }
+
+  async function adminLogout(accountId: string) {
+    if (!confirm(tSettings('waLogoutConfirm'))) return;
+    try { await api.post(`/api/whatsapp/admin/accounts/${accountId}/logout`, {}); loadAdminAccounts(); } catch {}
+  }
+
+  const statusColors: Record<string, string> = {
+    connected: '#16a34a', pending_qr: '#d97706', disconnected: '#9ca3af',
+  };
+
+  if (loading) return <div className="text-sm" style={{ color: 'var(--notion-text-muted)' }}>Loading...</div>;
+
+  return (
+    <div>
+      <SectionHeader title="WhatsApp 管理" subtitle="管理本组织所有成员的 WhatsApp 账号" />
+
+      {adminAccounts.length === 0 ? (
+        <div className="py-16 text-center">
+          <p className="text-sm mb-1" style={{ color: 'var(--notion-text)' }}>暂无 WhatsApp 账号</p>
+          <p className="text-xs" style={{ color: 'var(--notion-text-muted)' }}>成员可在 设置 → WhatsApp 中绑定自己的账号。</p>
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {adminAccounts.map(acc => (
+            <SettingsCard key={acc.id}>
+              <div className="flex items-start gap-3">
+                <div className="w-9 h-9 rounded-full flex items-center justify-center text-white text-sm font-bold flex-shrink-0" style={{ background: '#25D366' }}>
+                  {(acc.employee_name || acc.owner_name || '?')[0]?.toUpperCase()}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 mb-0.5">
+                    <span className="text-sm font-medium" style={{ color: 'var(--notion-text)' }}>
+                      {acc.display_name || acc.phone_number || acc.label || 'Account'}
+                    </span>
+                    <span className="text-xs px-2 py-0.5 rounded-full font-medium"
+                      style={{ background: `${statusColors[acc.status] || '#9ca3af'}20`, color: statusColors[acc.status] || '#9ca3af' }}>
+                      {acc.status}
+                    </span>
+                  </div>
+                  <p className="text-xs" style={{ color: 'var(--notion-text-muted)' }}>
+                    {tSettings('waOwner')}: {acc.owner_name || acc.employee_name || '-'}
+                    {acc.owner_email && <span className="ml-1 opacity-60">({acc.owner_email})</span>}
+                  </p>
+                  {acc.phone_number && (
+                    <p className="text-xs" style={{ color: 'var(--notion-text-muted)' }}>{acc.phone_number}</p>
+                  )}
+                </div>
+                <div className="flex items-center gap-1.5 flex-shrink-0">
+                  {transferTarget?.accountId === acc.id ? (
+                    <div className="flex items-center gap-1">
+                      <select value={transferTarget.employeeId}
+                        onChange={e => setTransferTarget({ accountId: acc.id, employeeId: e.target.value })}
+                        className="text-xs h-7 rounded px-1.5 border outline-none"
+                        style={{ borderColor: 'var(--notion-border)', color: 'var(--notion-text)', background: 'var(--notion-bg)' }}>
+                        <option value="">{tSettings('waSelectEmployee')}</option>
+                        {employees.map(emp => <option key={emp.id} value={emp.id}>{emp.full_name}</option>)}
+                      </select>
+                      <button onClick={() => transferTarget.employeeId && adminTransfer(acc.id, transferTarget.employeeId)}
+                        disabled={!transferTarget.employeeId}
+                        className="px-2 py-1 rounded text-xs font-medium text-white disabled:opacity-40"
+                        style={{ background: '#25D366' }}>OK</button>
+                      <button onClick={() => setTransferTarget(null)}
+                        className="px-2 py-1 rounded text-xs border"
+                        style={{ borderColor: 'var(--notion-border)', color: 'var(--notion-text-muted)' }}>X</button>
+                    </div>
+                  ) : (
+                    <button onClick={() => setTransferTarget({ accountId: acc.id, employeeId: '' })}
+                      className="px-2 py-1 rounded text-xs font-medium border"
+                      style={{ borderColor: 'var(--notion-border)', color: 'var(--notion-text)' }}>
+                      {tSettings('waTransfer')}
+                    </button>
+                  )}
+                  <button onClick={() => adminUnbind(acc.id)}
+                    className="px-2 py-1 rounded text-xs font-medium border"
+                    style={{ borderColor: 'var(--notion-border)', color: '#d97706' }}>
+                    {tSettings('waUnbind')}
+                  </button>
+                  <button onClick={() => adminLogout(acc.id)}
+                    className="px-2 py-1 rounded text-xs font-medium border"
+                    style={{ borderColor: '#dc262640', color: '#dc2626' }}>
+                    {tSettings('waForceLogout')}
+                  </button>
+                </div>
+              </div>
+            </SettingsCard>
+          ))}
         </div>
       )}
     </div>
@@ -3266,113 +3239,6 @@ function StatusPublisher({ accountId }: { accountId: string }) {
           className="px-4 py-1.5 rounded text-xs font-medium text-white disabled:opacity-40"
           style={{ background: '#25D366' }}>{publishing ? '...' : 'Publish'}</button>
       </div>
-    </SettingsCard>
-  );
-}
-
-// ── Chatbot Config ─────────────────────────────────────────────────────────────
-function ChatbotConfig({ accountId, accountName }: { accountId: string; accountName: string }) {
-  const [expanded, setExpanded] = useState(false);
-  const [apiKey, setApiKey] = useState('');
-  const [model, setModel] = useState('gpt-4o');
-  const [systemPrompt, setSystemPrompt] = useState('You are a helpful customer service assistant.');
-  const [triggerType, setTriggerType] = useState('all');
-  const [triggerValue, setTriggerValue] = useState('');
-  const [keywordFinish, setKeywordFinish] = useState('#human');
-  const [expire, setExpire] = useState(20);
-  const [speechToText, setSpeechToText] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [isSetup, setIsSetup] = useState(false);
-
-  async function handleSetup() {
-    if (!apiKey.trim()) return;
-    setSaving(true);
-    try {
-      await api.post(`/api/whatsapp/accounts/${accountId}/chatbot/setup`, {
-        openai_api_key: apiKey, model,
-        system_messages: [systemPrompt],
-        trigger_type: triggerType,
-        trigger_value: triggerValue || undefined,
-        keyword_finish: keywordFinish,
-        expire, speech_to_text: speechToText,
-      });
-      setIsSetup(true);
-    } catch {}
-    finally { setSaving(false); }
-  }
-
-  async function handleUpdate() {
-    setSaving(true);
-    try {
-      await api.put(`/api/whatsapp/accounts/${accountId}/chatbot/settings`, {
-        model, system_messages: [systemPrompt],
-        trigger_type: triggerType,
-        trigger_value: triggerValue || undefined,
-        keyword_finish: keywordFinish,
-        expire, speech_to_text: speechToText,
-      });
-    } catch {}
-    finally { setSaving(false); }
-  }
-
-  return (
-    <SettingsCard>
-      <button onClick={() => setExpanded(!expanded)} className="w-full text-left flex items-center justify-between">
-        <span className="text-sm font-medium" style={{ color: 'var(--notion-text)' }}>{accountName}</span>
-        <span className="text-xs" style={{ color: 'var(--notion-text-muted)' }}>{expanded ? '▼' : '▶'}</span>
-      </button>
-      {expanded && (
-        <div className="mt-3 space-y-2">
-          {!isSetup && (
-            <input value={apiKey} onChange={e => setApiKey(e.target.value)} placeholder="OpenAI API Key"
-              type="password" className="w-full text-sm px-3 py-2 rounded border outline-none"
-              style={{ borderColor: 'var(--notion-border)', color: 'var(--notion-text)' }} />
-          )}
-          <select value={model} onChange={e => setModel(e.target.value)}
-            className="w-full text-sm h-9 rounded px-3 border outline-none"
-            style={{ borderColor: 'var(--notion-border)', color: 'var(--notion-text)' }}>
-            <option value="gpt-4o">GPT-4o</option>
-            <option value="gpt-4o-mini">GPT-4o Mini</option>
-            <option value="gpt-3.5-turbo">GPT-3.5 Turbo</option>
-          </select>
-          <textarea value={systemPrompt} onChange={e => setSystemPrompt(e.target.value)}
-            placeholder="System prompt (bot personality)" rows={3}
-            className="w-full text-sm px-3 py-2 rounded border outline-none"
-            style={{ borderColor: 'var(--notion-border)', color: 'var(--notion-text)' }} />
-          <div className="flex gap-2">
-            <select value={triggerType} onChange={e => setTriggerType(e.target.value)}
-              className="text-xs h-8 rounded px-2 border outline-none"
-              style={{ borderColor: 'var(--notion-border)', color: 'var(--notion-text)' }}>
-              <option value="all">All messages</option>
-              <option value="keyword">Keyword trigger</option>
-              <option value="none">Manual only</option>
-            </select>
-            {triggerType === 'keyword' && (
-              <input value={triggerValue} onChange={e => setTriggerValue(e.target.value)}
-                placeholder="Trigger keyword" className="flex-1 text-xs px-2 h-8 rounded border outline-none"
-                style={{ borderColor: 'var(--notion-border)', color: 'var(--notion-text)' }} />
-            )}
-          </div>
-          <div className="flex gap-2 items-center">
-            <input value={keywordFinish} onChange={e => setKeywordFinish(e.target.value)}
-              placeholder="End keyword (e.g. #human)" className="flex-1 text-xs px-2 h-8 rounded border outline-none"
-              style={{ borderColor: 'var(--notion-border)', color: 'var(--notion-text)' }} />
-            <label className="flex items-center gap-1 text-xs">
-              <input type="checkbox" checked={speechToText} onChange={e => setSpeechToText(e.target.checked)} />
-              Voice-to-text
-            </label>
-          </div>
-          <div className="flex gap-2 items-center">
-            <label className="text-xs" style={{ color: 'var(--notion-text-muted)' }}>Session timeout (min):</label>
-            <input type="number" value={expire} onChange={e => setExpire(Number(e.target.value))}
-              className="w-20 text-xs px-2 h-8 rounded border outline-none"
-              style={{ borderColor: 'var(--notion-border)', color: 'var(--notion-text)' }} />
-          </div>
-          <button onClick={isSetup ? handleUpdate : handleSetup} disabled={saving}
-            className="px-4 py-1.5 rounded text-xs font-medium text-white"
-            style={{ background: '#25D366' }}>{saving ? '...' : (isSetup ? 'Update Settings' : 'Setup Chatbot')}</button>
-        </div>
-      )}
     </SettingsCard>
   );
 }

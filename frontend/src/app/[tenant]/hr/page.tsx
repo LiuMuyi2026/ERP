@@ -262,156 +262,6 @@ function UserTaskSlideOverContent({ employee, allTasks, tHr }: { employee: any; 
   );
 }
 
-// ── WhatsApp Admin Tab ──────────────────────────────────────────────────────
-type WaAdminAccount = {
-  id: string; display_name?: string; phone_number?: string; status: string;
-  owner_name?: string; owner_email?: string; employee_name?: string;
-  last_seen_at?: string; wa_jid?: string;
-};
-
-function WhatsAppAdminTab({ employees, tHr }: { employees: any[]; tHr: any }) {
-  const [accounts, setAccounts] = useState<WaAdminAccount[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [transferModal, setTransferModal] = useState<string | null>(null);
-  const [targetEmployee, setTargetEmployee] = useState('');
-
-  async function loadAccounts() {
-    setLoading(true);
-    try {
-      const data = await api.get('/api/whatsapp/admin/accounts');
-      setAccounts(Array.isArray(data) ? data : []);
-    } catch { setAccounts([]); }
-    finally { setLoading(false); }
-  }
-
-  useEffect(() => { loadAccounts(); }, []);
-
-  async function handleLogout(id: string) {
-    if (!confirm('Force logout this WhatsApp account?')) return;
-    try { await api.post(`/api/whatsapp/admin/accounts/${id}/logout`, {}); loadAccounts(); } catch {}
-  }
-
-  async function handleUnbind(id: string) {
-    if (!confirm('Unbind employee from this WhatsApp account?')) return;
-    try { await api.post(`/api/whatsapp/admin/accounts/${id}/unbind`, {}); loadAccounts(); } catch {}
-  }
-
-  async function handleTransfer() {
-    if (!transferModal || !targetEmployee) return;
-    try {
-      await api.post(`/api/whatsapp/admin/accounts/${transferModal}/transfer`, { target_employee_id: targetEmployee });
-      setTransferModal(null);
-      setTargetEmployee('');
-      loadAccounts();
-    } catch (err: any) { alert(err.message || 'Transfer failed'); }
-  }
-
-  const statusColors: Record<string, { bg: string; text: string }> = {
-    connected: { bg: '#d1fae5', text: '#065f46' },
-    pending_qr: { bg: '#fef3c7', text: '#92400e' },
-    disconnected: { bg: '#f3f4f6', text: '#6b7280' },
-  };
-
-  if (loading) return <div className="py-8 text-center text-sm" style={{ color: 'var(--notion-text-muted)' }}>Loading WhatsApp accounts...</div>;
-
-  if (accounts.length === 0) {
-    return (
-      <div className="py-16 text-center">
-        <p className="text-sm mb-1" style={{ color: 'var(--notion-text)' }}>No WhatsApp accounts connected</p>
-        <p className="text-xs" style={{ color: 'var(--notion-text-muted)' }}>Employees can connect WhatsApp from Settings.</p>
-      </div>
-    );
-  }
-
-  return (
-    <div>
-      <div className="rounded-lg border overflow-hidden" style={{ borderColor: 'var(--notion-border)' }}>
-        <table className="w-full text-sm">
-          <thead>
-            <tr style={{ background: 'var(--notion-hover)' }}>
-              <th className="text-left px-4 py-2.5 font-medium text-xs" style={{ color: 'var(--notion-text-muted)' }}>Employee</th>
-              <th className="text-left px-4 py-2.5 font-medium text-xs" style={{ color: 'var(--notion-text-muted)' }}>WA Name</th>
-              <th className="text-left px-4 py-2.5 font-medium text-xs" style={{ color: 'var(--notion-text-muted)' }}>Phone</th>
-              <th className="text-left px-4 py-2.5 font-medium text-xs" style={{ color: 'var(--notion-text-muted)' }}>Status</th>
-              <th className="text-left px-4 py-2.5 font-medium text-xs" style={{ color: 'var(--notion-text-muted)' }}>Last Seen</th>
-              <th className="text-right px-4 py-2.5 font-medium text-xs" style={{ color: 'var(--notion-text-muted)' }}>Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {accounts.map(acc => {
-              const sc = statusColors[acc.status] || statusColors.disconnected;
-              return (
-                <tr key={acc.id} className="border-t" style={{ borderColor: 'var(--notion-border)' }}>
-                  <td className="px-4 py-3" style={{ color: 'var(--notion-text)' }}>
-                    {acc.employee_name || acc.owner_name || acc.owner_email || '—'}
-                  </td>
-                  <td className="px-4 py-3" style={{ color: 'var(--notion-text)' }}>
-                    {acc.display_name || '—'}
-                  </td>
-                  <td className="px-4 py-3" style={{ color: 'var(--notion-text-muted)' }}>
-                    {acc.phone_number || '—'}
-                  </td>
-                  <td className="px-4 py-3">
-                    <span className="text-xs px-2 py-0.5 rounded-full font-medium" style={{ background: sc.bg, color: sc.text }}>
-                      {acc.status}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3 text-xs" style={{ color: 'var(--notion-text-muted)' }}>
-                    {acc.last_seen_at ? new Date(acc.last_seen_at).toLocaleString() : '—'}
-                  </td>
-                  <td className="px-4 py-3 text-right">
-                    <div className="flex justify-end gap-1.5">
-                      <button onClick={() => handleLogout(acc.id)}
-                        className="px-2 py-1 rounded text-xs border" style={{ borderColor: 'var(--notion-border)', color: '#dc2626' }}>
-                        Logout
-                      </button>
-                      <button onClick={() => { setTransferModal(acc.id); setTargetEmployee(''); }}
-                        className="px-2 py-1 rounded text-xs border" style={{ borderColor: 'var(--notion-border)', color: '#7c3aed' }}>
-                        Transfer
-                      </button>
-                      <button onClick={() => handleUnbind(acc.id)}
-                        className="px-2 py-1 rounded text-xs border" style={{ borderColor: 'var(--notion-border)', color: 'var(--notion-text-muted)' }}>
-                        Unbind
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
-
-      {/* Transfer Modal */}
-      {transferModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.4)' }}>
-          <div className="rounded-xl shadow-xl p-6 w-full max-w-sm" style={{ background: 'var(--notion-bg)' }}>
-            <h3 className="text-lg font-bold mb-4" style={{ color: 'var(--notion-text)' }}>Transfer WhatsApp Account</h3>
-            <select value={targetEmployee} onChange={e => setTargetEmployee(e.target.value)}
-              className="w-full px-3 py-2 rounded-md text-sm border outline-none mb-4"
-              style={{ borderColor: 'var(--notion-border)', color: 'var(--notion-text)' }}>
-              <option value="">Select employee...</option>
-              {employees.map(emp => (
-                <option key={emp.id} value={emp.id}>{emp.full_name || emp.email}</option>
-              ))}
-            </select>
-            <div className="flex justify-end gap-2">
-              <button onClick={() => setTransferModal(null)}
-                className="px-4 py-2 rounded-md text-sm border" style={{ borderColor: 'var(--notion-border)', color: 'var(--notion-text)' }}>
-                Cancel
-              </button>
-              <button onClick={handleTransfer} disabled={!targetEmployee}
-                className="px-4 py-2 rounded-md text-sm text-white disabled:opacity-50" style={{ background: '#7c3aed' }}>
-                Transfer
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
 // ─────────────────────────────────────────────────────────────────────────────
 export default function HRPage() {
   const tHr = useTranslations('hr');
@@ -430,7 +280,7 @@ export default function HRPage() {
   const [tasksLoading, setTasksLoading] = useState(false);
   const [tasksLoaded, setTasksLoaded] = useState(false);
   const [positions, setPositions] = useState<any[]>([]);
-  const [tab, setTab] = useState<'employees' | 'leave' | 'tasks' | 'conversations' | 'whatsapp'>('employees');
+  const [tab, setTab] = useState<'employees' | 'leave' | 'tasks' | 'conversations'>('employees');
   const [employeeViewMode, setEmployeeViewMode] = useState<'table' | 'card'>('table');
   const [employeeGroupBy, setEmployeeGroupBy] = useState<'none' | 'department' | 'employment_type'>('none');
   const [showCreate, setShowCreate] = useState(false);
@@ -784,7 +634,6 @@ export default function HRPage() {
     leave: tHr('tabLeave'),
     tasks: tHr('tabTasks'),
     conversations: tHr('tabConversations'),
-    whatsapp: 'WhatsApp',
   };
 
   async function loadConversations() {
@@ -800,7 +649,7 @@ export default function HRPage() {
     }
   }
 
-  function handleTabChange(tabKey: 'employees' | 'leave' | 'tasks' | 'conversations' | 'whatsapp') {
+  function handleTabChange(tabKey: 'employees' | 'leave' | 'tasks' | 'conversations') {
     // Conversations are managed in Message Center now; keep HR focused on HR modules.
     if (tabKey === 'conversations') {
       setTab('employees');
@@ -893,7 +742,7 @@ export default function HRPage() {
       {/* Toolbar */}
       <div className="px-8 pb-4 flex items-center gap-3 border-b" style={{ borderColor: 'var(--notion-border)' }}>
         <div className="flex gap-0.5 rounded-md p-0.5" style={{ background: 'var(--notion-active)' }}>
-          {(['employees', 'leave', 'tasks', ...(isAdmin ? ['whatsapp' as const] : [])] as const).map(tabKey => (
+          {(['employees', 'leave', 'tasks'] as const).map(tabKey => (
             <button key={tabKey} onClick={() => handleTabChange(tabKey)}
               className="px-3 py-1 rounded text-sm font-medium transition-colors"
               style={{
@@ -1702,9 +1551,6 @@ export default function HRPage() {
           );
         })()}
 
-        {tab === 'whatsapp' && (() => {
-          return <WhatsAppAdminTab employees={employees} tHr={tHr} />;
-        })()}
       </div>
 
       {/* User task detail SlideOver */}
