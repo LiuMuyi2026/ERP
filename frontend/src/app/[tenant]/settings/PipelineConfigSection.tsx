@@ -63,6 +63,7 @@ function WorkflowStagesEditor({
   onChange: (s: WorkflowStageDef[]) => void;
 }) {
   const t = useTranslations('pipelineConfig');
+  const tc = useTranslations('common');
   const [expanded, setExpanded] = useState<Record<string, boolean>>(() => {
     const init: Record<string, boolean> = {};
     if (stages.length > 0) init[stages[0].key] = true;
@@ -134,7 +135,7 @@ function WorkflowStagesEditor({
               <div className="flex-1 min-w-0">
                 <span className="font-semibold text-sm" style={{ color: 'var(--notion-text)' }}>{stage.label}</span>
                 <span className="ml-2 text-xs" style={{ color: 'var(--notion-text-muted)' }}>
-                  {enabledCount} / {stage.steps.length} {t('stepsCount')}
+                  {enabledCount} / {stage.steps.length} {t('steps')}
                 </span>
               </div>
               <span className="text-xs flex-shrink-0" style={{ color: 'var(--notion-text-muted)' }}>
@@ -169,7 +170,7 @@ function WorkflowStagesEditor({
                       {/* Enable toggle */}
                       <input type="checkbox" checked={isEnabled}
                         onChange={e => updateStep(stageIdx, stepIdx, { enabled: e.target.checked })}
-                        className="flex-shrink-0 cursor-pointer" title={isEnabled ? t('disableStep') : t('enableStep')} />
+                        className="flex-shrink-0 cursor-pointer" title={isEnabled ? t('disable') : t('enable')} />
 
                       {/* Step label */}
                       <input value={step.label} onChange={e => updateStep(stageIdx, stepIdx, { label: e.target.value })}
@@ -183,12 +184,12 @@ function WorkflowStagesEditor({
                       {isBuiltin ? (
                         <span className="text-[10px] px-1.5 py-0.5 rounded-full flex-shrink-0"
                           style={{ background: 'var(--notion-hover)', color: 'var(--notion-text-muted)' }}>
-                          {t('builtinBadge')}
+                          {t('builtin')}
                         </span>
                       ) : (
                         <span className="text-[10px] px-1.5 py-0.5 rounded-full flex-shrink-0"
                           style={{ background: '#dbeafe', color: '#2563eb' }}>
-                          {t('customBadge')}
+                          {t('custom')}
                         </span>
                       )}
 
@@ -205,7 +206,7 @@ function WorkflowStagesEditor({
                       {/* Delete */}
                       <button onClick={() => removeStep(stageIdx, stepIdx)}
                         className="text-xs opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0"
-                        style={{ color: '#ef4444' }} title={t('deleteStep')}>×</button>
+                        style={{ color: '#ef4444' }} title={tc('delete')}>×</button>
                     </div>
                   );
                 })}
@@ -244,6 +245,7 @@ function AddStepForm({
   onCancel: () => void;
 }) {
   const t = useTranslations('pipelineConfig');
+  const tc = useTranslations('common');
   const [label, setLabel] = useState('');
   const [desc, setDesc] = useState('');
   const [owner, setOwner] = useState('');
@@ -281,24 +283,24 @@ function AddStepForm({
         </select>
       </div>
       <input value={owner} onChange={e => setOwner(e.target.value)}
-        className={inputCls} style={inputStyle} placeholder={t('stepOwnerPlaceholder')} />
+        className={inputCls} style={inputStyle} placeholder={t('ownerHint')} />
       <input value={desc} onChange={e => setDesc(e.target.value)}
         className={inputCls} style={inputStyle} placeholder={t('stepDesc')} />
       {type === 'checklist' && (
         <textarea value={checklistItems} onChange={e => setChecklistItems(e.target.value)}
-          className={`${inputCls} h-20`} style={inputStyle} placeholder={t('checklistPlaceholder')} />
+          className={`${inputCls} h-20`} style={inputStyle} placeholder={t('checklistHint')} />
       )}
       <div className="flex items-center gap-2 pt-1">
         <button onClick={handleSubmit}
           disabled={!label.trim()}
           className="px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors disabled:opacity-40"
           style={{ background: 'var(--notion-accent)', color: 'white' }}>
-          {t('addBtn')}
+          {tc('create')}
         </button>
         <button onClick={onCancel}
           className="px-3 py-1.5 rounded-lg text-xs transition-colors"
           style={{ color: 'var(--notion-text-muted)' }}>
-          {t('cancelBtn')}
+          {tc('cancel')}
         </button>
       </div>
     </div>
@@ -336,9 +338,9 @@ function StatusesEditor({
         <CardRow key={i} onRemove={() => remove(i)}>
           <div className="grid grid-cols-3 gap-2">
             <input value={sv.key} onChange={e => update(i, { key: e.target.value })}
-              className={inputCls} style={inputStyle} placeholder={t('statusKey')} />
+              className={inputCls} style={inputStyle} placeholder={t('identifier')} />
             <input value={sv.label ?? ''} onChange={e => update(i, { label: e.target.value })}
-              className={inputCls} style={inputStyle} placeholder={t('statusLabel')} />
+              className={inputCls} style={inputStyle} placeholder={t('displayName')} />
             <select value={sv.stage ?? ''} onChange={e => update(i, { stage: e.target.value || null })}
               className={inputCls} style={inputStyle}>
               <option value="">{t('noStage')}</option>
@@ -347,7 +349,7 @@ function StatusesEditor({
           </div>
         </CardRow>
       ))}
-      <AddButton label={t('addStatus')} onClick={add} />
+      <AddButton label={`+ ${t('statusTitle')}`} onClick={add} />
     </div>
   );
 }
@@ -362,6 +364,7 @@ function TransitionsEditor({
   onChange: (t: Record<string, string>) => void;
 }) {
   const t = useTranslations('pipelineConfig');
+  const tc = useTranslations('common');
   return (
     <div className="mt-8 space-y-2">
       <SectionTitle>{t('transTitle')}</SectionTitle>
@@ -400,7 +403,7 @@ function TransitionsEditor({
             onChange({ ...transitions, [fromEl.value]: toEl.value });
           }
         }} className="text-xs px-2 py-1 rounded" style={{ color: 'var(--notion-accent)' }}>
-          {t('addTrans')}
+          + {tc('create')}
         </button>
       </div>
     </div>
@@ -432,13 +435,13 @@ function FileCategoriesEditor({ categories, onChange }: { categories: FileCatego
         <CardRow key={i} onRemove={() => remove(i)}>
           <div className="grid grid-cols-2 gap-2">
             <input value={cat.key} onChange={e => update(i, { key: e.target.value })}
-              className={inputCls} style={inputStyle} placeholder={t('fileKey')} />
+              className={inputCls} style={inputStyle} placeholder={t('identifier')} />
             <input value={cat.label ?? ''} onChange={e => update(i, { label: e.target.value })}
-              className={inputCls} style={inputStyle} placeholder={t('fileLabel')} />
+              className={inputCls} style={inputStyle} placeholder={t('displayName')} />
           </div>
         </CardRow>
       ))}
-      <AddButton label={t('addCategory')} onClick={add} />
+      <AddButton label={`+ ${t('fileTitle')}`} onClick={add} />
     </div>
   );
 }
@@ -447,6 +450,7 @@ function FileCategoriesEditor({ categories, onChange }: { categories: FileCatego
 
 export default function PipelineConfigSection() {
   const t = useTranslations('pipelineConfig');
+  const tc = useTranslations('common');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [tab, setTab] = useState<Tab>('workflow');
@@ -473,7 +477,7 @@ export default function PipelineConfigSection() {
         setFileCategories(data.file_categories ?? []);
         setPipelineStageKeys((data.pipeline?.stages ?? []).map((s: any) => s.key));
       } catch (err) {
-        toast.error(t('loadError'));
+        toast.error(t('loadFailed'));
       } finally {
         setLoading(false);
       }
@@ -502,12 +506,12 @@ export default function PipelineConfigSection() {
         file_categories: fileCategories,
       });
       setDirty(false);
-      toast.success(t('saveSuccess'));
+      toast.success(t('saveOk'));
       if (typeof window !== 'undefined') {
         window.dispatchEvent(new Event('pipeline-config-updated'));
       }
     } catch (err) {
-      toast.error(t('saveError'));
+      toast.error(t('saveFailed'));
     } finally {
       setSaving(false);
     }
@@ -520,7 +524,7 @@ export default function PipelineConfigSection() {
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64 text-sm" style={{ color: 'var(--notion-text-muted)' }}>
-        {t('loading')}
+        {tc('loading')}
       </div>
     );
   }
