@@ -8,6 +8,7 @@ import SecureFileLink from '@/components/ui/SecureFileLink';
 import { HandIcon } from '@/components/ui/HandIcon';
 import { useTranslations } from 'next-intl';
 import { StepRendererComponent } from './stepRenderers';
+import { usePipelineConfig, type WorkflowStageDef } from '@/lib/usePipelineConfig';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -369,17 +370,6 @@ interface TemplateStageDef {
   steps?: TemplateStepDef[];
 }
 
-interface WorkflowTemplateDefinition {
-  stages?: TemplateStageDef[];
-}
-
-interface WorkflowTemplateRecord {
-  slug: string;
-  name: string;
-  description?: string | null;
-  definition?: WorkflowTemplateDefinition;
-}
-
 function normalizeRoleDef(role: TemplateRoleDef): { key: string; label: string } {
   if (typeof role === 'string') {
     return { key: role, label: role };
@@ -388,6 +378,7 @@ function normalizeRoleDef(role: TemplateRoleDef): { key: string; label: string }
 }
 
 function mergeStepDefinition(stepDef: TemplateStepDef, fallback?: WorkflowStep, idx = 0): WorkflowStep & { enabled?: boolean } {
+  const type = stepDef.type ?? fallback?.type;
   return {
     key: stepDef.key,
     label: stepDef.label ?? fallback?.label ?? `Step ${idx + 1}`,
@@ -395,8 +386,9 @@ function mergeStepDefinition(stepDef: TemplateStepDef, fallback?: WorkflowStep, 
     owner: stepDef.owner ?? fallback?.owner,
     approval: fallback?.approval,
     metaField: stepDef.metaField ?? fallback?.metaField,
-    type: stepDef.type ?? fallback?.type,
-    stepDef: stepDef.type ? stepDef : undefined,
+    type,
+    // Always pass template definition so renderers have access to fields/checklist/etc.
+    stepDef: type ? stepDef : undefined,
     enabled: stepDef.enabled,
   };
 }
@@ -609,15 +601,18 @@ export function WorkflowTab({ leadId, isCold, onMarkCold }: {
 }) {
   const { tenant } = useParams<{ tenant: string }>();
   const tw = useTranslations('workflow');
-  const [workflowTemplate, setWorkflowTemplate] = useState<WorkflowTemplateRecord | null>(null);
+  const pipelineConfig = usePipelineConfig();
   const staticWorkflow = useMemo(() => buildWorkflow(tw), [tw]);
   const WORKFLOW = useMemo(() => {
-    const stages = workflowTemplate?.definition?.stages;
-    if (stages && stages.length > 0) {
-      return buildStagesFromTemplate(stages, staticWorkflow);
+    // Pipeline config (settings page) > hardcoded fallback
+    if (pipelineConfig.workflow_stages.length > 0) {
+      return buildStagesFromTemplate(
+        pipelineConfig.workflow_stages as TemplateStageDef[],
+        staticWorkflow,
+      );
     }
     return staticWorkflow;
-  }, [staticWorkflow, workflowTemplate]);
+  }, [pipelineConfig.workflow_stages, staticWorkflow]);
   const myId = getCurrentUser()?.sub || '';
 
   const [workflowData, setWorkflowData] = useState<WorkflowData>({ active_stage: 0, active_stage_key: undefined, stages: {} });
@@ -663,20 +658,6 @@ export function WorkflowTab({ leadId, isCold, onMarkCold }: {
       setProducts(Array.isArray(prods) ? prods : []);
     }).finally(() => setLoading(false));
   }, [leadId, stageKey, WORKFLOW]);
-
-  useEffect(() => {
-    let alive = true;
-    api.get<WorkflowTemplateRecord>('/api/workflow-templates/active', { tenantSlug: tenant })
-      .then(data => {
-        if (!alive) return;
-        setWorkflowTemplate(data);
-      })
-      .catch(() => {
-        if (!alive) return;
-        setWorkflowTemplate(null);
-      });
-    return () => { alive = false; };
-  }, [tenant]);
 
   // Manual refresh — used by purchasing result and approval polling
   const refreshWorkflow = useCallback(async () => {

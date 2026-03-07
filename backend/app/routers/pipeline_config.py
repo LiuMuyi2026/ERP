@@ -35,6 +35,7 @@ class PipelineConfigUpdate(BaseModel):
     file_categories: Optional[list] = None
     role_mappings: Optional[dict] = None
     workflow_stages: Optional[list] = None
+    general_statuses: Optional[list] = None
 
 
 @router.patch("/pipeline-config")

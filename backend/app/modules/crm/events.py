@@ -3,9 +3,12 @@ CRM module event handlers.
 
 Reacts to events from other modules (messaging, accounting)
 and emits events for cross-module communication.
+Also handles workflow step completion side-effects.
 """
 
 import logging
+from sqlalchemy import text
+
 from app.core.events import events
 
 logger = logging.getLogger(__name__)
@@ -46,3 +49,37 @@ def register_handlers():
                 entity.get("entity_type"),
                 entity.get("uid"),
             )
+
+    @events.on("crm.workflow.step_completed")
+    async def on_step_completed(data: dict):
+        """React to workflow step completions with cross-module side-effects."""
+        lead_id = data.get("lead_id")
+        step_key = data.get("step_key")
+        step_type = data.get("step_type")
+        db = data.get("db")
+        if not lead_id or not db:
+            return
+
+        # When follow_payment step is completed, check if receivables need updating
+        if step_key == "follow_payment":
+            logger.info("CRM: Payment follow-up completed for lead %s, checking receivables", lead_id)
+            try:
+                result = await db.execute(
+                    text("""
+                        SELECT r.id, r.amount, r.received_amount, r.status
+                        FROM crm_receivables r
+                        JOIN crm_contracts c ON c.id = r.contract_id
+                        WHERE c.lead_id = CAST(:lid AS uuid) AND r.status != 'paid'
+                        LIMIT 5
+                    """),
+                    {"lid": lead_id},
+                )
+                pending = result.fetchall()
+                if pending:
+                    logger.info("CRM: Lead %s has %d pending receivables", lead_id, len(pending))
+            except Exception:
+                logger.debug("CRM: Could not check receivables for lead %s (table may not exist)", lead_id)
+
+        # When filing step is completed, log archival
+        if step_key == "filing":
+            logger.info("CRM: Filing/archival completed for lead %s", lead_id)

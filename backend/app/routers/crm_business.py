@@ -20,7 +20,8 @@ from app.services.ai.deduplication import check_duplicate_lead
 from app.services.ai.company_research import research_company
 from app.services.workflow_actions import trigger_workflow_actions
 from app.services.workflow_templates import get_active_template, get_effective_template
-from app.services.pipeline_config import get_pipeline_config
+from app.services.pipeline_config import get_pipeline_config, compute_status_from_config, validate_workflow_data
+from app.core.events import events
 from app.utils.sql import build_update_clause, parse_date_strict
 
 from app.routers.crm_shared import (
@@ -1390,25 +1391,22 @@ async def ai_research_company(
 # Workflow
 # ---------------------------------------------------------------------------
 
-def _compute_workflow_status(workflow_data: dict) -> str:
-    s0 = _get_stage(workflow_data, 'sales_negotiation', '0')
-    s1 = _get_stage(workflow_data, 'contract_signing', '1')
-    s0_done = set(s0.get('completed_steps', []))
-    s1_done = set(s1.get('completed_steps', []))
-
-    S0_ALL = {'classify', 'price_inquiry', 'soft_offer', 'firm_offer'}
-    S1_ALL = {'confirm_details', 'draft_contract', 'order_note', 'sign_contract', 'send_contract'}
-    if S0_ALL.issubset(s0_done) and S1_ALL.issubset(s1_done):
-        return 'won'
-    if 'sign_contract' in s1_done or 'send_contract' in s1_done:
-        return 'fulfillment'
-    if 'firm_offer' in s0_done or 'soft_offer' in s0_done:
-        return 'negotiating'
-    if 'price_inquiry' in s0_done:
-        return 'quoted'
-    if 'classify' in s0_done:
-        return 'inquiry'
-    return 'new'
+def _find_newly_completed_steps(
+    old_workflow: dict, new_workflow: dict, config,
+) -> list[tuple[str, str, dict]]:
+    """Return list of (stage_key, step_key, step_def) for newly completed steps."""
+    newly_completed = []
+    for stage_def in config.workflow_stages:
+        sk = stage_def.get("key", "")
+        old_stage = (old_workflow.get("stages") or {}).get(sk, {})
+        new_stage = (new_workflow.get("stages") or {}).get(sk, {})
+        old_done = set(old_stage.get("completed_steps", []))
+        new_done = set(new_stage.get("completed_steps", []))
+        for step in stage_def.get("steps", []):
+            step_key = step.get("key")
+            if step_key and step_key in new_done and step_key not in old_done:
+                newly_completed.append((sk, step_key, step))
+    return newly_completed
 
 
 @router.get("/leads/{lead_id}/workflow")
@@ -1477,11 +1475,17 @@ async def update_lead_workflow(
         old_workflow_data = cur_row._mapping.get("workflow_data") or {}
         template_slug = cur_row._mapping.get("workflow_template_slug")
 
-        # Load status_rank from pipeline config (with hardcoded fallback)
+        # Load pipeline config (config-driven status derivation)
         config = await get_pipeline_config(db, ctx.get("tenant_id"))
-        _status_rank = config.status_rank
 
-        new_status = _compute_workflow_status(body)
+        # Validate workflow_data structure
+        validation_errors = validate_workflow_data(body, config)
+        if validation_errors:
+            raise HTTPException(status_code=422, detail=f"Invalid workflow data: {'; '.join(validation_errors)}")
+
+        # Config-driven status derivation (replaces hardcoded _compute_workflow_status)
+        new_status = compute_status_from_config(body, config)
+        _status_rank = config.status_rank
         cur_rank = _status_rank.index(current_status) if current_status in _status_rank else 0
         new_rank = _status_rank.index(new_status) if new_status in _status_rank else 0
         final_status = new_status if new_rank > cur_rank else current_status
@@ -1493,15 +1497,31 @@ async def update_lead_workflow(
             {"data": json.dumps(body, ensure_ascii=False), "status": final_status, "id": lead_id},
         )
 
-        s1 = _get_stage(body, 'contract_signing', '1')
-        s0 = _get_stage(body, 'sales_negotiation', '0')
-        s1_done = set(s1.get('completed_steps', []))
-        if 'sign_contract' in s1_done:
+        # Detect newly completed steps and fire events + auto-actions
+        newly_completed = _find_newly_completed_steps(old_workflow_data, body, config)
+        for stage_key, step_key, step_def in newly_completed:
+            step_data = ((body.get("stages") or {}).get(stage_key) or {}).get("steps_data", {}).get(step_key, {})
+            await events.emit("crm.workflow.step_completed", {
+                "lead_id": lead_id,
+                "stage_key": stage_key,
+                "step_key": step_key,
+                "step_type": step_def.get("type"),
+                "step_data": step_data,
+                "tenant_id": ctx.get("tenant_id"),
+                "user_id": ctx.get("sub"),
+                "db": db,
+            })
+
+        # Auto-create contract when sign_contract is newly completed
+        sign_contract_completed = any(sk == "sign_contract" for _, sk, _ in newly_completed)
+        if sign_contract_completed:
             exists = await db.execute(
                 text("SELECT 1 FROM crm_contracts WHERE lead_id = CAST(:lid AS uuid) LIMIT 1"),
                 {"lid": lead_id},
             )
             if not exists.fetchone():
+                s1 = _get_stage(body, 'contract_signing', '1')
+                s0 = _get_stage(body, 'sales_negotiation', '0')
                 s1_steps = s1.get('steps_data', {})
                 s0_steps = s0.get('steps_data', {})
                 sign_data = s1_steps.get('sign_contract', {})

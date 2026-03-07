@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { api } from '@/lib/api';
 import { useTranslations } from 'next-intl';
@@ -1531,11 +1531,14 @@ export default function Customer360Page() {
   const pipelineConfig = usePipelineConfig();
   const CH = getCH(t);
   const LEAD_STATUS = getLeadStatus(t);
-  const [workflowStages, setWorkflowStages] = useState<WorkflowStage[]>([]);
-  const [workflowLoading, setWorkflowLoading] = useState(true);
-  const [workflowError, setWorkflowError] = useState<string | null>(null);
-  const dynamicFlowSteps = workflowStages.length ? workflowStages : getFlowSteps(t);
-  const FLOW_STEPS = dynamicFlowSteps;
+  // Derive workflow stages from pipeline config (single source of truth)
+  const workflowStages = useMemo<WorkflowStage[]>(() => {
+    if (pipelineConfig.workflow_stages.length > 0) {
+      return normalizeWorkflowStages(pipelineConfig.workflow_stages, t);
+    }
+    return [];
+  }, [pipelineConfig.workflow_stages, t]);
+  const FLOW_STEPS = workflowStages.length ? workflowStages : getFlowSteps(t);
   const { tenant, id } = useParams<{ tenant: string; id: string }>();
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -1544,29 +1547,12 @@ export default function Customer360Page() {
   const [loading, setLoading] = useState(true);
   const tabParam = searchParams.get('tab') as 'comms' | 'profile' | 'business' | 'timeline' | 'workflow' | null;
   const [tab, setTab] = useState<'comms' | 'profile' | 'business' | 'timeline' | 'workflow'>(tabParam || 'workflow');
-  const [advancing, setAdvancing] = useState(false);
   const [showColdModal, setShowColdModal] = useState(false);
   const [showNewLeadModal, setShowNewLeadModal] = useState(false);
   const [tenantUsers, setTenantUsers] = useState<TenantUser[]>([]);
   const [changingStage, setChangingStage] = useState(false);
   const [waSlideOpen, setWaSlideOpen] = useState(false);
   const [waSlideContact, setWaSlideContact] = useState<WaContact | null>(null);
-  useEffect(() => {
-    let mounted = true;
-    api.get('/api/crm/workflow-template')
-      .then(data => {
-        if (!mounted) return;
-        setWorkflowStages(normalizeWorkflowStages(data?.definition?.stages ?? [], t));
-      })
-      .catch(err => {
-        if (!mounted) return;
-        setWorkflowError(err.message || '无法加载流程');
-      })
-      .finally(() => {
-        if (mounted) setWorkflowLoading(false);
-      });
-    return () => { mounted = false; };
-  }, [t]);
 
   const load = useCallback(async () => {
     try { setData(await api.get(`/api/crm/customer-360/${id}`)); }
@@ -1582,15 +1568,6 @@ export default function Customer360Page() {
       setTenantUsers(list.map((u: any) => ({ id: u.id, email: u.email || '', full_name: u.full_name || u.email || '', role: u.role || '', position_name: u.position_name })));
     }).catch(() => {});
   }, []);
-
-  async function advanceStage() {
-    setAdvancing(true);
-    try {
-      await api.patch(`/api/crm/leads/${id}/advance-stage`, {});
-      await load();
-    } catch (e: any) { alert(e.message); }
-    finally { setAdvancing(false); }
-  }
 
   const [startingWa, setStartingWa] = useState(false);
   async function handleStartWhatsApp() {

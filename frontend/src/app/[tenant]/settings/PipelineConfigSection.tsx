@@ -5,7 +5,7 @@ import { useTranslations } from 'next-intl';
 import { api } from '@/lib/api';
 import { HandIcon } from '@/components/ui/HandIcon';
 import toast from 'react-hot-toast';
-import type { StatusValue, FileCategory, WorkflowStageDef, WorkflowStepDef } from '@/lib/usePipelineConfig';
+import type { FileCategory, WorkflowStageDef, WorkflowStepDef } from '@/lib/usePipelineConfig';
 
 // ── Shared UI ─────────────────────────────────────────────────────────────────
 
@@ -126,6 +126,7 @@ function AddStepForm({ allRoles, fileCategories, onAdd, onCancel }: {
   const [type, setType] = useState('custom');
   const [checklistItems, setChecklistItems] = useState('');
   const [fileCategory, setFileCategory] = useState('');
+  const [statusLabel, setStatusLabel] = useState('');
 
   function handleSubmit() {
     if (!label.trim()) return;
@@ -140,12 +141,13 @@ function AddStepForm({ allRoles, fileCategories, onAdd, onCancel }: {
     };
     if (type === 'checklist' && checklistItems.trim()) {
       step.checklist_items = checklistItems.split('\n').filter(Boolean).map((line, i) => ({
-        key: `item_${i}`,
-        label: line.trim(),
+        key: `item_${i}`, label: line.trim(),
       }));
     }
-    if (type === 'file_upload' && fileCategory) {
-      step.file_category = fileCategory;
+    if (type === 'file_upload' && fileCategory) step.file_category = fileCategory;
+    if (statusLabel.trim()) {
+      step.status = statusLabel.trim().toLowerCase().replace(/\s+/g, '_');
+      step.status_label = statusLabel.trim();
     }
     onAdd(step);
   }
@@ -160,7 +162,11 @@ function AddStepForm({ allRoles, fileCategories, onAdd, onCancel }: {
           {STEP_TYPE_KEYS.map(k => <option key={k} value={k}>{t(STEP_TYPE_I18N[k] as any)}</option>)}
         </select>
       </div>
-      <RoleMultiSelect value={owner} roles={allRoles} placeholder={t('ownerHint')} onChange={v => setOwner(v)} />
+      <div className="grid grid-cols-2 gap-2">
+        <RoleMultiSelect value={owner} roles={allRoles} placeholder={t('ownerHint')} onChange={v => setOwner(v)} />
+        <input value={statusLabel} onChange={e => setStatusLabel(e.target.value)}
+          className={inputCls} style={inputStyle} placeholder={t('stepStatusHint')} />
+      </div>
       <input value={desc} onChange={e => setDesc(e.target.value)}
         className={inputCls} style={inputStyle} placeholder={t('stepDesc')} />
       {type === 'checklist' && (
@@ -175,18 +181,69 @@ function AddStepForm({ allRoles, fileCategories, onAdd, onCancel }: {
         </select>
       )}
       <div className="flex items-center gap-2 pt-1">
-        <button onClick={handleSubmit}
-          disabled={!label.trim()}
+        <button onClick={handleSubmit} disabled={!label.trim()}
           className="px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors disabled:opacity-40"
-          style={{ background: 'var(--notion-accent)', color: 'white' }}>
-          {tc('create')}
-        </button>
+          style={{ background: 'var(--notion-accent)', color: 'white' }}>{tc('create')}</button>
         <button onClick={onCancel}
           className="px-3 py-1.5 rounded-lg text-xs transition-colors"
-          style={{ color: 'var(--notion-text-muted)' }}>
-          {tc('cancel')}
-        </button>
+          style={{ color: 'var(--notion-text-muted)' }}>{tc('cancel')}</button>
       </div>
+    </div>
+  );
+}
+
+// ── Status Badge (inline per step) ───────────────────────────────────────────
+
+function StatusBadge({ step, onChange }: {
+  step: WorkflowStepDef;
+  onChange: (patch: Partial<WorkflowStepDef>) => void;
+}) {
+  const t = useTranslations('pipelineConfig');
+  const [editing, setEditing] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!editing) return;
+    function handler(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) setEditing(false);
+    }
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [editing]);
+
+  if (!step.status && !editing) {
+    return (
+      <button onClick={() => setEditing(true)}
+        className="text-[10px] px-1.5 py-0.5 rounded-full flex-shrink-0 opacity-0 group-hover:opacity-60 transition-opacity"
+        style={{ border: '1px dashed var(--notion-border)', color: 'var(--notion-text-muted)' }}>
+        +{t('status')}
+      </button>
+    );
+  }
+
+  if (!editing) {
+    return (
+      <button onClick={() => setEditing(true)}
+        className="text-[10px] px-1.5 py-0.5 rounded-full flex-shrink-0 cursor-pointer"
+        style={{ background: '#dbeafe', color: '#2563eb' }}>
+        {step.status_label || step.status}
+      </button>
+    );
+  }
+
+  return (
+    <div ref={ref} className="flex items-center gap-1 flex-shrink-0">
+      <input value={step.status_label ?? ''} onChange={e => {
+        const label = e.target.value;
+        const key = label.trim().toLowerCase().replace(/\s+/g, '_');
+        onChange({ status_label: label, status: key || undefined });
+      }}
+        className="text-[11px] w-[70px] px-1.5 py-0.5 rounded" style={inputStyle}
+        placeholder={t('status')} autoFocus />
+      {step.status && (
+        <button onClick={() => { onChange({ status: undefined, status_label: undefined }); setEditing(false); }}
+          className="text-[10px]" style={{ color: '#ef4444' }}>×</button>
+      )}
     </div>
   );
 }
@@ -195,14 +252,11 @@ function AddStepForm({ allRoles, fileCategories, onAdd, onCancel }: {
 
 function WorkflowStagesEditor({
   stages, onChange, allRoles, fileCategories,
-  stageStatuses, onStageStatusesChange,
 }: {
   stages: WorkflowStageDef[];
   onChange: (s: WorkflowStageDef[]) => void;
   allRoles: { key: string; label: string }[];
   fileCategories: FileCategory[];
-  stageStatuses: Record<string, StatusValue[]>;
-  onStageStatusesChange: (s: Record<string, StatusValue[]>) => void;
 }) {
   const t = useTranslations('pipelineConfig');
   const tc = useTranslations('common');
@@ -247,24 +301,30 @@ function WorkflowStagesEditor({
     setAddingStep(null);
   }
 
-  // ── Inline status helpers ──
-  function updateStatuses(stageKey: string, statuses: StatusValue[]) {
-    onStageStatusesChange({ ...stageStatuses, [stageKey]: statuses });
+  function moveStage(idx: number, dir: -1 | 1) {
+    const target = idx + dir;
+    if (target < 0 || target >= stages.length) return;
+    const next = [...stages];
+    [next[idx], next[target]] = [next[target], next[idx]];
+    onChange(next);
   }
 
-  function addStatus(stageKey: string) {
-    const cur = stageStatuses[stageKey] ?? [];
-    updateStatuses(stageKey, [...cur, { key: `status_${Date.now()}`, label: '', stage: stageKey }]);
+  function removeStage(idx: number) {
+    onChange(stages.filter((_, i) => i !== idx));
   }
 
-  function updateStatus(stageKey: string, idx: number, patch: Partial<StatusValue>) {
-    const cur = stageStatuses[stageKey] ?? [];
-    updateStatuses(stageKey, cur.map((s, i) => (i === idx ? { ...s, ...patch } : s)));
-  }
-
-  function removeStatus(stageKey: string, idx: number) {
-    const cur = stageStatuses[stageKey] ?? [];
-    updateStatuses(stageKey, cur.filter((_, i) => i !== idx));
+  function addStage() {
+    const newStage: WorkflowStageDef = {
+      key: `stage_${Date.now()}`,
+      label: t('newStage'),
+      icon: 'briefcase',
+      color: '#6b7280',
+      bg: '#f3f4f6',
+      roles: [],
+      steps: [],
+    };
+    onChange([...stages, newStage]);
+    setExpanded(prev => ({ ...prev, [newStage.key]: true }));
   }
 
   return (
@@ -277,33 +337,43 @@ function WorkflowStagesEditor({
       {stages.map((stage, stageIdx) => {
         const isExpanded = expanded[stage.key] ?? false;
         const enabledCount = stage.steps.filter(s => s.enabled !== false).length;
-        const statuses = stageStatuses[stage.key] ?? [];
 
         return (
           <div key={stage.key} className="rounded-xl overflow-hidden"
             style={{ border: '1px solid var(--notion-border)' }}>
             {/* Stage header */}
-            <button
-              onClick={() => toggleExpand(stage.key)}
-              className="w-full flex items-center gap-3 px-4 py-3 text-left transition-colors"
-              style={{ background: isExpanded ? 'var(--notion-hover)' : 'transparent' }}
-              onMouseEnter={e => { if (!isExpanded) e.currentTarget.style.background = 'var(--notion-hover)'; }}
-              onMouseLeave={e => { if (!isExpanded) e.currentTarget.style.background = 'transparent'; }}
-            >
-              <div className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0"
-                style={{ background: stage.bg ?? '#f5f3ff' }}>
-                <HandIcon name={stage.icon ?? 'briefcase'} size={16} style={{ color: stage.color ?? '#7c3aed' }} />
-              </div>
-              <div className="flex-1 min-w-0">
-                <span className="font-semibold text-sm" style={{ color: 'var(--notion-text)' }}>{stage.label}</span>
-                <span className="ml-2 text-xs" style={{ color: 'var(--notion-text-muted)' }}>
-                  {enabledCount} / {stage.steps.length} {t('steps')}
+            <div className="flex items-center">
+              <button
+                onClick={() => toggleExpand(stage.key)}
+                className="flex-1 flex items-center gap-3 px-4 py-3 text-left transition-colors"
+                style={{ background: isExpanded ? 'var(--notion-hover)' : 'transparent' }}
+                onMouseEnter={e => { if (!isExpanded) e.currentTarget.style.background = 'var(--notion-hover)'; }}
+                onMouseLeave={e => { if (!isExpanded) e.currentTarget.style.background = 'transparent'; }}
+              >
+                <div className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0"
+                  style={{ background: stage.bg ?? '#f5f3ff' }}>
+                  <HandIcon name={stage.icon ?? 'briefcase'} size={16} style={{ color: stage.color ?? '#7c3aed' }} />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <span className="font-semibold text-sm" style={{ color: 'var(--notion-text)' }}>{stage.label}</span>
+                  <span className="ml-2 text-xs" style={{ color: 'var(--notion-text-muted)' }}>
+                    {enabledCount} / {stage.steps.length} {t('steps')}
+                  </span>
+                </div>
+                <span className="text-xs flex-shrink-0" style={{ color: 'var(--notion-text-muted)' }}>
+                  {isExpanded ? '▼' : '▶'}
                 </span>
+              </button>
+              {/* Stage reorder + delete */}
+              <div className="flex items-center gap-0.5 px-2 flex-shrink-0">
+                <button onClick={() => moveStage(stageIdx, -1)} disabled={stageIdx === 0}
+                  className="text-xs px-1 disabled:opacity-20" style={{ color: 'var(--notion-text-muted)' }}>↑</button>
+                <button onClick={() => moveStage(stageIdx, 1)} disabled={stageIdx === stages.length - 1}
+                  className="text-xs px-1 disabled:opacity-20" style={{ color: 'var(--notion-text-muted)' }}>↓</button>
+                <button onClick={() => removeStage(stageIdx)}
+                  className="text-xs px-1" style={{ color: '#ef4444' }}>×</button>
               </div>
-              <span className="text-xs flex-shrink-0" style={{ color: 'var(--notion-text-muted)' }}>
-                {isExpanded ? '▼' : '▶'}
-              </span>
-            </button>
+            </div>
 
             {/* Stage body */}
             {isExpanded && (
@@ -336,10 +406,7 @@ function WorkflowStagesEditor({
                       <input value={step.label} onChange={e => updateStep(stageIdx, stepIdx, { label: e.target.value })}
                         className="flex-1 text-sm px-2 py-0.5 rounded" style={inputStyle} placeholder={t('stepName')} />
 
-                      <RoleMultiSelect
-                        value={step.owner}
-                        roles={allRoles}
-                        placeholder={t('owner')}
+                      <RoleMultiSelect value={step.owner} roles={allRoles} placeholder={t('owner')}
                         onChange={v => updateStep(stageIdx, stepIdx, { owner: v })} />
 
                       {/* Type badge */}
@@ -350,14 +417,12 @@ function WorkflowStagesEditor({
                         </span>
                       )}
 
-                      {/* File category for file_upload steps */}
+                      {/* File category for file_upload */}
                       {isFileUpload && (
-                        <select
-                          value={step.file_category ?? ''}
+                        <select value={step.file_category ?? ''}
                           onChange={e => updateStep(stageIdx, stepIdx, { file_category: e.target.value || undefined })}
                           className="text-[11px] px-1.5 py-0.5 rounded flex-shrink-0 max-w-[100px]"
-                          style={inputStyle}
-                          title={t('fileCategory')}>
+                          style={inputStyle} title={t('fileCategory')}>
                           <option value="">{t('fileCategory')}</option>
                           {fileCategories.map(c => (
                             <option key={c.key} value={c.key}>{c.label || c.key}</option>
@@ -365,13 +430,15 @@ function WorkflowStagesEditor({
                         </select>
                       )}
 
-                      {/* Move buttons */}
+                      {/* Status badge */}
+                      <StatusBadge step={step}
+                        onChange={patch => updateStep(stageIdx, stepIdx, patch)} />
+
+                      {/* Move */}
                       <div className="flex gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0">
-                        <button onClick={() => moveStep(stageIdx, stepIdx, -1)}
-                          disabled={stepIdx === 0}
+                        <button onClick={() => moveStep(stageIdx, stepIdx, -1)} disabled={stepIdx === 0}
                           className="text-xs px-1 disabled:opacity-30" style={{ color: 'var(--notion-text-muted)' }}>↑</button>
-                        <button onClick={() => moveStep(stageIdx, stepIdx, 1)}
-                          disabled={stepIdx === stage.steps.length - 1}
+                        <button onClick={() => moveStep(stageIdx, stepIdx, 1)} disabled={stepIdx === stage.steps.length - 1}
                           className="text-xs px-1 disabled:opacity-30" style={{ color: 'var(--notion-text-muted)' }}>↓</button>
                       </div>
 
@@ -384,47 +451,29 @@ function WorkflowStagesEditor({
 
                 {/* Add custom step */}
                 {addingStep === stage.key ? (
-                  <AddStepForm
-                    allRoles={allRoles}
-                    fileCategories={fileCategories}
-                    onAdd={step => addCustomStep(stageIdx, step)}
-                    onCancel={() => setAddingStep(null)}
-                  />
+                  <AddStepForm allRoles={allRoles} fileCategories={fileCategories}
+                    onAdd={step => addCustomStep(stageIdx, step)} onCancel={() => setAddingStep(null)} />
                 ) : (
                   <AddButton label={t('addStep')} onClick={() => setAddingStep(stage.key)} />
                 )}
-
-                {/* Inline statuses for this stage */}
-                <div className="mt-4 pt-3" style={{ borderTop: '1px dashed var(--notion-border)' }}>
-                  <h4 className="text-xs font-semibold mb-2" style={{ color: 'var(--notion-text-muted)' }}>
-                    {t('statusTitle')}
-                  </h4>
-                  <div className="space-y-1.5">
-                    {statuses.map((sv, i) => (
-                      <div key={i} className="flex items-center gap-2 group">
-                        <input value={sv.key} onChange={e => updateStatus(stage.key, i, { key: e.target.value })}
-                          className="text-xs px-2 py-1 rounded w-28" style={inputStyle} placeholder={t('identifier')} />
-                        <input value={sv.label ?? ''} onChange={e => updateStatus(stage.key, i, { label: e.target.value })}
-                          className="text-xs px-2 py-1 rounded flex-1" style={inputStyle} placeholder={t('displayName')} />
-                        <button onClick={() => removeStatus(stage.key, i)}
-                          className="text-xs opacity-0 group-hover:opacity-100 transition-opacity"
-                          style={{ color: '#ef4444' }}>×</button>
-                      </div>
-                    ))}
-                    <button onClick={() => addStatus(stage.key)}
-                      className="text-xs px-2 py-1 rounded transition-colors"
-                      style={{ color: 'var(--notion-accent)' }}>
-                      + {t('addStatus')}
-                    </button>
-                  </div>
-                </div>
               </div>
             )}
           </div>
         );
       })}
+
+      {/* Add new stage */}
+      <AddButton label={t('addStage')} onClick={addStage} />
     </div>
   );
+}
+
+// ── General Status (not tied to any step) ────────────────────────────────────
+
+interface GeneralStatus {
+  key: string;
+  label: string;
+  color?: string;
 }
 
 // ── Main Component ────────────────────────────────────────────────────────────
@@ -437,15 +486,9 @@ export default function PipelineConfigSection() {
   const [dirty, setDirty] = useState(false);
 
   const [workflowStages, setWorkflowStages] = useState<WorkflowStageDef[]>([]);
-  const [stageStatuses, setStageStatuses] = useState<Record<string, StatusValue[]>>({});
-  const [generalStatuses, setGeneralStatuses] = useState<StatusValue[]>([]);
-  const [statusRank, setStatusRank] = useState<string[]>([]);
+  const [generalStatuses, setGeneralStatuses] = useState<GeneralStatus[]>([]);
   const [fileCategories, setFileCategories] = useState<FileCategory[]>([]);
 
-  // Reverse mapping: workflow stage key → pipeline stage key (for saving)
-  const wToPRef = useRef<Record<string, string>>({});
-
-  // All unique roles across all stages
   const allRoles = useMemo(() => {
     const seen = new Map<string, { key: string; label: string }>();
     for (const stage of workflowStages) {
@@ -460,46 +503,9 @@ export default function PipelineConfigSection() {
     (async () => {
       try {
         const data = await api.get('/api/pipeline-config');
-        const wfStages: WorkflowStageDef[] = data.workflow_stages ?? [];
-        setWorkflowStages(wfStages);
+        setWorkflowStages(data.workflow_stages ?? []);
         setFileCategories(data.file_categories ?? []);
-        setStatusRank(data.statuses?.rank ?? []);
-
-        // Build pipeline ↔ workflow stage key mapping
-        const pipelineStages: { key: string }[] = data.pipeline?.stages ?? [];
-        const wfKeys = new Set(wfStages.map(s => s.key));
-        const p2w: Record<string, string> = {};
-
-        // Direct matches first
-        for (const ps of pipelineStages) {
-          if (wfKeys.has(ps.key)) p2w[ps.key] = ps.key;
-        }
-        // Position match for remaining
-        const unmatchedP = pipelineStages.filter(ps => !p2w[ps.key]);
-        const matchedW = new Set(Object.values(p2w));
-        const unmatchedW = wfStages.filter(ws => !matchedW.has(ws.key));
-        for (let i = 0; i < Math.min(unmatchedP.length, unmatchedW.length); i++) {
-          p2w[unmatchedP[i].key] = unmatchedW[i].key;
-        }
-
-        // Build reverse mapping for save
-        const w2p: Record<string, string> = {};
-        for (const [pk, wk] of Object.entries(p2w)) w2p[wk] = pk;
-        wToPRef.current = w2p;
-
-        // Group statuses by workflow stage key
-        const grouped: Record<string, StatusValue[]> = {};
-        const general: StatusValue[] = [];
-        for (const sv of data.statuses?.values ?? []) {
-          const mappedStage = sv.stage ? (p2w[sv.stage] ?? sv.stage) : null;
-          if (mappedStage && wfKeys.has(mappedStage)) {
-            (grouped[mappedStage] ??= []).push({ ...sv, stage: mappedStage });
-          } else {
-            general.push(sv);
-          }
-        }
-        setStageStatuses(grouped);
-        setGeneralStatuses(general);
+        setGeneralStatuses(data.general_statuses ?? []);
       } catch (err) {
         toast.error(t('loadFailed'));
       } finally {
@@ -511,23 +517,7 @@ export default function PipelineConfigSection() {
   const handleSave = useCallback(async () => {
     setSaving(true);
     try {
-      // Flatten statuses → use pipeline stage keys for backward compat
-      const allStatuses: StatusValue[] = [];
-      const statusToStage: Record<string, string> = {};
-      const w2p = wToPRef.current;
-
-      for (const [wfKey, svList] of Object.entries(stageStatuses)) {
-        const pKey = w2p[wfKey] ?? wfKey;
-        for (const sv of svList) {
-          allStatuses.push({ ...sv, stage: pKey });
-          statusToStage[sv.key] = pKey;
-        }
-      }
-      for (const sv of generalStatuses) {
-        allStatuses.push({ ...sv, stage: null });
-      }
-
-      // Collect file categories from file_upload steps (preserve existing labels)
+      // Collect file categories from file_upload steps
       const catMap = new Map<string, FileCategory>();
       for (const c of fileCategories) catMap.set(c.key, c);
       for (const stage of workflowStages) {
@@ -540,11 +530,7 @@ export default function PipelineConfigSection() {
 
       await api.patch('/api/pipeline-config', {
         workflow_stages: workflowStages,
-        statuses: {
-          values: allStatuses,
-          status_to_stage: statusToStage,
-          rank: statusRank,
-        },
+        general_statuses: generalStatuses,
         file_categories: Array.from(catMap.values()),
       });
       setDirty(false);
@@ -557,7 +543,7 @@ export default function PipelineConfigSection() {
     } finally {
       setSaving(false);
     }
-  }, [workflowStages, stageStatuses, generalStatuses, statusRank, fileCategories, t]);
+  }, [workflowStages, generalStatuses, fileCategories, t]);
 
   function markDirty<T>(setter: (v: T) => void) {
     return (v: T) => { setter(v); setDirty(true); };
@@ -577,13 +563,9 @@ export default function PipelineConfigSection() {
       <div className="flex items-center justify-between mb-6">
         <div>
           <h2 className="text-lg font-bold" style={{ color: 'var(--notion-text)' }}>{t('title')}</h2>
-          <p className="text-xs mt-1" style={{ color: 'var(--notion-text-muted)' }}>
-            {t('subtitle')}
-          </p>
+          <p className="text-xs mt-1" style={{ color: 'var(--notion-text-muted)' }}>{t('subtitle')}</p>
         </div>
-        <button
-          onClick={handleSave}
-          disabled={!dirty || saving}
+        <button onClick={handleSave} disabled={!dirty || saving}
           className="px-5 py-2 rounded-lg text-sm font-semibold transition-colors"
           style={{
             background: dirty ? 'var(--notion-accent)' : 'var(--notion-hover)',
@@ -599,40 +581,46 @@ export default function PipelineConfigSection() {
         onChange={markDirty(setWorkflowStages)}
         allRoles={allRoles}
         fileCategories={fileCategories}
-        stageStatuses={stageStatuses}
-        onStageStatusesChange={markDirty(setStageStatuses)}
       />
 
-      {/* General statuses (not tied to any stage) */}
-      {generalStatuses.length > 0 && (
-        <div className="mt-6 pt-4" style={{ borderTop: '1px solid var(--notion-border)' }}>
-          <h4 className="text-sm font-semibold mb-2" style={{ color: 'var(--notion-text)' }}>
-            {t('generalStatuses')}
-          </h4>
-          <div className="space-y-1.5">
-            {generalStatuses.map((sv, i) => (
-              <div key={i} className="flex items-center gap-2 group">
-                <input value={sv.key}
-                  onChange={e => {
-                    const next = generalStatuses.map((s, j) => (j === i ? { ...s, key: e.target.value } : s));
-                    setGeneralStatuses(next); setDirty(true);
-                  }}
-                  className="text-xs px-2 py-1 rounded w-28" style={inputStyle} placeholder={t('identifier')} />
-                <input value={sv.label ?? ''}
-                  onChange={e => {
-                    const next = generalStatuses.map((s, j) => (j === i ? { ...s, label: e.target.value } : s));
-                    setGeneralStatuses(next); setDirty(true);
-                  }}
-                  className="text-xs px-2 py-1 rounded flex-1" style={inputStyle} placeholder={t('displayName')} />
-                <button onClick={() => {
-                  setGeneralStatuses(generalStatuses.filter((_, j) => j !== i)); setDirty(true);
-                }} className="text-xs opacity-0 group-hover:opacity-100 transition-opacity"
-                  style={{ color: '#ef4444' }}>×</button>
-              </div>
-            ))}
-          </div>
+      {/* General statuses (not tied to steps) */}
+      <div className="mt-6 pt-4" style={{ borderTop: '1px solid var(--notion-border)' }}>
+        <h4 className="text-sm font-semibold mb-2" style={{ color: 'var(--notion-text)' }}>
+          {t('generalStatuses')}
+        </h4>
+        <p className="text-xs mb-3" style={{ color: 'var(--notion-text-muted)' }}>
+          {t('generalStatusesDesc')}
+        </p>
+        <div className="space-y-1.5">
+          {generalStatuses.map((gs, i) => (
+            <div key={i} className="flex items-center gap-2 group">
+              <input value={gs.key}
+                onChange={e => {
+                  const next = generalStatuses.map((s, j) => (j === i ? { ...s, key: e.target.value } : s));
+                  setGeneralStatuses(next); setDirty(true);
+                }}
+                className="text-xs px-2 py-1 rounded w-28" style={inputStyle} placeholder={t('identifier')} />
+              <input value={gs.label}
+                onChange={e => {
+                  const next = generalStatuses.map((s, j) => (j === i ? { ...s, label: e.target.value } : s));
+                  setGeneralStatuses(next); setDirty(true);
+                }}
+                className="text-xs px-2 py-1 rounded flex-1" style={inputStyle} placeholder={t('displayName')} />
+              <button onClick={() => {
+                setGeneralStatuses(generalStatuses.filter((_, j) => j !== i)); setDirty(true);
+              }} className="text-xs opacity-0 group-hover:opacity-100 transition-opacity"
+                style={{ color: '#ef4444' }}>×</button>
+            </div>
+          ))}
+          <button onClick={() => {
+            setGeneralStatuses([...generalStatuses, { key: `status_${Date.now()}`, label: '' }]);
+            setDirty(true);
+          }} className="text-xs px-2 py-1 rounded transition-colors"
+            style={{ color: 'var(--notion-accent)' }}>
+            + {t('addStatus')}
+          </button>
         </div>
-      )}
+      </div>
     </div>
   );
 }

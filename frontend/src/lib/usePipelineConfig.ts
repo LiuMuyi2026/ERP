@@ -48,6 +48,8 @@ export interface WorkflowStepDef {
   checklist_items?: { key: string; label: string }[];
   file_category?: string;
   approver_role?: string;
+  status?: string;
+  status_label?: string;
 }
 
 export interface WorkflowStageDef {
@@ -58,6 +60,12 @@ export interface WorkflowStageDef {
   bg?: string;
   roles?: { key: string; label: string }[];
   steps: WorkflowStepDef[];
+}
+
+export interface GeneralStatus {
+  key: string;
+  label: string;
+  color?: string;
 }
 
 export interface PipelineConfig {
@@ -72,6 +80,7 @@ export interface PipelineConfig {
   file_categories: FileCategory[];
   role_mappings: Record<string, string>;
   workflow_stages: WorkflowStageDef[];
+  general_statuses: GeneralStatus[];
 }
 
 // ---------------------------------------------------------------------------
@@ -131,6 +140,7 @@ export const FALLBACK_CONFIG: PipelineConfig = {
   ],
   role_mappings: {},
   workflow_stages: [],
+  general_statuses: [],
 };
 
 // ---------------------------------------------------------------------------
