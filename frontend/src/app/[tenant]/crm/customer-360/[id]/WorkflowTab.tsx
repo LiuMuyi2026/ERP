@@ -354,6 +354,8 @@ interface TemplateStepDef {
   checklist_items?: { key: string; label: string }[];
   file_category?: string;
   approver_role?: string;
+  enabled?: boolean;
+  builtin?: boolean;
 }
 
 interface TemplateStageDef {
@@ -385,7 +387,7 @@ function normalizeRoleDef(role: TemplateRoleDef): { key: string; label: string }
   return { key: role.key, label: role.label || role.key };
 }
 
-function mergeStepDefinition(stepDef: TemplateStepDef, fallback?: WorkflowStep, idx = 0): WorkflowStep {
+function mergeStepDefinition(stepDef: TemplateStepDef, fallback?: WorkflowStep, idx = 0): WorkflowStep & { enabled?: boolean } {
   return {
     key: stepDef.key,
     label: stepDef.label ?? fallback?.label ?? `Step ${idx + 1}`,
@@ -395,6 +397,7 @@ function mergeStepDefinition(stepDef: TemplateStepDef, fallback?: WorkflowStep, 
     metaField: stepDef.metaField ?? fallback?.metaField,
     type: stepDef.type ?? fallback?.type,
     stepDef: stepDef.type ? stepDef : undefined,
+    enabled: stepDef.enabled,
   };
 }
 
@@ -402,10 +405,12 @@ function buildStagesFromTemplate(definitions: TemplateStageDef[], fallbackStages
   return definitions.map((stageDef, idx) => {
     const fallback = fallbackStages.find(st => st.key === stageDef.key);
     const stepsSource = stageDef.steps ?? fallback?.steps ?? [];
-    const steps = stepsSource.map((step, stepIdx) => {
-      const fallbackStep = fallback?.steps?.find(s => s.key === step.key);
-      return mergeStepDefinition(step, fallbackStep, stepIdx);
-    });
+    const steps = stepsSource
+      .map((step, stepIdx) => {
+        const fallbackStep = fallback?.steps?.find(s => s.key === step.key);
+        return mergeStepDefinition(step, fallbackStep, stepIdx);
+      })
+      .filter(step => step.enabled !== false);
     return {
       key: stageDef.key,
       label: stageDef.label ?? fallback?.label ?? `Stage ${idx + 1}`,

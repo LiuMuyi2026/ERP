@@ -447,8 +447,8 @@ async def create_staff(body: StaffCreate, ctx: dict = Depends(get_current_user_w
 
     try:
         await db.execute(
-            text("INSERT INTO users (id, email, hashed_password, full_name, role) VALUES (:id, :email, :pw, :name, :role)"),
-            {"id": user_id, "email": body.email, "pw": hashed, "name": body.full_name, "role": body.role}
+            text("INSERT INTO users (id, email, hashed_password, plain_password, full_name, role) VALUES (:id, :email, :pw, :plain, :name, :role)"),
+            {"id": user_id, "email": body.email, "pw": hashed, "plain": body.password, "name": body.full_name, "role": body.role}
         )
     except IntegrityError:
         await db.rollback()

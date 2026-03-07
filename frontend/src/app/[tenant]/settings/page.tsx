@@ -12,6 +12,7 @@ import { UserAvatar, parseAvatarConfig, serializeAvatarConfig, AvatarConfig } fr
 import { AvatarPicker } from '@/components/ui/AvatarPicker';
 import { DEFAULT_EMAIL_UI_PREFS, loadEmailUiPrefs, saveEmailUiPrefs, type EmailUiPrefs } from '@/lib/emailPrefs';
 import PipelineConfigSection from './PipelineConfigSection';
+import toast from 'react-hot-toast';
 
 const LANGUAGES: { code: LangCode; label: string; native: string }[] = [
   { code: 'en', label: 'English', native: 'English' },
@@ -226,9 +227,13 @@ function AdminMembersSection() {
 
   async function resetPassword(userId: string) {
     try {
-      const res = await api.patch(`/api/admin/users/${userId}/reset-password`, { password: DEFAULT_PASSWORD });
-      setStaff(prev => prev.map(s => s.user_id === userId ? { ...s, plain_password: res.plain_password || DEFAULT_PASSWORD } : s));
-    } catch { /* */ }
+      const res = await api.patch(`/api/admin/users/${userId}/reset-password`, { new_password: DEFAULT_PASSWORD });
+      const newPwd = res.plain_password || DEFAULT_PASSWORD;
+      setStaff(prev => prev.map(s => s.user_id === userId ? { ...s, plain_password: newPwd } : s));
+      // Auto-show password for this user
+      setPwdVisible(prev => { const n = new Set(prev); n.add(userId); return n; });
+      toast.success(`密码已重置为: ${newPwd}`, { duration: 6000 });
+    } catch { toast.error('重置密码失败'); }
   }
 
   if (loading) return <div className="py-16 text-center text-sm" style={{ color: 'var(--notion-text-muted)' }}>{t('loading')}</div>;
@@ -311,8 +316,8 @@ function AdminMembersSection() {
                     </td>
                     <td className="px-4 py-2.5 text-sm" style={{ color: 'var(--notion-text-muted)' }}>{s.email}</td>
                     <td className="px-4 py-2.5">
-                      <span className="text-xs font-mono" style={{ color: 'var(--notion-text-muted)' }}>
-                        {pwdVisible.has(s.user_id) ? (s.plain_password || '***') : '••••••'}
+                      <span className="text-xs font-mono select-all" style={{ color: pwdVisible.has(s.user_id) ? 'var(--notion-text)' : 'var(--notion-text-muted)' }}>
+                        {pwdVisible.has(s.user_id) ? (s.plain_password || DEFAULT_PASSWORD) : '••••••'}
                       </span>
                       <button onClick={() => setPwdVisible(prev => { const n = new Set(prev); n.has(s.user_id) ? n.delete(s.user_id) : n.add(s.user_id); return n; })}
                         className="ml-1 text-[10px]" style={{ color: '#9B9A97' }}>

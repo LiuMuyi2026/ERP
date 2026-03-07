@@ -30,6 +30,7 @@ class PipelineConfig:
     approval_rules: list[dict] = field(default_factory=list)
     file_categories: list[dict] = field(default_factory=list)
     role_mappings: dict[str, str] = field(default_factory=dict)
+    workflow_stages: list[dict] = field(default_factory=list)
 
     def to_dict(self) -> dict:
         return {
@@ -44,6 +45,7 @@ class PipelineConfig:
             "approval_rules": self.approval_rules,
             "file_categories": self.file_categories,
             "role_mappings": self.role_mappings,
+            "workflow_stages": self.workflow_stages,
         }
 
 
@@ -108,6 +110,13 @@ def _resolve_config(definition: dict) -> PipelineConfig:
         or copy.deepcopy(defaults.get("role_mappings", {}))
     )
 
+    # workflow_stages: check definition.workflow_stages, then definition.stages (WorkflowTab key), then defaults
+    workflow_stages = (
+        definition.get("workflow_stages")
+        or definition.get("stages")
+        or copy.deepcopy(defaults.get("workflow_stages", []))
+    )
+
     # Build status_colors lookup from status_values
     status_colors = {s["key"]: s.get("color", "") for s in status_values}
 
@@ -122,6 +131,7 @@ def _resolve_config(definition: dict) -> PipelineConfig:
         approval_rules=approval_rules,
         file_categories=file_categories,
         role_mappings=role_mappings,
+        workflow_stages=workflow_stages,
     )
 
 

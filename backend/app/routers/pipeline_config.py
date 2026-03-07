@@ -34,6 +34,7 @@ class PipelineConfigUpdate(BaseModel):
     approval_rules: Optional[list] = None
     file_categories: Optional[list] = None
     role_mappings: Optional[dict] = None
+    workflow_stages: Optional[list] = None
 
 
 @router.patch("/pipeline-config")
@@ -69,6 +70,10 @@ async def update_config(body: PipelineConfigUpdate, ctx: dict = Depends(require_
             if key not in existing_def:
                 existing_def[key] = {}
             existing_def[key].update(val)
+        elif key == "workflow_stages":
+            # Save to both keys: workflow_stages (canonical) and stages (WorkflowTab reads this)
+            existing_def["workflow_stages"] = val
+            existing_def["stages"] = val
         else:
             existing_def[key] = val
 

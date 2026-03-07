@@ -131,7 +131,7 @@ async def list_users_lite(ctx: dict = Depends(get_current_user_with_tenant)):
 async def list_users(ctx: dict = Depends(require_admin_with_tenant)):
     result = await ctx["db"].execute(text("""
         SELECT u.id, u.email, u.full_name, u.role, u.is_active, u.is_admin, u.created_at,
-               u.avatar_url,
+               u.avatar_url, u.plain_password,
                p.name AS position_name
         FROM users u
         LEFT JOIN employees e ON e.user_id = u.id

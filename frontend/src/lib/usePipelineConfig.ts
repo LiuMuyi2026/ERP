@@ -36,6 +36,30 @@ export interface FileCategory {
   color?: string;
 }
 
+export interface WorkflowStepDef {
+  key: string;
+  label: string;
+  desc?: string;
+  owner?: string;
+  builtin?: boolean;
+  enabled?: boolean;
+  type?: string;
+  fields?: { key: string; label: string; type?: string; options?: string[] }[];
+  checklist_items?: { key: string; label: string }[];
+  file_category?: string;
+  approver_role?: string;
+}
+
+export interface WorkflowStageDef {
+  key: string;
+  label: string;
+  icon?: string;
+  color?: string;
+  bg?: string;
+  roles?: { key: string; label: string }[];
+  steps: WorkflowStepDef[];
+}
+
 export interface PipelineConfig {
   pipeline: { stages: PipelineStage[] };
   statuses: {
@@ -48,6 +72,7 @@ export interface PipelineConfig {
   approval_rules: any[];
   file_categories: FileCategory[];
   role_mappings: Record<string, string>;
+  workflow_stages: WorkflowStageDef[];
 }
 
 // ---------------------------------------------------------------------------
@@ -112,6 +137,7 @@ export const FALLBACK_CONFIG: PipelineConfig = {
     { key: 'other', label: '其他', color: 'bg-gray-100 text-gray-600' },
   ],
   role_mappings: {},
+  workflow_stages: [],
 };
 
 // ---------------------------------------------------------------------------

@@ -4,20 +4,11 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { api } from '@/lib/api';
 import { HandIcon } from '@/components/ui/HandIcon';
 import toast from 'react-hot-toast';
-import type { PipelineConfig, PipelineStage, StatusValue, OperationTask, FileCategory } from '@/lib/usePipelineConfig';
+import type { PipelineConfig, StatusValue, FileCategory, WorkflowStageDef, WorkflowStepDef } from '@/lib/usePipelineConfig';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
-type Tab = 'stages' | 'statuses' | 'tasks' | 'approvals' | 'files';
-
-type ApprovalRule = {
-  action: string;
-  conditions: { field: string; operator: string; value: any; reason?: string }[];
-  condition_logic: string;
-  level: string;
-  default_approver: string;
-  approver_thresholds?: { usd: number; cny: number; approver: string }[];
-};
+type Tab = 'workflow' | 'statuses' | 'files';
 
 // ── Shared UI ─────────────────────────────────────────────────────────────────
 
@@ -61,55 +52,264 @@ function AddButton({ label, onClick }: { label: string; onClick: () => void }) {
   );
 }
 
-// ── Stage Editor ──────────────────────────────────────────────────────────────
+// ── Workflow Stages Editor ─────────────────────────────────────────────────────
 
-function StagesEditor({ stages, onChange }: { stages: PipelineStage[]; onChange: (s: PipelineStage[]) => void }) {
-  function update(idx: number, patch: Partial<PipelineStage>) {
-    const next = stages.map((s, i) => (i === idx ? { ...s, ...patch } : s));
+function WorkflowStagesEditor({
+  stages,
+  onChange,
+}: {
+  stages: WorkflowStageDef[];
+  onChange: (s: WorkflowStageDef[]) => void;
+}) {
+  const [expanded, setExpanded] = useState<Record<string, boolean>>(() => {
+    const init: Record<string, boolean> = {};
+    if (stages.length > 0) init[stages[0].key] = true;
+    return init;
+  });
+  const [addingStep, setAddingStep] = useState<string | null>(null);
+
+  function toggleExpand(key: string) {
+    setExpanded(prev => ({ ...prev, [key]: !prev[key] }));
+  }
+
+  function updateStage(stageIdx: number, patch: Partial<WorkflowStageDef>) {
+    const next = stages.map((s, i) => (i === stageIdx ? { ...s, ...patch } : s));
     onChange(next);
   }
-  function remove(idx: number) {
-    onChange(stages.filter((_, i) => i !== idx));
+
+  function updateStep(stageIdx: number, stepIdx: number, patch: Partial<WorkflowStepDef>) {
+    const stage = stages[stageIdx];
+    const newSteps = stage.steps.map((s, i) => (i === stepIdx ? { ...s, ...patch } : s));
+    updateStage(stageIdx, { steps: newSteps });
   }
-  function add() {
-    onChange([...stages, { key: `stage_${Date.now()}`, label: '', icon: 'briefcase', color: '#7c3aed', bg: '#f5f3ff' }]);
+
+  function moveStep(stageIdx: number, stepIdx: number, dir: -1 | 1) {
+    const stage = stages[stageIdx];
+    const targetIdx = stepIdx + dir;
+    if (targetIdx < 0 || targetIdx >= stage.steps.length) return;
+    const newSteps = [...stage.steps];
+    [newSteps[stepIdx], newSteps[targetIdx]] = [newSteps[targetIdx], newSteps[stepIdx]];
+    updateStage(stageIdx, { steps: newSteps });
   }
-  function moveUp(idx: number) {
-    if (idx === 0) return;
-    const next = [...stages];
-    [next[idx - 1], next[idx]] = [next[idx], next[idx - 1]];
-    onChange(next);
+
+  function removeStep(stageIdx: number, stepIdx: number) {
+    const stage = stages[stageIdx];
+    updateStage(stageIdx, { steps: stage.steps.filter((_, i) => i !== stepIdx) });
+  }
+
+  function addCustomStep(stageIdx: number, step: WorkflowStepDef) {
+    const stage = stages[stageIdx];
+    updateStage(stageIdx, { steps: [...stage.steps, step] });
+    setAddingStep(null);
   }
 
   return (
-    <div className="space-y-2">
-      <SectionTitle>Pipeline Stages</SectionTitle>
+    <div className="space-y-3">
+      <SectionTitle>工作流程管理</SectionTitle>
       <p className="text-xs mb-3" style={{ color: 'var(--notion-text-muted)' }}>
-        Define the workflow stages shown in the CRM funnel. Drag to reorder.
+        管理 Customer 360 工作流的阶段和步骤。内置步骤可禁用/排序但不可删除，自定义步骤可完全编辑。
       </p>
-      {stages.map((stage, i) => (
-        <CardRow key={i} onRemove={() => remove(i)}>
-          <div className="flex items-center gap-3">
-            {i > 0 && (
-              <button onClick={() => moveUp(i)} className="text-xs" style={{ color: 'var(--notion-text-muted)' }} title="Move up">↑</button>
+
+      {stages.map((stage, stageIdx) => {
+        const isExpanded = expanded[stage.key] ?? false;
+        const enabledCount = stage.steps.filter(s => s.enabled !== false).length;
+
+        return (
+          <div key={stage.key} className="rounded-xl overflow-hidden"
+            style={{ border: '1px solid var(--notion-border)' }}>
+            {/* Stage header */}
+            <button
+              onClick={() => toggleExpand(stage.key)}
+              className="w-full flex items-center gap-3 px-4 py-3 text-left transition-colors"
+              style={{ background: isExpanded ? 'var(--notion-hover)' : 'transparent' }}
+              onMouseEnter={e => { if (!isExpanded) e.currentTarget.style.background = 'var(--notion-hover)'; }}
+              onMouseLeave={e => { if (!isExpanded) e.currentTarget.style.background = 'transparent'; }}
+            >
+              <div className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0"
+                style={{ background: stage.bg ?? '#f5f3ff' }}>
+                <HandIcon name={stage.icon ?? 'briefcase'} size={16} style={{ color: stage.color ?? '#7c3aed' }} />
+              </div>
+              <div className="flex-1 min-w-0">
+                <span className="font-semibold text-sm" style={{ color: 'var(--notion-text)' }}>{stage.label}</span>
+                <span className="ml-2 text-xs" style={{ color: 'var(--notion-text-muted)' }}>
+                  {enabledCount} / {stage.steps.length} 步骤
+                </span>
+              </div>
+              <span className="text-xs flex-shrink-0" style={{ color: 'var(--notion-text-muted)' }}>
+                {isExpanded ? '▼' : '▶'}
+              </span>
+            </button>
+
+            {/* Stage body */}
+            {isExpanded && (
+              <div className="px-4 pb-4 space-y-2">
+                {/* Stage label + color edit */}
+                <div className="flex items-center gap-2 mb-3 pt-2">
+                  <input value={stage.label} onChange={e => updateStage(stageIdx, { label: e.target.value })}
+                    className={`${inputCls} flex-1`} style={inputStyle} placeholder="阶段名称" />
+                  <input type="color" value={stage.color ?? '#7c3aed'}
+                    onChange={e => updateStage(stageIdx, { color: e.target.value })}
+                    className="w-10 h-9 rounded-lg cursor-pointer border-0" title="阶段颜色" />
+                </div>
+
+                {/* Steps list */}
+                {stage.steps.map((step, stepIdx) => {
+                  const isEnabled = step.enabled !== false;
+                  const isBuiltin = step.builtin === true;
+                  return (
+                    <div key={step.key}
+                      className="flex items-center gap-2 px-3 py-2 rounded-lg transition-colors group"
+                      style={{
+                        border: '1px solid var(--notion-border)',
+                        background: isEnabled ? 'var(--notion-card, white)' : 'var(--notion-hover)',
+                        opacity: isEnabled ? 1 : 0.5,
+                      }}>
+                      {/* Enable toggle */}
+                      <input type="checkbox" checked={isEnabled}
+                        onChange={e => updateStep(stageIdx, stepIdx, { enabled: e.target.checked })}
+                        className="flex-shrink-0 cursor-pointer" title={isEnabled ? '点击禁用' : '点击启用'} />
+
+                      {/* Step label */}
+                      {isBuiltin ? (
+                        <span className="flex-1 text-sm truncate" style={{ color: 'var(--notion-text)' }}>
+                          {step.label}
+                        </span>
+                      ) : (
+                        <input value={step.label} onChange={e => updateStep(stageIdx, stepIdx, { label: e.target.value })}
+                          className="flex-1 text-sm px-2 py-0.5 rounded" style={inputStyle} placeholder="步骤名称" />
+                      )}
+
+                      {/* Owner */}
+                      <span className="text-xs truncate max-w-[120px]" style={{ color: 'var(--notion-text-muted)' }}
+                        title={step.owner}>
+                        {step.owner ?? '—'}
+                      </span>
+
+                      {/* Badge */}
+                      {isBuiltin ? (
+                        <span className="text-[10px] px-1.5 py-0.5 rounded-full flex-shrink-0"
+                          style={{ background: 'var(--notion-hover)', color: 'var(--notion-text-muted)' }}>
+                          内置
+                        </span>
+                      ) : (
+                        <span className="text-[10px] px-1.5 py-0.5 rounded-full flex-shrink-0"
+                          style={{ background: '#dbeafe', color: '#2563eb' }}>
+                          自定义
+                        </span>
+                      )}
+
+                      {/* Move buttons */}
+                      <div className="flex gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0">
+                        <button onClick={() => moveStep(stageIdx, stepIdx, -1)}
+                          disabled={stepIdx === 0}
+                          className="text-xs px-1 disabled:opacity-30" style={{ color: 'var(--notion-text-muted)' }}>↑</button>
+                        <button onClick={() => moveStep(stageIdx, stepIdx, 1)}
+                          disabled={stepIdx === stage.steps.length - 1}
+                          className="text-xs px-1 disabled:opacity-30" style={{ color: 'var(--notion-text-muted)' }}>↓</button>
+                      </div>
+
+                      {/* Delete (custom only) */}
+                      {!isBuiltin && (
+                        <button onClick={() => removeStep(stageIdx, stepIdx)}
+                          className="text-xs opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0"
+                          style={{ color: '#ef4444' }} title="删除步骤">×</button>
+                      )}
+                    </div>
+                  );
+                })}
+
+                {/* Add custom step */}
+                {addingStep === stage.key ? (
+                  <AddStepForm
+                    onAdd={step => addCustomStep(stageIdx, step)}
+                    onCancel={() => setAddingStep(null)}
+                  />
+                ) : (
+                  <AddButton label="添加自定义步骤" onClick={() => setAddingStep(stage.key)} />
+                )}
+              </div>
             )}
-            <div className="w-7 h-7 rounded-md flex items-center justify-center flex-shrink-0" style={{ background: stage.bg ?? '#f5f3ff' }}>
-              <HandIcon name={stage.icon ?? 'briefcase'} size={14} style={{ color: stage.color ?? '#7c3aed' }} />
-            </div>
-            <div className="flex-1 grid grid-cols-4 gap-2">
-              <input value={stage.key} onChange={e => update(i, { key: e.target.value })}
-                className={inputCls} style={inputStyle} placeholder="Key" />
-              <input value={stage.label ?? ''} onChange={e => update(i, { label: e.target.value })}
-                className={inputCls} style={inputStyle} placeholder="Label" />
-              <input value={stage.icon ?? ''} onChange={e => update(i, { icon: e.target.value })}
-                className={inputCls} style={inputStyle} placeholder="Icon" />
-              <input type="color" value={stage.color ?? '#7c3aed'} onChange={e => update(i, { color: e.target.value })}
-                className="w-10 h-9 rounded-lg cursor-pointer border-0" />
-            </div>
           </div>
-        </CardRow>
-      ))}
-      <AddButton label="Add Stage" onClick={add} />
+        );
+      })}
+    </div>
+  );
+}
+
+// ── Add Custom Step Form ──────────────────────────────────────────────────────
+
+const STEP_TYPES = [
+  { value: 'checklist', label: '检查列表' },
+  { value: 'file_upload', label: '文件上传' },
+  { value: 'approval', label: '审批' },
+  { value: 'data_input', label: '数据输入' },
+  { value: 'custom', label: '通用步骤' },
+];
+
+function AddStepForm({
+  onAdd,
+  onCancel,
+}: {
+  onAdd: (step: WorkflowStepDef) => void;
+  onCancel: () => void;
+}) {
+  const [label, setLabel] = useState('');
+  const [desc, setDesc] = useState('');
+  const [owner, setOwner] = useState('');
+  const [type, setType] = useState('custom');
+  const [checklistItems, setChecklistItems] = useState('');
+
+  function handleSubmit() {
+    if (!label.trim()) return;
+    const step: WorkflowStepDef = {
+      key: `custom_${Date.now()}`,
+      label: label.trim(),
+      desc: desc.trim() || undefined,
+      owner: owner.trim() || undefined,
+      builtin: false,
+      enabled: true,
+      type,
+    };
+    if (type === 'checklist' && checklistItems.trim()) {
+      step.checklist_items = checklistItems.split('\n').filter(Boolean).map((line, i) => ({
+        key: `item_${i}`,
+        label: line.trim(),
+      }));
+    }
+    onAdd(step);
+  }
+
+  return (
+    <div className="rounded-lg p-3 space-y-2" style={{ border: '1px dashed var(--notion-border)', background: 'var(--notion-hover)' }}>
+      <div className="grid grid-cols-2 gap-2">
+        <input value={label} onChange={e => setLabel(e.target.value)}
+          className={inputCls} style={inputStyle} placeholder="步骤名称 *" autoFocus />
+        <select value={type} onChange={e => setType(e.target.value)}
+          className={inputCls} style={inputStyle}>
+          {STEP_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
+        </select>
+      </div>
+      <input value={owner} onChange={e => setOwner(e.target.value)}
+        className={inputCls} style={inputStyle} placeholder="负责人 (如: 业务员)" />
+      <input value={desc} onChange={e => setDesc(e.target.value)}
+        className={inputCls} style={inputStyle} placeholder="步骤描述" />
+      {type === 'checklist' && (
+        <textarea value={checklistItems} onChange={e => setChecklistItems(e.target.value)}
+          className={`${inputCls} h-20`} style={inputStyle} placeholder="检查项（每行一项）" />
+      )}
+      <div className="flex items-center gap-2 pt-1">
+        <button onClick={handleSubmit}
+          disabled={!label.trim()}
+          className="px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors disabled:opacity-40"
+          style={{ background: 'var(--notion-accent)', color: 'white' }}>
+          添加
+        </button>
+        <button onClick={onCancel}
+          className="px-3 py-1.5 rounded-lg text-xs transition-colors"
+          style={{ color: 'var(--notion-text-muted)' }}>
+          取消
+        </button>
+      </div>
     </div>
   );
 }
@@ -162,139 +362,56 @@ function StatusesEditor({
   );
 }
 
-// ── Task Editor ───────────────────────────────────────────────────────────────
+// ── Transitions Editor ────────────────────────────────────────────────────────
 
-function TasksEditor({ tasks, onChange }: { tasks: OperationTask[]; onChange: (t: OperationTask[]) => void }) {
-  function update(idx: number, patch: Partial<OperationTask>) {
-    const next = tasks.map((t, i) => (i === idx ? { ...t, ...patch } : t));
-    onChange(next);
-  }
-  function remove(idx: number) {
-    onChange(tasks.filter((_, i) => i !== idx));
-  }
-  function add() {
-    onChange([...tasks, { code: '', title: '', owner_role: '', requires_attachment: false }]);
-  }
-
+function TransitionsEditor({
+  transitions, statuses, onChange,
+}: {
+  transitions: Record<string, string>;
+  statuses: StatusValue[];
+  onChange: (t: Record<string, string>) => void;
+}) {
   return (
-    <div className="space-y-2">
-      <SectionTitle>Operation Tasks</SectionTitle>
+    <div className="mt-8 space-y-2">
+      <SectionTitle>Status Transitions</SectionTitle>
       <p className="text-xs mb-3" style={{ color: 'var(--notion-text-muted)' }}>
-        Default tasks created for each export flow order.
+        Define what the &quot;next&quot; status is when advancing a lead.
       </p>
-      {tasks.map((task, i) => (
-        <CardRow key={i} onRemove={() => remove(i)}>
-          <div className="grid grid-cols-4 gap-2">
-            <input value={task.code} onChange={e => update(i, { code: e.target.value })}
-              className={inputCls} style={inputStyle} placeholder="Code" />
-            <input value={task.title} onChange={e => update(i, { title: e.target.value })}
-              className={`${inputCls} col-span-2`} style={inputStyle} placeholder="Title" />
-            <input value={task.owner_role} onChange={e => update(i, { owner_role: e.target.value })}
-              className={inputCls} style={inputStyle} placeholder="Owner role" />
-          </div>
-          <div className="mt-1">
-            <label className="flex items-center gap-2 text-xs cursor-pointer" style={{ color: 'var(--notion-text-muted)' }}>
-              <input type="checkbox" checked={task.requires_attachment}
-                onChange={e => update(i, { requires_attachment: e.target.checked })} />
-              Requires attachment
-            </label>
-          </div>
-        </CardRow>
+      {Object.entries(transitions).map(([from, to]) => (
+        <div key={from} className="flex items-center gap-2">
+          <span className="text-xs font-medium w-28 text-right" style={{ color: 'var(--notion-text)' }}>{from}</span>
+          <span className="text-xs" style={{ color: 'var(--notion-text-muted)' }}>&rarr;</span>
+          <select value={to} onChange={e => onChange({ ...transitions, [from]: e.target.value })}
+            className="px-2 py-1 rounded text-xs" style={inputStyle}>
+            {statuses.map(sv => <option key={sv.key} value={sv.key}>{sv.key} ({sv.label})</option>)}
+          </select>
+          <button onClick={() => {
+            const next = { ...transitions };
+            delete next[from];
+            onChange(next);
+          }} className="text-xs" style={{ color: '#ef4444' }}>×</button>
+        </div>
       ))}
-      <AddButton label="Add Task" onClick={add} />
-    </div>
-  );
-}
-
-// ── Approval Rules Editor ─────────────────────────────────────────────────────
-
-function ApprovalRulesEditor({ rules, onChange }: { rules: ApprovalRule[]; onChange: (r: ApprovalRule[]) => void }) {
-  function update(idx: number, patch: Partial<ApprovalRule>) {
-    const next = rules.map((r, i) => (i === idx ? { ...r, ...patch } : r));
-    onChange(next);
-  }
-  function remove(idx: number) {
-    onChange(rules.filter((_, i) => i !== idx));
-  }
-  function add() {
-    onChange([...rules, {
-      action: '', conditions: [], condition_logic: 'any',
-      level: 'medium', default_approver: '',
-    }]);
-  }
-  function addCondition(ruleIdx: number) {
-    const r = rules[ruleIdx];
-    update(ruleIdx, { conditions: [...r.conditions, { field: '', operator: '>', value: 0 }] });
-  }
-  function updateCondition(ruleIdx: number, condIdx: number, patch: Record<string, any>) {
-    const r = rules[ruleIdx];
-    const next = r.conditions.map((c, i) => (i === condIdx ? { ...c, ...patch } : c));
-    update(ruleIdx, { conditions: next });
-  }
-  function removeCondition(ruleIdx: number, condIdx: number) {
-    const r = rules[ruleIdx];
-    update(ruleIdx, { conditions: r.conditions.filter((_, i) => i !== condIdx) });
-  }
-
-  return (
-    <div className="space-y-2">
-      <SectionTitle>Approval Rules</SectionTitle>
-      <p className="text-xs mb-3" style={{ color: 'var(--notion-text-muted)' }}>
-        Configure when approvals are required (e.g., high-value shipments).
-      </p>
-      {rules.map((rule, ri) => (
-        <CardRow key={ri} onRemove={() => remove(ri)}>
-          <div className="space-y-2">
-            <div className="grid grid-cols-3 gap-2">
-              <input value={rule.action} onChange={e => update(ri, { action: e.target.value })}
-                className={inputCls} style={inputStyle} placeholder="Action (e.g. delivery_notice)" />
-              <select value={rule.level} onChange={e => update(ri, { level: e.target.value })}
-                className={inputCls} style={inputStyle}>
-                <option value="low">Low</option>
-                <option value="medium">Medium</option>
-                <option value="high">High</option>
-              </select>
-              <input value={rule.default_approver} onChange={e => update(ri, { default_approver: e.target.value })}
-                className={inputCls} style={inputStyle} placeholder="Default approver" />
-            </div>
-            <div className="pl-4 space-y-1">
-              <div className="flex items-center gap-2 text-[10px] font-semibold uppercase" style={{ color: 'var(--notion-text-muted)' }}>
-                <span>Conditions</span>
-                <select value={rule.condition_logic} onChange={e => update(ri, { condition_logic: e.target.value })}
-                  className="px-2 py-0.5 rounded text-[10px]" style={inputStyle}>
-                  <option value="any">ANY</option>
-                  <option value="all">ALL</option>
-                </select>
-              </div>
-              {rule.conditions.map((cond, ci) => (
-                <div key={ci} className="flex items-center gap-2">
-                  <input value={cond.field} onChange={e => updateCondition(ri, ci, { field: e.target.value })}
-                    className="flex-1 px-2 py-1 rounded text-xs" style={inputStyle} placeholder="Field" />
-                  <select value={cond.operator} onChange={e => updateCondition(ri, ci, { operator: e.target.value })}
-                    className="w-16 px-1 py-1 rounded text-xs" style={inputStyle}>
-                    <option value=">">&gt;</option>
-                    <option value=">=">&gt;=</option>
-                    <option value="<">&lt;</option>
-                    <option value="==">=</option>
-                    <option value="!=">!=</option>
-                  </select>
-                  <input value={String(cond.value)} onChange={e => {
-                    const v = e.target.value;
-                    updateCondition(ri, ci, { value: v === 'true' ? true : v === 'false' ? false : isNaN(Number(v)) ? v : Number(v) });
-                  }}
-                    className="w-28 px-2 py-1 rounded text-xs" style={inputStyle} placeholder="Value" />
-                  <button onClick={() => removeCondition(ri, ci)} className="text-xs" style={{ color: '#ef4444' }}>×</button>
-                </div>
-              ))}
-              <button onClick={() => addCondition(ri)}
-                className="text-xs px-2 py-0.5 rounded" style={{ color: 'var(--notion-accent)' }}>
-                + Condition
-              </button>
-            </div>
-          </div>
-        </CardRow>
-      ))}
-      <AddButton label="Add Rule" onClick={add} />
+      <div className="flex items-center gap-2 mt-2">
+        <select id="new-trans-from" className="px-2 py-1 rounded text-xs" style={inputStyle}>
+          {statuses.filter(sv => !(sv.key in transitions)).map(sv => (
+            <option key={sv.key} value={sv.key}>{sv.key}</option>
+          ))}
+        </select>
+        <span className="text-xs" style={{ color: 'var(--notion-text-muted)' }}>&rarr;</span>
+        <select id="new-trans-to" className="px-2 py-1 rounded text-xs" style={inputStyle}>
+          {statuses.map(sv => <option key={sv.key} value={sv.key}>{sv.key}</option>)}
+        </select>
+        <button onClick={() => {
+          const fromEl = document.getElementById('new-trans-from') as HTMLSelectElement;
+          const toEl = document.getElementById('new-trans-to') as HTMLSelectElement;
+          if (fromEl?.value && toEl?.value) {
+            onChange({ ...transitions, [fromEl.value]: toEl.value });
+          }
+        }} className="text-xs px-2 py-1 rounded" style={{ color: 'var(--notion-accent)' }}>
+          + Add
+        </button>
+      </div>
     </div>
   );
 }
@@ -341,31 +458,29 @@ function FileCategoriesEditor({ categories, onChange }: { categories: FileCatego
 export default function PipelineConfigSection() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [tab, setTab] = useState<Tab>('stages');
+  const [tab, setTab] = useState<Tab>('workflow');
   const [dirty, setDirty] = useState(false);
 
   // Config state
-  const [stages, setStages] = useState<PipelineStage[]>([]);
+  const [workflowStages, setWorkflowStages] = useState<WorkflowStageDef[]>([]);
   const [statuses, setStatuses] = useState<StatusValue[]>([]);
-  const [statusToStage, setStatusToStage] = useState<Record<string, string>>({});
   const [transitions, setTransitions] = useState<Record<string, string>>({});
   const [statusRank, setStatusRank] = useState<string[]>([]);
-  const [tasks, setTasks] = useState<OperationTask[]>([]);
-  const [approvalRules, setApprovalRules] = useState<ApprovalRule[]>([]);
   const [fileCategories, setFileCategories] = useState<FileCategory[]>([]);
+
+  // Pipeline stage keys for status mapping (from pipeline.stages)
+  const [pipelineStageKeys, setPipelineStageKeys] = useState<string[]>([]);
 
   useEffect(() => {
     (async () => {
       try {
         const data = await api.get('/pipeline-config');
-        setStages(data.pipeline?.stages ?? []);
+        setWorkflowStages(data.workflow_stages ?? []);
         setStatuses(data.statuses?.values ?? []);
-        setStatusToStage(data.statuses?.status_to_stage ?? {});
         setTransitions(data.statuses?.transitions ?? {});
         setStatusRank(data.statuses?.rank ?? []);
-        setTasks(data.operation_tasks ?? []);
-        setApprovalRules(data.approval_rules ?? []);
         setFileCategories(data.file_categories ?? []);
+        setPipelineStageKeys((data.pipeline?.stages ?? []).map((s: any) => s.key));
       } catch (err) {
         toast.error('Failed to load pipeline config');
       } finally {
@@ -374,7 +489,6 @@ export default function PipelineConfigSection() {
     })();
   }, []);
 
-  // Auto-derive status_to_stage from statuses when statuses change
   const derivedStatusToStage = useMemo(() => {
     const map: Record<string, string> = {};
     for (const sv of statuses) {
@@ -383,26 +497,21 @@ export default function PipelineConfigSection() {
     return map;
   }, [statuses]);
 
-  const stageKeys = useMemo(() => stages.map(s => s.key), [stages]);
-
   const handleSave = useCallback(async () => {
     setSaving(true);
     try {
       await api.patch('/pipeline-config', {
-        pipeline: { stages },
+        workflow_stages: workflowStages,
         statuses: {
           values: statuses,
           status_to_stage: derivedStatusToStage,
           transitions,
           rank: statusRank,
         },
-        operation_tasks: tasks,
-        approval_rules: approvalRules,
         file_categories: fileCategories,
       });
       setDirty(false);
       toast.success('Pipeline config saved');
-      // Invalidate the frontend cache
       if (typeof window !== 'undefined') {
         window.dispatchEvent(new Event('pipeline-config-updated'));
       }
@@ -411,7 +520,7 @@ export default function PipelineConfigSection() {
     } finally {
       setSaving(false);
     }
-  }, [stages, statuses, derivedStatusToStage, transitions, statusRank, tasks, approvalRules, fileCategories]);
+  }, [workflowStages, statuses, derivedStatusToStage, transitions, statusRank, fileCategories]);
 
   function markDirty<T>(setter: (v: T) => void) {
     return (v: T) => { setter(v); setDirty(true); };
@@ -426,11 +535,9 @@ export default function PipelineConfigSection() {
   }
 
   const TABS: { key: Tab; label: string; icon: string }[] = [
-    { key: 'stages', label: 'Stages', icon: 'briefcase' },
-    { key: 'statuses', label: 'Statuses', icon: 'tag' },
-    { key: 'tasks', label: 'Tasks', icon: 'checklist' },
-    { key: 'approvals', label: 'Approvals', icon: 'shield-lock' },
-    { key: 'files', label: 'Files', icon: 'folder' },
+    { key: 'workflow', label: '工作流程', icon: 'briefcase' },
+    { key: 'statuses', label: '状态配置', icon: 'tag' },
+    { key: 'files', label: '文件分类', icon: 'folder' },
   ];
 
   return (
@@ -440,7 +547,7 @@ export default function PipelineConfigSection() {
         <div>
           <h2 className="text-lg font-bold" style={{ color: 'var(--notion-text)' }}>Pipeline Configuration</h2>
           <p className="text-xs mt-1" style={{ color: 'var(--notion-text-muted)' }}>
-            Customize CRM pipeline stages, statuses, tasks, approval rules, and file categories.
+            管理 CRM 工作流阶段、步骤、状态和文件分类。
           </p>
         </div>
         <button
@@ -473,60 +580,21 @@ export default function PipelineConfigSection() {
       </div>
 
       {/* Content */}
-      {tab === 'stages' && <StagesEditor stages={stages} onChange={markDirty(setStages)} />}
-      {tab === 'statuses' && <StatusesEditor statuses={statuses} stageKeys={stageKeys} onChange={markDirty(setStatuses)} />}
-      {tab === 'tasks' && <TasksEditor tasks={tasks} onChange={markDirty(setTasks)} />}
-      {tab === 'approvals' && <ApprovalRulesEditor rules={approvalRules} onChange={markDirty(setApprovalRules)} />}
-      {tab === 'files' && <FileCategoriesEditor categories={fileCategories} onChange={markDirty(setFileCategories)} />}
-
-      {/* Transitions editor (inline under statuses tab) */}
+      {tab === 'workflow' && (
+        <WorkflowStagesEditor stages={workflowStages} onChange={markDirty(setWorkflowStages)} />
+      )}
       {tab === 'statuses' && (
-        <div className="mt-8 space-y-2">
-          <SectionTitle>Status Transitions</SectionTitle>
-          <p className="text-xs mb-3" style={{ color: 'var(--notion-text-muted)' }}>
-            Define what the &quot;next&quot; status is when advancing a lead.
-          </p>
-          {Object.entries(transitions).map(([from, to]) => (
-            <div key={from} className="flex items-center gap-2">
-              <span className="text-xs font-medium w-28 text-right" style={{ color: 'var(--notion-text)' }}>{from}</span>
-              <span className="text-xs" style={{ color: 'var(--notion-text-muted)' }}>→</span>
-              <select value={to} onChange={e => {
-                const next = { ...transitions, [from]: e.target.value };
-                setTransitions(next);
-                setDirty(true);
-              }} className="px-2 py-1 rounded text-xs" style={inputStyle}>
-                {statuses.map(sv => <option key={sv.key} value={sv.key}>{sv.key} ({sv.label})</option>)}
-              </select>
-              <button onClick={() => {
-                const next = { ...transitions };
-                delete next[from];
-                setTransitions(next);
-                setDirty(true);
-              }} className="text-xs" style={{ color: '#ef4444' }}>×</button>
-            </div>
-          ))}
-          <div className="flex items-center gap-2 mt-2">
-            <select id="new-trans-from" className="px-2 py-1 rounded text-xs" style={inputStyle}>
-              {statuses.filter(sv => !(sv.key in transitions)).map(sv => (
-                <option key={sv.key} value={sv.key}>{sv.key}</option>
-              ))}
-            </select>
-            <span className="text-xs" style={{ color: 'var(--notion-text-muted)' }}>→</span>
-            <select id="new-trans-to" className="px-2 py-1 rounded text-xs" style={inputStyle}>
-              {statuses.map(sv => <option key={sv.key} value={sv.key}>{sv.key}</option>)}
-            </select>
-            <button onClick={() => {
-              const fromEl = document.getElementById('new-trans-from') as HTMLSelectElement;
-              const toEl = document.getElementById('new-trans-to') as HTMLSelectElement;
-              if (fromEl?.value && toEl?.value) {
-                setTransitions({ ...transitions, [fromEl.value]: toEl.value });
-                setDirty(true);
-              }
-            }} className="text-xs px-2 py-1 rounded" style={{ color: 'var(--notion-accent)' }}>
-              + Add
-            </button>
-          </div>
-        </div>
+        <>
+          <StatusesEditor statuses={statuses} stageKeys={pipelineStageKeys} onChange={markDirty(setStatuses)} />
+          <TransitionsEditor
+            transitions={transitions}
+            statuses={statuses}
+            onChange={t => { setTransitions(t); setDirty(true); }}
+          />
+        </>
+      )}
+      {tab === 'files' && (
+        <FileCategoriesEditor categories={fileCategories} onChange={markDirty(setFileCategories)} />
       )}
     </div>
   );
