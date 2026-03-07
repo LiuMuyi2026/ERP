@@ -188,11 +188,16 @@ function SidebarNavItem({
 
 // ── AppNavItem (CRM / HR / etc.) ───────────────────────────────────────────────
 function AppNavItem({
-  icon, label, bg, active, readOnly, href, readOnlyLabel,
+  icon, label, bg, color: iconColor, darkBg, darkColor, active, readOnly, href, readOnlyLabel,
 }: {
   icon: string; label: string; bg: string; color: string;
+  darkBg?: string; darkColor?: string;
   active: boolean; readOnly: boolean; href: string; readOnlyLabel?: string;
 }) {
+  const { resolved } = useTheme();
+  const isDark = resolved === 'dark';
+  const effectiveBg = isDark && darkBg ? darkBg : bg;
+  const effectiveColor = isDark && darkColor ? darkColor : iconColor;
   return (
     <Link href={href} style={{ display: 'block', textDecoration: 'none' }} title={readOnly ? readOnlyLabel : undefined}>
       <div
@@ -208,7 +213,7 @@ function AppNavItem({
       >
         <div
           className="flex items-center justify-center rounded-lg flex-shrink-0"
-          style={{ width: 30, height: 30, background: bg }}
+          style={{ width: 30, height: 30, background: effectiveBg, color: effectiveColor }}
         >
           <HandIcon name={icon} size={18} />
         </div>
@@ -729,12 +734,12 @@ export default function Sidebar({ tenant, userName, userRole, avatarUrl, collaps
 
   // App items with translated labels (static fallback + dynamic from module registry)
   const defaultAppItems = [
-    { key: 'customers',  label: tNav('customerCenter'),  path: 'crm/customers', icon: 'building',      bg: '#e0e7ff', color: '#4338ca' },
-    { key: 'crm',        label: tNav('customerMgmt'),   path: 'crm',           icon: 'people-group',  bg: '#dbeafe', color: '#1e40af' },
-    { key: 'messages',   label: tNav('messagesCenter'),  path: 'messages',      icon: 'chat-bubble',   bg: '#fce7f3', color: '#be185d' },
-    { key: 'inventory',  label: tNav('supplyChain'),     path: 'inventory',     icon: 'factory',       bg: '#ffedd5', color: '#c2410c' },
-    { key: 'accounting', label: tNav('financeMgmt'),     path: 'accounting',    icon: 'money-bag',     bg: '#dcfce7', color: '#166534' },
-    { key: 'hr',         label: tNav('peopleMgmt'),      path: 'hr',            icon: 'person',        bg: '#ede9fe', color: '#5b21b6' },
+    { key: 'customers',  label: tNav('customerCenter'),  path: 'crm/customers', icon: 'building',      bg: '#e0e7ff', color: '#4338ca', darkBg: 'rgba(99,102,241,0.15)',  darkColor: '#a5b4fc' },
+    { key: 'crm',        label: tNav('customerMgmt'),   path: 'crm',           icon: 'people-group',  bg: '#dbeafe', color: '#1e40af', darkBg: 'rgba(59,130,246,0.15)',  darkColor: '#93c5fd' },
+    { key: 'messages',   label: tNav('messagesCenter'),  path: 'messages',      icon: 'chat-bubble',   bg: '#fce7f3', color: '#be185d', darkBg: 'rgba(236,72,153,0.15)',  darkColor: '#f9a8d4' },
+    { key: 'inventory',  label: tNav('supplyChain'),     path: 'inventory',     icon: 'factory',       bg: '#ffedd5', color: '#c2410c', darkBg: 'rgba(249,115,22,0.15)',  darkColor: '#fdba74' },
+    { key: 'accounting', label: tNav('financeMgmt'),     path: 'accounting',    icon: 'money-bag',     bg: '#dcfce7', color: '#166534', darkBg: 'rgba(34,197,94,0.15)',   darkColor: '#86efac' },
+    { key: 'hr',         label: tNav('peopleMgmt'),      path: 'hr',            icon: 'person',        bg: '#ede9fe', color: '#5b21b6', darkBg: 'rgba(139,92,246,0.15)',  darkColor: '#c4b5fd' },
   ];
 
   // Draggable app items (user can reorder)
@@ -1230,6 +1235,8 @@ export default function Sidebar({ tenant, userName, userRole, avatarUrl, collaps
                     label={item.label}
                     bg={item.bg}
                     color={item.color}
+                    darkBg={item.darkBg}
+                    darkColor={item.darkColor}
                     active={pathname.startsWith(href)}
                     readOnly={perm === 'view'}
                     href={href}
