@@ -3159,7 +3159,7 @@ function ProfileEditor({ accountId, displayName }: { accountId: string; displayN
     <SettingsCard>
       <button onClick={() => setExpanded(!expanded)} className="w-full text-left flex items-center justify-between">
         <span className="text-sm font-medium" style={{ color: 'var(--notion-text)' }}>
-          {displayName || accountId.slice(0, 8)}
+          {displayName || 'WhatsApp 账号'}
         </span>
         <span className="text-xs" style={{ color: 'var(--notion-text-muted)' }}>{expanded ? '▼' : '▶'}</span>
       </button>

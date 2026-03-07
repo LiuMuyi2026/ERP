@@ -107,7 +107,7 @@ function WorkflowStagesEditor({
     <div className="space-y-3">
       <SectionTitle>工作流程管理</SectionTitle>
       <p className="text-xs mb-3" style={{ color: 'var(--notion-text-muted)' }}>
-        管理 Customer 360 工作流的阶段和步骤。内置步骤可禁用/排序但不可删除，自定义步骤可完全编辑。
+        管理 Customer 360 工作流的阶段和步骤。所有步骤均可编辑、排序和删除。
       </p>
 
       {stages.map((stage, stageIdx) => {
@@ -170,20 +170,12 @@ function WorkflowStagesEditor({
                         className="flex-shrink-0 cursor-pointer" title={isEnabled ? '点击禁用' : '点击启用'} />
 
                       {/* Step label */}
-                      {isBuiltin ? (
-                        <span className="flex-1 text-sm truncate" style={{ color: 'var(--notion-text)' }}>
-                          {step.label}
-                        </span>
-                      ) : (
-                        <input value={step.label} onChange={e => updateStep(stageIdx, stepIdx, { label: e.target.value })}
-                          className="flex-1 text-sm px-2 py-0.5 rounded" style={inputStyle} placeholder="步骤名称" />
-                      )}
+                      <input value={step.label} onChange={e => updateStep(stageIdx, stepIdx, { label: e.target.value })}
+                        className="flex-1 text-sm px-2 py-0.5 rounded" style={inputStyle} placeholder="步骤名称" />
 
                       {/* Owner */}
-                      <span className="text-xs truncate max-w-[120px]" style={{ color: 'var(--notion-text-muted)' }}
-                        title={step.owner}>
-                        {step.owner ?? '—'}
-                      </span>
+                      <input value={step.owner ?? ''} onChange={e => updateStep(stageIdx, stepIdx, { owner: e.target.value || undefined })}
+                        className="text-xs w-[100px] px-2 py-0.5 rounded flex-shrink-0" style={inputStyle} placeholder="负责人" />
 
                       {/* Badge */}
                       {isBuiltin ? (
@@ -208,12 +200,10 @@ function WorkflowStagesEditor({
                           className="text-xs px-1 disabled:opacity-30" style={{ color: 'var(--notion-text-muted)' }}>↓</button>
                       </div>
 
-                      {/* Delete (custom only) */}
-                      {!isBuiltin && (
-                        <button onClick={() => removeStep(stageIdx, stepIdx)}
-                          className="text-xs opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0"
-                          style={{ color: '#ef4444' }} title="删除步骤">×</button>
-                      )}
+                      {/* Delete */}
+                      <button onClick={() => removeStep(stageIdx, stepIdx)}
+                        className="text-xs opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0"
+                        style={{ color: '#ef4444' }} title="删除步骤">×</button>
                     </div>
                   );
                 })}
@@ -336,28 +326,26 @@ function StatusesEditor({
 
   return (
     <div className="space-y-2">
-      <SectionTitle>Lead Statuses</SectionTitle>
+      <SectionTitle>线索状态</SectionTitle>
       <p className="text-xs mb-3" style={{ color: 'var(--notion-text-muted)' }}>
-        Configure statuses and their stage mapping. Each status belongs to a pipeline stage.
+        配置状态及其所属阶段。
       </p>
       {statuses.map((sv, i) => (
         <CardRow key={i} onRemove={() => remove(i)}>
-          <div className="grid grid-cols-4 gap-2">
+          <div className="grid grid-cols-3 gap-2">
             <input value={sv.key} onChange={e => update(i, { key: e.target.value })}
-              className={inputCls} style={inputStyle} placeholder="Key" />
+              className={inputCls} style={inputStyle} placeholder="标识符" />
             <input value={sv.label ?? ''} onChange={e => update(i, { label: e.target.value })}
-              className={inputCls} style={inputStyle} placeholder="Label" />
+              className={inputCls} style={inputStyle} placeholder="显示名称" />
             <select value={sv.stage ?? ''} onChange={e => update(i, { stage: e.target.value || null })}
               className={inputCls} style={inputStyle}>
-              <option value="">— No Stage —</option>
+              <option value="">— 无阶段 —</option>
               {stageKeys.map(k => <option key={k} value={k}>{k}</option>)}
             </select>
-            <input value={sv.color ?? ''} onChange={e => update(i, { color: e.target.value })}
-              className={inputCls} style={inputStyle} placeholder="CSS class" />
           </div>
         </CardRow>
       ))}
-      <AddButton label="Add Status" onClick={add} />
+      <AddButton label="添加状态" onClick={add} />
     </div>
   );
 }
@@ -373,9 +361,9 @@ function TransitionsEditor({
 }) {
   return (
     <div className="mt-8 space-y-2">
-      <SectionTitle>Status Transitions</SectionTitle>
+      <SectionTitle>状态流转</SectionTitle>
       <p className="text-xs mb-3" style={{ color: 'var(--notion-text-muted)' }}>
-        Define what the &quot;next&quot; status is when advancing a lead.
+        定义线索推进时的下一状态。
       </p>
       {Object.entries(transitions).map(([from, to]) => (
         <div key={from} className="flex items-center gap-2">
@@ -409,7 +397,7 @@ function TransitionsEditor({
             onChange({ ...transitions, [fromEl.value]: toEl.value });
           }
         }} className="text-xs px-2 py-1 rounded" style={{ color: 'var(--notion-accent)' }}>
-          + Add
+          + 添加
         </button>
       </div>
     </div>
@@ -432,23 +420,21 @@ function FileCategoriesEditor({ categories, onChange }: { categories: FileCatego
 
   return (
     <div className="space-y-2">
-      <SectionTitle>File Categories</SectionTitle>
+      <SectionTitle>文件分类</SectionTitle>
       <p className="text-xs mb-3" style={{ color: 'var(--notion-text-muted)' }}>
-        Categories for lead/contract file attachments.
+        线索/合同附件的文件分类。
       </p>
       {categories.map((cat, i) => (
         <CardRow key={i} onRemove={() => remove(i)}>
-          <div className="grid grid-cols-3 gap-2">
+          <div className="grid grid-cols-2 gap-2">
             <input value={cat.key} onChange={e => update(i, { key: e.target.value })}
-              className={inputCls} style={inputStyle} placeholder="Key" />
+              className={inputCls} style={inputStyle} placeholder="标识符" />
             <input value={cat.label ?? ''} onChange={e => update(i, { label: e.target.value })}
-              className={inputCls} style={inputStyle} placeholder="Label" />
-            <input value={cat.color ?? ''} onChange={e => update(i, { color: e.target.value })}
-              className={inputCls} style={inputStyle} placeholder="CSS class" />
+              className={inputCls} style={inputStyle} placeholder="显示名称" />
           </div>
         </CardRow>
       ))}
-      <AddButton label="Add Category" onClick={add} />
+      <AddButton label="添加分类" onClick={add} />
     </div>
   );
 }
@@ -482,7 +468,7 @@ export default function PipelineConfigSection() {
         setFileCategories(data.file_categories ?? []);
         setPipelineStageKeys((data.pipeline?.stages ?? []).map((s: any) => s.key));
       } catch (err) {
-        toast.error('Failed to load pipeline config');
+        toast.error('加载流程配置失败');
       } finally {
         setLoading(false);
       }
@@ -511,12 +497,12 @@ export default function PipelineConfigSection() {
         file_categories: fileCategories,
       });
       setDirty(false);
-      toast.success('Pipeline config saved');
+      toast.success('流程配置已保存');
       if (typeof window !== 'undefined') {
         window.dispatchEvent(new Event('pipeline-config-updated'));
       }
     } catch (err) {
-      toast.error('Failed to save pipeline config');
+      toast.error('保存流程配置失败');
     } finally {
       setSaving(false);
     }
@@ -529,7 +515,7 @@ export default function PipelineConfigSection() {
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64 text-sm" style={{ color: 'var(--notion-text-muted)' }}>
-        Loading pipeline config...
+        加载中...
       </div>
     );
   }
@@ -545,9 +531,9 @@ export default function PipelineConfigSection() {
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h2 className="text-lg font-bold" style={{ color: 'var(--notion-text)' }}>Pipeline Configuration</h2>
+          <h2 className="text-lg font-bold" style={{ color: 'var(--notion-text)' }}>流程配置</h2>
           <p className="text-xs mt-1" style={{ color: 'var(--notion-text-muted)' }}>
-            管理 CRM 工作流阶段、步骤、状态和文件分类。
+            管理工作流阶段、步骤、状态和文件分类。
           </p>
         </div>
         <button
@@ -559,7 +545,7 @@ export default function PipelineConfigSection() {
             color: dirty ? 'white' : 'var(--notion-text-muted)',
             opacity: saving ? 0.6 : 1,
           }}>
-          {saving ? 'Saving...' : dirty ? 'Save Changes' : 'Saved'}
+          {saving ? '保存中...' : dirty ? '保存更改' : '已保存'}
         </button>
       </div>
 
