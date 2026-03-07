@@ -200,7 +200,7 @@ export function usePipelineConfigFetcher(tenantSlug?: string) {
     doFetch.current();
   }, [tenantSlug]);
 
-  // Listen for config updates from settings page
+  // Listen for config updates from settings page (same tab + cross-tab via BroadcastChannel)
   useEffect(() => {
     const handler = () => {
       _cachedConfig = null;
@@ -209,7 +209,17 @@ export function usePipelineConfigFetcher(tenantSlug?: string) {
       doFetch.current();
     };
     window.addEventListener('pipeline-config-updated', handler);
-    return () => window.removeEventListener('pipeline-config-updated', handler);
+
+    let bc: BroadcastChannel | null = null;
+    try {
+      bc = new BroadcastChannel('pipeline-config');
+      bc.onmessage = (e) => { if (e.data === 'updated') handler(); };
+    } catch { /* BroadcastChannel not supported */ }
+
+    return () => {
+      window.removeEventListener('pipeline-config-updated', handler);
+      bc?.close();
+    };
   }, []);
 
   return { config, isLoading, error };

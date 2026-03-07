@@ -11,7 +11,8 @@ from app.config import settings
 from app.database import init_db, engine, AsyncSessionLocal
 
 # Legacy routers (kept for backward compatibility during migration)
-from app.routers import auth, platform, workspace, crm_customers, crm_business, pipeline_config as pipeline_config_router, hr, accounting, inventory, ai, integrations, admin, notifications, messages, orders, ai_providers, automation, ai_finder, whisper_ws, workflow_templates, whatsapp, ws_whatsapp, ws_messages, email, ai_features
+from app.routers import auth, platform, workspace, crm_customers, pipeline_config as pipeline_config_router, hr, accounting, inventory, ai, integrations, admin, notifications, messages, orders, ai_providers, automation, ai_finder, whisper_ws, workflow_templates, whatsapp, ws_whatsapp, ws_messages, email, ai_features
+from app.routers.crm import router as crm_router
 
 # New modular system
 from app.core.registry import module_registry
@@ -48,6 +49,14 @@ async def lifespan(app: FastAPI):
                     stmt = stmt.strip()
                     if stmt:
                         await session.execute(text(stmt))
+                # Workflow audit log + optimistic locking
+                for stmt in [
+                    "CREATE TABLE IF NOT EXISTS crm_workflow_log (id UUID PRIMARY KEY DEFAULT gen_random_uuid(), lead_id UUID NOT NULL, stage_key VARCHAR(100) NOT NULL, step_key VARCHAR(100) NOT NULL, action VARCHAR(20) NOT NULL DEFAULT 'completed', step_type VARCHAR(50), user_id UUID, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW())",
+                    "CREATE INDEX IF NOT EXISTS idx_crm_workflow_log_lead ON crm_workflow_log(lead_id)",
+                    "CREATE INDEX IF NOT EXISTS idx_crm_workflow_log_created ON crm_workflow_log(created_at)",
+                    "ALTER TABLE leads ADD COLUMN IF NOT EXISTS workflow_version INTEGER NOT NULL DEFAULT 0",
+                ]:
+                    await session.execute(text(stmt))
                 await session.commit()
                 logger.info(f"Entity registry installed for tenant: {slug}")
 
@@ -107,7 +116,7 @@ app.include_router(auth.router, prefix="/api")
 app.include_router(platform.router, prefix="/api")
 app.include_router(workspace.router, prefix="/api")
 app.include_router(crm_customers.router, prefix="/api")
-app.include_router(crm_business.router, prefix="/api")
+app.include_router(crm_router, prefix="/api")
 app.include_router(pipeline_config_router.router, prefix="/api")
 app.include_router(hr.router, prefix="/api")
 app.include_router(accounting.router, prefix="/api")

@@ -537,6 +537,7 @@ export default function PipelineConfigSection() {
       toast.success(t('saveOk'));
       if (typeof window !== 'undefined') {
         window.dispatchEvent(new Event('pipeline-config-updated'));
+        try { new BroadcastChannel('pipeline-config').postMessage('updated'); } catch {}
       }
     } catch (err) {
       toast.error(t('saveFailed'));
