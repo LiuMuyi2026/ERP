@@ -11,7 +11,7 @@ import WhatsAppChatPanel from '@/components/messaging/WhatsAppChatPanel';
 import SlideOver from '@/components/ui/SlideOver';
 import LeadModal, { TenantUser } from '../../components/LeadModal';
 import LeadScoreCard from '@/components/ai/LeadScoreCard';
-import { usePipelineConfig, canAdvance as canAdvanceStatus } from '@/lib/usePipelineConfig';
+import { usePipelineConfig } from '@/lib/usePipelineConfig';
 
 // ── Types ───────────────────────────────────────────────────────────────────
 type Interaction = {
@@ -1664,9 +1664,6 @@ export default function Customer360Page() {
   const isCustomer = lead.status === 'converted' || contracts.length > 0;
   const isConverted = contracts.length > 0;
   const clientIsActive = isActive(lead.updated_at, lead.last_contacted_at);
-
-  // Determine if we can advance — driven by pipeline config transitions
-  const canAdvance = canAdvanceStatus(pipelineConfig, lead.status) && !isCold;
 
   const allCommsCount = interactions.length + (data.wa_messages?.length || 0);
   const TABS = [

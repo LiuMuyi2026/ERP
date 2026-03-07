@@ -65,7 +65,6 @@ export interface PipelineConfig {
   statuses: {
     values: StatusValue[];
     status_to_stage: Record<string, string>;
-    transitions: Record<string, string>;
     rank: string[];
   };
   operation_tasks: OperationTask[];
@@ -116,12 +115,6 @@ export const FALLBACK_CONFIG: PipelineConfig = {
       booking: 'booking',
       fulfillment: 'shipping',
       payment: 'collection', converted: 'collection',
-    },
-    transitions: {
-      inquiry: 'quoted', new: 'quoted', replied: 'quoted', contacted: 'quoted',
-      quoted: 'negotiating', negotiating: 'procuring',
-      procuring: 'booking', booking: 'fulfillment',
-      fulfillment: 'payment', payment: 'converted',
     },
     rank: ['new', 'inquiry', 'quoted', 'negotiating', 'fulfillment', 'won'],
   },
@@ -239,7 +232,3 @@ export function buildFileCategoryColors(config: PipelineConfig): Record<string, 
   return colors;
 }
 
-/** Check if a status can advance to the next stage */
-export function canAdvance(config: PipelineConfig, status: string): boolean {
-  return status in config.statuses.transitions;
-}

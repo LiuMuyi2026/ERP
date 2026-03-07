@@ -5,11 +5,7 @@ import { useTranslations } from 'next-intl';
 import { api } from '@/lib/api';
 import { HandIcon } from '@/components/ui/HandIcon';
 import toast from 'react-hot-toast';
-import type { PipelineConfig, StatusValue, FileCategory, WorkflowStageDef, WorkflowStepDef } from '@/lib/usePipelineConfig';
-
-// ── Types ─────────────────────────────────────────────────────────────────────
-
-// Single-page layout — no tabs
+import type { StatusValue, FileCategory, WorkflowStageDef, WorkflowStepDef } from '@/lib/usePipelineConfig';
 
 // ── Shared UI ─────────────────────────────────────────────────────────────────
 
@@ -18,24 +14,6 @@ const inputStyle = { background: 'var(--notion-hover)', color: 'var(--notion-tex
 
 function SectionTitle({ children }: { children: React.ReactNode }) {
   return <h3 className="text-base font-semibold mb-4" style={{ color: 'var(--notion-text)' }}>{children}</h3>;
-}
-
-function CardRow({ children, onRemove }: { children: React.ReactNode; onRemove?: () => void }) {
-  return (
-    <div className="flex items-start gap-3 px-4 py-3 rounded-xl group transition-colors"
-      style={{ border: '1px solid var(--notion-border)', background: 'var(--notion-card, white)' }}>
-      <div className="flex-1 min-w-0">{children}</div>
-      {onRemove && (
-        <button onClick={onRemove}
-          className="opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0 mt-1"
-          style={{ color: '#ef4444' }} title="Remove">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-            <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
-          </svg>
-        </button>
-      )}
-    </div>
-  );
 }
 
 function AddButton({ label, onClick }: { label: string; onClick: () => void }) {
@@ -55,12 +33,7 @@ function AddButton({ label, onClick }: { label: string; onClick: () => void }) {
 
 // ── Role Multi-Select ────────────────────────────────────────────────────────
 
-function RoleMultiSelect({
-  value,
-  roles,
-  placeholder,
-  onChange,
-}: {
+function RoleMultiSelect({ value, roles, placeholder, onChange }: {
   value: string | undefined;
   roles: { key: string; label: string }[];
   placeholder: string;
@@ -69,7 +42,6 @@ function RoleMultiSelect({
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
-  // Parse current value into selected labels
   const selected = useMemo(() => {
     if (!value) return new Set<string>();
     return new Set(value.split(/[、,\/]/).map(s => s.trim()).filter(Boolean));
@@ -82,7 +54,6 @@ function RoleMultiSelect({
     onChange(next.size > 0 ? Array.from(next).join('、') : undefined);
   }
 
-  // Close on outside click
   useEffect(() => {
     if (!open) return;
     function handler(e: MouseEvent) {
@@ -131,14 +102,107 @@ function RoleMultiSelect({
   );
 }
 
+// ── Step Type Defs ────────────────────────────────────────────────────────────
+
+const STEP_TYPE_KEYS = ['checklist', 'file_upload', 'approval', 'data_input', 'custom'] as const;
+const STEP_TYPE_I18N: Record<string, string> = {
+  checklist: 'typeChecklist', file_upload: 'typeFileUpload', approval: 'typeApproval',
+  data_input: 'typeDataInput', custom: 'typeCustom',
+};
+
+// ── Add Custom Step Form ──────────────────────────────────────────────────────
+
+function AddStepForm({ allRoles, fileCategories, onAdd, onCancel }: {
+  allRoles: { key: string; label: string }[];
+  fileCategories: FileCategory[];
+  onAdd: (step: WorkflowStepDef) => void;
+  onCancel: () => void;
+}) {
+  const t = useTranslations('pipelineConfig');
+  const tc = useTranslations('common');
+  const [label, setLabel] = useState('');
+  const [desc, setDesc] = useState('');
+  const [owner, setOwner] = useState<string | undefined>(undefined);
+  const [type, setType] = useState('custom');
+  const [checklistItems, setChecklistItems] = useState('');
+  const [fileCategory, setFileCategory] = useState('');
+
+  function handleSubmit() {
+    if (!label.trim()) return;
+    const step: WorkflowStepDef = {
+      key: `custom_${Date.now()}`,
+      label: label.trim(),
+      desc: desc.trim() || undefined,
+      owner: owner || undefined,
+      builtin: false,
+      enabled: true,
+      type,
+    };
+    if (type === 'checklist' && checklistItems.trim()) {
+      step.checklist_items = checklistItems.split('\n').filter(Boolean).map((line, i) => ({
+        key: `item_${i}`,
+        label: line.trim(),
+      }));
+    }
+    if (type === 'file_upload' && fileCategory) {
+      step.file_category = fileCategory;
+    }
+    onAdd(step);
+  }
+
+  return (
+    <div className="rounded-lg p-3 space-y-2" style={{ border: '1px dashed var(--notion-border)', background: 'var(--notion-hover)' }}>
+      <div className="grid grid-cols-2 gap-2">
+        <input value={label} onChange={e => setLabel(e.target.value)}
+          className={inputCls} style={inputStyle} placeholder={`${t('stepName')} *`} autoFocus />
+        <select value={type} onChange={e => setType(e.target.value)}
+          className={inputCls} style={inputStyle}>
+          {STEP_TYPE_KEYS.map(k => <option key={k} value={k}>{t(STEP_TYPE_I18N[k] as any)}</option>)}
+        </select>
+      </div>
+      <RoleMultiSelect value={owner} roles={allRoles} placeholder={t('ownerHint')} onChange={v => setOwner(v)} />
+      <input value={desc} onChange={e => setDesc(e.target.value)}
+        className={inputCls} style={inputStyle} placeholder={t('stepDesc')} />
+      {type === 'checklist' && (
+        <textarea value={checklistItems} onChange={e => setChecklistItems(e.target.value)}
+          className={`${inputCls} h-20`} style={inputStyle} placeholder={t('checklistHint')} />
+      )}
+      {type === 'file_upload' && (
+        <select value={fileCategory} onChange={e => setFileCategory(e.target.value)}
+          className={inputCls} style={inputStyle}>
+          <option value="">{t('fileCategory')}</option>
+          {fileCategories.map(c => <option key={c.key} value={c.key}>{c.label || c.key}</option>)}
+        </select>
+      )}
+      <div className="flex items-center gap-2 pt-1">
+        <button onClick={handleSubmit}
+          disabled={!label.trim()}
+          className="px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors disabled:opacity-40"
+          style={{ background: 'var(--notion-accent)', color: 'white' }}>
+          {tc('create')}
+        </button>
+        <button onClick={onCancel}
+          className="px-3 py-1.5 rounded-lg text-xs transition-colors"
+          style={{ color: 'var(--notion-text-muted)' }}>
+          {tc('cancel')}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 // ── Workflow Stages Editor ─────────────────────────────────────────────────────
 
 function WorkflowStagesEditor({
-  stages,
-  onChange,
+  stages, onChange, allRoles, fileCategories,
+  stageStatuses, onStageStatusesChange,
 }: {
   stages: WorkflowStageDef[];
   onChange: (s: WorkflowStageDef[]) => void;
+  allRoles: { key: string; label: string }[];
+  fileCategories: FileCategory[];
+  stageStatuses: Record<string, StatusValue[]>;
+  onStageStatusesChange: (s: Record<string, StatusValue[]>) => void;
 }) {
   const t = useTranslations('pipelineConfig');
   const tc = useTranslations('common');
@@ -154,8 +218,7 @@ function WorkflowStagesEditor({
   }
 
   function updateStage(stageIdx: number, patch: Partial<WorkflowStageDef>) {
-    const next = stages.map((s, i) => (i === stageIdx ? { ...s, ...patch } : s));
-    onChange(next);
+    onChange(stages.map((s, i) => (i === stageIdx ? { ...s, ...patch } : s)));
   }
 
   function updateStep(stageIdx: number, stepIdx: number, patch: Partial<WorkflowStepDef>) {
@@ -184,6 +247,26 @@ function WorkflowStagesEditor({
     setAddingStep(null);
   }
 
+  // ── Inline status helpers ──
+  function updateStatuses(stageKey: string, statuses: StatusValue[]) {
+    onStageStatusesChange({ ...stageStatuses, [stageKey]: statuses });
+  }
+
+  function addStatus(stageKey: string) {
+    const cur = stageStatuses[stageKey] ?? [];
+    updateStatuses(stageKey, [...cur, { key: `status_${Date.now()}`, label: '', stage: stageKey }]);
+  }
+
+  function updateStatus(stageKey: string, idx: number, patch: Partial<StatusValue>) {
+    const cur = stageStatuses[stageKey] ?? [];
+    updateStatuses(stageKey, cur.map((s, i) => (i === idx ? { ...s, ...patch } : s)));
+  }
+
+  function removeStatus(stageKey: string, idx: number) {
+    const cur = stageStatuses[stageKey] ?? [];
+    updateStatuses(stageKey, cur.filter((_, i) => i !== idx));
+  }
+
   return (
     <div className="space-y-3">
       <SectionTitle>{t('workflowTitle')}</SectionTitle>
@@ -194,6 +277,7 @@ function WorkflowStagesEditor({
       {stages.map((stage, stageIdx) => {
         const isExpanded = expanded[stage.key] ?? false;
         const enabledCount = stage.steps.filter(s => s.enabled !== false).length;
+        const statuses = stageStatuses[stage.key] ?? [];
 
         return (
           <div key={stage.key} className="rounded-xl overflow-hidden"
@@ -224,7 +308,7 @@ function WorkflowStagesEditor({
             {/* Stage body */}
             {isExpanded && (
               <div className="px-4 pb-4 space-y-2">
-                {/* Stage label + color edit */}
+                {/* Stage label + color */}
                 <div className="flex items-center gap-2 mb-3 pt-2">
                   <input value={stage.label} onChange={e => updateStage(stageIdx, { label: e.target.value })}
                     className={`${inputCls} flex-1`} style={inputStyle} placeholder={t('stageName')} />
@@ -236,7 +320,7 @@ function WorkflowStagesEditor({
                 {/* Steps list */}
                 {stage.steps.map((step, stepIdx) => {
                   const isEnabled = step.enabled !== false;
-                  const isBuiltin = step.builtin === true;
+                  const isFileUpload = step.type === 'file_upload';
                   return (
                     <div key={step.key}
                       className="flex items-center gap-2 px-3 py-2 rounded-lg transition-colors group"
@@ -245,33 +329,40 @@ function WorkflowStagesEditor({
                         background: isEnabled ? 'var(--notion-card, white)' : 'var(--notion-hover)',
                         opacity: isEnabled ? 1 : 0.5,
                       }}>
-                      {/* Enable toggle */}
                       <input type="checkbox" checked={isEnabled}
                         onChange={e => updateStep(stageIdx, stepIdx, { enabled: e.target.checked })}
                         className="flex-shrink-0 cursor-pointer" title={isEnabled ? t('disable') : t('enable')} />
 
-                      {/* Step label */}
                       <input value={step.label} onChange={e => updateStep(stageIdx, stepIdx, { label: e.target.value })}
                         className="flex-1 text-sm px-2 py-0.5 rounded" style={inputStyle} placeholder={t('stepName')} />
 
-                      {/* Owner roles */}
                       <RoleMultiSelect
                         value={step.owner}
-                        roles={stage.roles ?? []}
+                        roles={allRoles}
                         placeholder={t('owner')}
                         onChange={v => updateStep(stageIdx, stepIdx, { owner: v })} />
 
-                      {/* Badge */}
-                      {isBuiltin ? (
-                        <span className="text-[10px] px-1.5 py-0.5 rounded-full flex-shrink-0"
+                      {/* Type badge */}
+                      {step.type && STEP_TYPE_I18N[step.type] && (
+                        <span className="text-[10px] px-1.5 py-0.5 rounded-full flex-shrink-0 whitespace-nowrap"
                           style={{ background: 'var(--notion-hover)', color: 'var(--notion-text-muted)' }}>
-                          {t('builtin')}
+                          {t(STEP_TYPE_I18N[step.type] as any)}
                         </span>
-                      ) : (
-                        <span className="text-[10px] px-1.5 py-0.5 rounded-full flex-shrink-0"
-                          style={{ background: '#dbeafe', color: '#2563eb' }}>
-                          {t('custom')}
-                        </span>
+                      )}
+
+                      {/* File category for file_upload steps */}
+                      {isFileUpload && (
+                        <select
+                          value={step.file_category ?? ''}
+                          onChange={e => updateStep(stageIdx, stepIdx, { file_category: e.target.value || undefined })}
+                          className="text-[11px] px-1.5 py-0.5 rounded flex-shrink-0 max-w-[100px]"
+                          style={inputStyle}
+                          title={t('fileCategory')}>
+                          <option value="">{t('fileCategory')}</option>
+                          {fileCategories.map(c => (
+                            <option key={c.key} value={c.key}>{c.label || c.key}</option>
+                          ))}
+                        </select>
                       )}
 
                       {/* Move buttons */}
@@ -284,7 +375,6 @@ function WorkflowStagesEditor({
                           className="text-xs px-1 disabled:opacity-30" style={{ color: 'var(--notion-text-muted)' }}>↓</button>
                       </div>
 
-                      {/* Delete */}
                       <button onClick={() => removeStep(stageIdx, stepIdx)}
                         className="text-xs opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0"
                         style={{ color: '#ef4444' }} title={tc('delete')}>×</button>
@@ -295,236 +385,44 @@ function WorkflowStagesEditor({
                 {/* Add custom step */}
                 {addingStep === stage.key ? (
                   <AddStepForm
-                    roles={stage.roles ?? []}
+                    allRoles={allRoles}
+                    fileCategories={fileCategories}
                     onAdd={step => addCustomStep(stageIdx, step)}
                     onCancel={() => setAddingStep(null)}
                   />
                 ) : (
                   <AddButton label={t('addStep')} onClick={() => setAddingStep(stage.key)} />
                 )}
+
+                {/* Inline statuses for this stage */}
+                <div className="mt-4 pt-3" style={{ borderTop: '1px dashed var(--notion-border)' }}>
+                  <h4 className="text-xs font-semibold mb-2" style={{ color: 'var(--notion-text-muted)' }}>
+                    {t('statusTitle')}
+                  </h4>
+                  <div className="space-y-1.5">
+                    {statuses.map((sv, i) => (
+                      <div key={i} className="flex items-center gap-2 group">
+                        <input value={sv.key} onChange={e => updateStatus(stage.key, i, { key: e.target.value })}
+                          className="text-xs px-2 py-1 rounded w-28" style={inputStyle} placeholder={t('identifier')} />
+                        <input value={sv.label ?? ''} onChange={e => updateStatus(stage.key, i, { label: e.target.value })}
+                          className="text-xs px-2 py-1 rounded flex-1" style={inputStyle} placeholder={t('displayName')} />
+                        <button onClick={() => removeStatus(stage.key, i)}
+                          className="text-xs opacity-0 group-hover:opacity-100 transition-opacity"
+                          style={{ color: '#ef4444' }}>×</button>
+                      </div>
+                    ))}
+                    <button onClick={() => addStatus(stage.key)}
+                      className="text-xs px-2 py-1 rounded transition-colors"
+                      style={{ color: 'var(--notion-accent)' }}>
+                      + {t('addStatus')}
+                    </button>
+                  </div>
+                </div>
               </div>
             )}
           </div>
         );
       })}
-    </div>
-  );
-}
-
-// ── Add Custom Step Form ──────────────────────────────────────────────────────
-
-const STEP_TYPE_KEYS = ['checklist', 'file_upload', 'approval', 'data_input', 'custom'] as const;
-const STEP_TYPE_I18N: Record<string, string> = {
-  checklist: 'typeChecklist', file_upload: 'typeFileUpload', approval: 'typeApproval',
-  data_input: 'typeDataInput', custom: 'typeCustom',
-};
-
-function AddStepForm({
-  roles,
-  onAdd,
-  onCancel,
-}: {
-  roles: { key: string; label: string }[];
-  onAdd: (step: WorkflowStepDef) => void;
-  onCancel: () => void;
-}) {
-  const t = useTranslations('pipelineConfig');
-  const tc = useTranslations('common');
-  const [label, setLabel] = useState('');
-  const [desc, setDesc] = useState('');
-  const [owner, setOwner] = useState<string | undefined>(undefined);
-  const [type, setType] = useState('custom');
-  const [checklistItems, setChecklistItems] = useState('');
-
-  function handleSubmit() {
-    if (!label.trim()) return;
-    const step: WorkflowStepDef = {
-      key: `custom_${Date.now()}`,
-      label: label.trim(),
-      desc: desc.trim() || undefined,
-      owner: owner || undefined,
-      builtin: false,
-      enabled: true,
-      type,
-    };
-    if (type === 'checklist' && checklistItems.trim()) {
-      step.checklist_items = checklistItems.split('\n').filter(Boolean).map((line, i) => ({
-        key: `item_${i}`,
-        label: line.trim(),
-      }));
-    }
-    onAdd(step);
-  }
-
-  return (
-    <div className="rounded-lg p-3 space-y-2" style={{ border: '1px dashed var(--notion-border)', background: 'var(--notion-hover)' }}>
-      <div className="grid grid-cols-2 gap-2">
-        <input value={label} onChange={e => setLabel(e.target.value)}
-          className={inputCls} style={inputStyle} placeholder={`${t('stepName')} *`} autoFocus />
-        <select value={type} onChange={e => setType(e.target.value)}
-          className={inputCls} style={inputStyle}>
-          {STEP_TYPE_KEYS.map(k => <option key={k} value={k}>{t(STEP_TYPE_I18N[k] as any)}</option>)}
-        </select>
-      </div>
-      <RoleMultiSelect value={owner} roles={roles} placeholder={t('ownerHint')} onChange={v => setOwner(v)} />
-      <input value={desc} onChange={e => setDesc(e.target.value)}
-        className={inputCls} style={inputStyle} placeholder={t('stepDesc')} />
-      {type === 'checklist' && (
-        <textarea value={checklistItems} onChange={e => setChecklistItems(e.target.value)}
-          className={`${inputCls} h-20`} style={inputStyle} placeholder={t('checklistHint')} />
-      )}
-      <div className="flex items-center gap-2 pt-1">
-        <button onClick={handleSubmit}
-          disabled={!label.trim()}
-          className="px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors disabled:opacity-40"
-          style={{ background: 'var(--notion-accent)', color: 'white' }}>
-          {tc('create')}
-        </button>
-        <button onClick={onCancel}
-          className="px-3 py-1.5 rounded-lg text-xs transition-colors"
-          style={{ color: 'var(--notion-text-muted)' }}>
-          {tc('cancel')}
-        </button>
-      </div>
-    </div>
-  );
-}
-
-// ── Status Editor ─────────────────────────────────────────────────────────────
-
-function StatusesEditor({
-  statuses, stageKeys, onChange,
-}: {
-  statuses: StatusValue[];
-  stageKeys: string[];
-  onChange: (s: StatusValue[]) => void;
-}) {
-  const t = useTranslations('pipelineConfig');
-  function update(idx: number, patch: Partial<StatusValue>) {
-    const next = statuses.map((s, i) => (i === idx ? { ...s, ...patch } : s));
-    onChange(next);
-  }
-  function remove(idx: number) {
-    onChange(statuses.filter((_, i) => i !== idx));
-  }
-  function add() {
-    onChange([...statuses, { key: `status_${Date.now()}`, label: '', color: 'bg-gray-100 text-gray-500', stage: stageKeys[0] ?? null }]);
-  }
-
-  return (
-    <div className="space-y-2">
-      <SectionTitle>{t('statusTitle')}</SectionTitle>
-      <p className="text-xs mb-3" style={{ color: 'var(--notion-text-muted)' }}>
-        {t('statusDesc')}
-      </p>
-      {statuses.map((sv, i) => (
-        <CardRow key={i} onRemove={() => remove(i)}>
-          <div className="grid grid-cols-3 gap-2">
-            <input value={sv.key} onChange={e => update(i, { key: e.target.value })}
-              className={inputCls} style={inputStyle} placeholder={t('identifier')} />
-            <input value={sv.label ?? ''} onChange={e => update(i, { label: e.target.value })}
-              className={inputCls} style={inputStyle} placeholder={t('displayName')} />
-            <select value={sv.stage ?? ''} onChange={e => update(i, { stage: e.target.value || null })}
-              className={inputCls} style={inputStyle}>
-              <option value="">{t('noStage')}</option>
-              {stageKeys.map(k => <option key={k} value={k}>{k}</option>)}
-            </select>
-          </div>
-        </CardRow>
-      ))}
-      <AddButton label={`+ ${t('statusTitle')}`} onClick={add} />
-    </div>
-  );
-}
-
-// ── Transitions Editor ────────────────────────────────────────────────────────
-
-function TransitionsEditor({
-  transitions, statuses, onChange,
-}: {
-  transitions: Record<string, string>;
-  statuses: StatusValue[];
-  onChange: (t: Record<string, string>) => void;
-}) {
-  const t = useTranslations('pipelineConfig');
-  const tc = useTranslations('common');
-  return (
-    <div className="mt-8 space-y-2">
-      <SectionTitle>{t('transTitle')}</SectionTitle>
-      <p className="text-xs mb-3" style={{ color: 'var(--notion-text-muted)' }}>
-        {t('transDesc')}
-      </p>
-      {Object.entries(transitions).map(([from, to]) => (
-        <div key={from} className="flex items-center gap-2">
-          <span className="text-xs font-medium w-28 text-right" style={{ color: 'var(--notion-text)' }}>{from}</span>
-          <span className="text-xs" style={{ color: 'var(--notion-text-muted)' }}>&rarr;</span>
-          <select value={to} onChange={e => onChange({ ...transitions, [from]: e.target.value })}
-            className="px-2 py-1 rounded text-xs" style={inputStyle}>
-            {statuses.map(sv => <option key={sv.key} value={sv.key}>{sv.key} ({sv.label})</option>)}
-          </select>
-          <button onClick={() => {
-            const next = { ...transitions };
-            delete next[from];
-            onChange(next);
-          }} className="text-xs" style={{ color: '#ef4444' }}>×</button>
-        </div>
-      ))}
-      <div className="flex items-center gap-2 mt-2">
-        <select id="new-trans-from" className="px-2 py-1 rounded text-xs" style={inputStyle}>
-          {statuses.filter(sv => !(sv.key in transitions)).map(sv => (
-            <option key={sv.key} value={sv.key}>{sv.key}</option>
-          ))}
-        </select>
-        <span className="text-xs" style={{ color: 'var(--notion-text-muted)' }}>&rarr;</span>
-        <select id="new-trans-to" className="px-2 py-1 rounded text-xs" style={inputStyle}>
-          {statuses.map(sv => <option key={sv.key} value={sv.key}>{sv.key}</option>)}
-        </select>
-        <button onClick={() => {
-          const fromEl = document.getElementById('new-trans-from') as HTMLSelectElement;
-          const toEl = document.getElementById('new-trans-to') as HTMLSelectElement;
-          if (fromEl?.value && toEl?.value) {
-            onChange({ ...transitions, [fromEl.value]: toEl.value });
-          }
-        }} className="text-xs px-2 py-1 rounded" style={{ color: 'var(--notion-accent)' }}>
-          + {tc('create')}
-        </button>
-      </div>
-    </div>
-  );
-}
-
-// ── File Categories Editor ────────────────────────────────────────────────────
-
-function FileCategoriesEditor({ categories, onChange }: { categories: FileCategory[]; onChange: (c: FileCategory[]) => void }) {
-  const t = useTranslations('pipelineConfig');
-  function update(idx: number, patch: Partial<FileCategory>) {
-    const next = categories.map((c, i) => (i === idx ? { ...c, ...patch } : c));
-    onChange(next);
-  }
-  function remove(idx: number) {
-    onChange(categories.filter((_, i) => i !== idx));
-  }
-  function add() {
-    onChange([...categories, { key: '', label: '', color: 'bg-gray-100 text-gray-600' }]);
-  }
-
-  return (
-    <div className="space-y-2">
-      <SectionTitle>{t('fileTitle')}</SectionTitle>
-      <p className="text-xs mb-3" style={{ color: 'var(--notion-text-muted)' }}>
-        {t('fileDesc')}
-      </p>
-      {categories.map((cat, i) => (
-        <CardRow key={i} onRemove={() => remove(i)}>
-          <div className="grid grid-cols-2 gap-2">
-            <input value={cat.key} onChange={e => update(i, { key: e.target.value })}
-              className={inputCls} style={inputStyle} placeholder={t('identifier')} />
-            <input value={cat.label ?? ''} onChange={e => update(i, { label: e.target.value })}
-              className={inputCls} style={inputStyle} placeholder={t('displayName')} />
-          </div>
-        </CardRow>
-      ))}
-      <AddButton label={`+ ${t('fileTitle')}`} onClick={add} />
     </div>
   );
 }
@@ -538,26 +436,70 @@ export default function PipelineConfigSection() {
   const [saving, setSaving] = useState(false);
   const [dirty, setDirty] = useState(false);
 
-  // Config state
   const [workflowStages, setWorkflowStages] = useState<WorkflowStageDef[]>([]);
-  const [statuses, setStatuses] = useState<StatusValue[]>([]);
-  const [transitions, setTransitions] = useState<Record<string, string>>({});
+  const [stageStatuses, setStageStatuses] = useState<Record<string, StatusValue[]>>({});
+  const [generalStatuses, setGeneralStatuses] = useState<StatusValue[]>([]);
   const [statusRank, setStatusRank] = useState<string[]>([]);
   const [fileCategories, setFileCategories] = useState<FileCategory[]>([]);
 
-  // Pipeline stage keys for status mapping (from pipeline.stages)
-  const [pipelineStageKeys, setPipelineStageKeys] = useState<string[]>([]);
+  // Reverse mapping: workflow stage key → pipeline stage key (for saving)
+  const wToPRef = useRef<Record<string, string>>({});
+
+  // All unique roles across all stages
+  const allRoles = useMemo(() => {
+    const seen = new Map<string, { key: string; label: string }>();
+    for (const stage of workflowStages) {
+      for (const role of stage.roles ?? []) {
+        if (!seen.has(role.key)) seen.set(role.key, role);
+      }
+    }
+    return Array.from(seen.values());
+  }, [workflowStages]);
 
   useEffect(() => {
     (async () => {
       try {
         const data = await api.get('/api/pipeline-config');
-        setWorkflowStages(data.workflow_stages ?? []);
-        setStatuses(data.statuses?.values ?? []);
-        setTransitions(data.statuses?.transitions ?? {});
-        setStatusRank(data.statuses?.rank ?? []);
+        const wfStages: WorkflowStageDef[] = data.workflow_stages ?? [];
+        setWorkflowStages(wfStages);
         setFileCategories(data.file_categories ?? []);
-        setPipelineStageKeys((data.pipeline?.stages ?? []).map((s: any) => s.key));
+        setStatusRank(data.statuses?.rank ?? []);
+
+        // Build pipeline ↔ workflow stage key mapping
+        const pipelineStages: { key: string }[] = data.pipeline?.stages ?? [];
+        const wfKeys = new Set(wfStages.map(s => s.key));
+        const p2w: Record<string, string> = {};
+
+        // Direct matches first
+        for (const ps of pipelineStages) {
+          if (wfKeys.has(ps.key)) p2w[ps.key] = ps.key;
+        }
+        // Position match for remaining
+        const unmatchedP = pipelineStages.filter(ps => !p2w[ps.key]);
+        const matchedW = new Set(Object.values(p2w));
+        const unmatchedW = wfStages.filter(ws => !matchedW.has(ws.key));
+        for (let i = 0; i < Math.min(unmatchedP.length, unmatchedW.length); i++) {
+          p2w[unmatchedP[i].key] = unmatchedW[i].key;
+        }
+
+        // Build reverse mapping for save
+        const w2p: Record<string, string> = {};
+        for (const [pk, wk] of Object.entries(p2w)) w2p[wk] = pk;
+        wToPRef.current = w2p;
+
+        // Group statuses by workflow stage key
+        const grouped: Record<string, StatusValue[]> = {};
+        const general: StatusValue[] = [];
+        for (const sv of data.statuses?.values ?? []) {
+          const mappedStage = sv.stage ? (p2w[sv.stage] ?? sv.stage) : null;
+          if (mappedStage && wfKeys.has(mappedStage)) {
+            (grouped[mappedStage] ??= []).push({ ...sv, stage: mappedStage });
+          } else {
+            general.push(sv);
+          }
+        }
+        setStageStatuses(grouped);
+        setGeneralStatuses(general);
       } catch (err) {
         toast.error(t('loadFailed'));
       } finally {
@@ -566,26 +508,44 @@ export default function PipelineConfigSection() {
     })();
   }, []);
 
-  const derivedStatusToStage = useMemo(() => {
-    const map: Record<string, string> = {};
-    for (const sv of statuses) {
-      if (sv.stage) map[sv.key] = sv.stage;
-    }
-    return map;
-  }, [statuses]);
-
   const handleSave = useCallback(async () => {
     setSaving(true);
     try {
+      // Flatten statuses → use pipeline stage keys for backward compat
+      const allStatuses: StatusValue[] = [];
+      const statusToStage: Record<string, string> = {};
+      const w2p = wToPRef.current;
+
+      for (const [wfKey, svList] of Object.entries(stageStatuses)) {
+        const pKey = w2p[wfKey] ?? wfKey;
+        for (const sv of svList) {
+          allStatuses.push({ ...sv, stage: pKey });
+          statusToStage[sv.key] = pKey;
+        }
+      }
+      for (const sv of generalStatuses) {
+        allStatuses.push({ ...sv, stage: null });
+      }
+
+      // Collect file categories from file_upload steps (preserve existing labels)
+      const catMap = new Map<string, FileCategory>();
+      for (const c of fileCategories) catMap.set(c.key, c);
+      for (const stage of workflowStages) {
+        for (const step of stage.steps) {
+          if (step.type === 'file_upload' && step.file_category && !catMap.has(step.file_category)) {
+            catMap.set(step.file_category, { key: step.file_category, label: step.file_category });
+          }
+        }
+      }
+
       await api.patch('/api/pipeline-config', {
         workflow_stages: workflowStages,
         statuses: {
-          values: statuses,
-          status_to_stage: derivedStatusToStage,
-          transitions,
+          values: allStatuses,
+          status_to_stage: statusToStage,
           rank: statusRank,
         },
-        file_categories: fileCategories,
+        file_categories: Array.from(catMap.values()),
       });
       setDirty(false);
       toast.success(t('saveOk'));
@@ -597,7 +557,7 @@ export default function PipelineConfigSection() {
     } finally {
       setSaving(false);
     }
-  }, [workflowStages, statuses, derivedStatusToStage, transitions, statusRank, fileCategories, t]);
+  }, [workflowStages, stageStatuses, generalStatuses, statusRank, fileCategories, t]);
 
   function markDirty<T>(setter: (v: T) => void) {
     return (v: T) => { setter(v); setDirty(true); };
@@ -634,23 +594,45 @@ export default function PipelineConfigSection() {
         </button>
       </div>
 
-      {/* All sections on one page */}
-      <div className="space-y-10">
-        <WorkflowStagesEditor stages={workflowStages} onChange={markDirty(setWorkflowStages)} />
+      <WorkflowStagesEditor
+        stages={workflowStages}
+        onChange={markDirty(setWorkflowStages)}
+        allRoles={allRoles}
+        fileCategories={fileCategories}
+        stageStatuses={stageStatuses}
+        onStageStatusesChange={markDirty(setStageStatuses)}
+      />
 
-        <div style={{ borderTop: '1px solid var(--notion-border)', paddingTop: '2rem' }}>
-          <StatusesEditor statuses={statuses} stageKeys={pipelineStageKeys} onChange={markDirty(setStatuses)} />
-          <TransitionsEditor
-            transitions={transitions}
-            statuses={statuses}
-            onChange={tr => { setTransitions(tr); setDirty(true); }}
-          />
+      {/* General statuses (not tied to any stage) */}
+      {generalStatuses.length > 0 && (
+        <div className="mt-6 pt-4" style={{ borderTop: '1px solid var(--notion-border)' }}>
+          <h4 className="text-sm font-semibold mb-2" style={{ color: 'var(--notion-text)' }}>
+            {t('generalStatuses')}
+          </h4>
+          <div className="space-y-1.5">
+            {generalStatuses.map((sv, i) => (
+              <div key={i} className="flex items-center gap-2 group">
+                <input value={sv.key}
+                  onChange={e => {
+                    const next = generalStatuses.map((s, j) => (j === i ? { ...s, key: e.target.value } : s));
+                    setGeneralStatuses(next); setDirty(true);
+                  }}
+                  className="text-xs px-2 py-1 rounded w-28" style={inputStyle} placeholder={t('identifier')} />
+                <input value={sv.label ?? ''}
+                  onChange={e => {
+                    const next = generalStatuses.map((s, j) => (j === i ? { ...s, label: e.target.value } : s));
+                    setGeneralStatuses(next); setDirty(true);
+                  }}
+                  className="text-xs px-2 py-1 rounded flex-1" style={inputStyle} placeholder={t('displayName')} />
+                <button onClick={() => {
+                  setGeneralStatuses(generalStatuses.filter((_, j) => j !== i)); setDirty(true);
+                }} className="text-xs opacity-0 group-hover:opacity-100 transition-opacity"
+                  style={{ color: '#ef4444' }}>×</button>
+              </div>
+            ))}
+          </div>
         </div>
-
-        <div style={{ borderTop: '1px solid var(--notion-border)', paddingTop: '2rem' }}>
-          <FileCategoriesEditor categories={fileCategories} onChange={markDirty(setFileCategories)} />
-        </div>
-      </div>
+      )}
     </div>
   );
 }
