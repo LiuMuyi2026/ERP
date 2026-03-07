@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { api } from '@/lib/api';
 import { HandIcon } from '@/components/ui/HandIcon';
@@ -50,6 +50,84 @@ function AddButton({ label, onClick }: { label: string; onClick: () => void }) {
       </svg>
       {label}
     </button>
+  );
+}
+
+// ── Role Multi-Select ────────────────────────────────────────────────────────
+
+function RoleMultiSelect({
+  value,
+  roles,
+  placeholder,
+  onChange,
+}: {
+  value: string | undefined;
+  roles: { key: string; label: string }[];
+  placeholder: string;
+  onChange: (v: string | undefined) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  // Parse current value into selected labels
+  const selected = useMemo(() => {
+    if (!value) return new Set<string>();
+    return new Set(value.split(/[、,\/]/).map(s => s.trim()).filter(Boolean));
+  }, [value]);
+
+  function toggle(label: string) {
+    const next = new Set(selected);
+    if (next.has(label)) next.delete(label);
+    else next.add(label);
+    onChange(next.size > 0 ? Array.from(next).join('、') : undefined);
+  }
+
+  // Close on outside click
+  useEffect(() => {
+    if (!open) return;
+    function handler(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    }
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [open]);
+
+  if (roles.length === 0) {
+    return (
+      <input value={value ?? ''} onChange={e => onChange(e.target.value || undefined)}
+        className="text-xs w-[120px] px-2 py-1 rounded flex-shrink-0" style={inputStyle} placeholder={placeholder} />
+    );
+  }
+
+  return (
+    <div ref={ref} className="relative flex-shrink-0">
+      <button type="button" onClick={() => setOpen(!open)}
+        className="flex items-center gap-1 text-xs px-2 py-1 rounded min-w-[100px] max-w-[180px] text-left"
+        style={{ ...inputStyle, cursor: 'pointer' }}>
+        {selected.size > 0 ? (
+          <span className="truncate">{Array.from(selected).join('、')}</span>
+        ) : (
+          <span style={{ color: 'var(--notion-text-muted)' }}>{placeholder}</span>
+        )}
+        <span className="ml-auto text-[10px]" style={{ color: 'var(--notion-text-muted)' }}>▾</span>
+      </button>
+      {open && (
+        <div className="absolute right-0 top-full mt-1 z-50 rounded-lg shadow-lg py-1 min-w-[140px]"
+          style={{ background: 'var(--notion-bg, white)', border: '1px solid var(--notion-border)' }}>
+          {roles.map(r => (
+            <label key={r.key}
+              className="flex items-center gap-2 px-3 py-1.5 text-xs cursor-pointer transition-colors"
+              style={{ color: 'var(--notion-text)' }}
+              onMouseEnter={e => (e.currentTarget.style.background = 'var(--notion-hover)')}
+              onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}>
+              <input type="checkbox" checked={selected.has(r.label)} onChange={() => toggle(r.label)}
+                className="cursor-pointer" />
+              {r.label}
+            </label>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -176,9 +254,12 @@ function WorkflowStagesEditor({
                       <input value={step.label} onChange={e => updateStep(stageIdx, stepIdx, { label: e.target.value })}
                         className="flex-1 text-sm px-2 py-0.5 rounded" style={inputStyle} placeholder={t('stepName')} />
 
-                      {/* Owner */}
-                      <input value={step.owner ?? ''} onChange={e => updateStep(stageIdx, stepIdx, { owner: e.target.value || undefined })}
-                        className="text-xs w-[100px] px-2 py-0.5 rounded flex-shrink-0" style={inputStyle} placeholder={t('owner')} />
+                      {/* Owner roles */}
+                      <RoleMultiSelect
+                        value={step.owner}
+                        roles={stage.roles ?? []}
+                        placeholder={t('owner')}
+                        onChange={v => updateStep(stageIdx, stepIdx, { owner: v })} />
 
                       {/* Badge */}
                       {isBuiltin ? (
@@ -214,6 +295,7 @@ function WorkflowStagesEditor({
                 {/* Add custom step */}
                 {addingStep === stage.key ? (
                   <AddStepForm
+                    roles={stage.roles ?? []}
                     onAdd={step => addCustomStep(stageIdx, step)}
                     onCancel={() => setAddingStep(null)}
                   />
@@ -238,9 +320,11 @@ const STEP_TYPE_I18N: Record<string, string> = {
 };
 
 function AddStepForm({
+  roles,
   onAdd,
   onCancel,
 }: {
+  roles: { key: string; label: string }[];
   onAdd: (step: WorkflowStepDef) => void;
   onCancel: () => void;
 }) {
@@ -248,7 +332,7 @@ function AddStepForm({
   const tc = useTranslations('common');
   const [label, setLabel] = useState('');
   const [desc, setDesc] = useState('');
-  const [owner, setOwner] = useState('');
+  const [owner, setOwner] = useState<string | undefined>(undefined);
   const [type, setType] = useState('custom');
   const [checklistItems, setChecklistItems] = useState('');
 
@@ -258,7 +342,7 @@ function AddStepForm({
       key: `custom_${Date.now()}`,
       label: label.trim(),
       desc: desc.trim() || undefined,
-      owner: owner.trim() || undefined,
+      owner: owner || undefined,
       builtin: false,
       enabled: true,
       type,
@@ -282,8 +366,7 @@ function AddStepForm({
           {STEP_TYPE_KEYS.map(k => <option key={k} value={k}>{t(STEP_TYPE_I18N[k] as any)}</option>)}
         </select>
       </div>
-      <input value={owner} onChange={e => setOwner(e.target.value)}
-        className={inputCls} style={inputStyle} placeholder={t('ownerHint')} />
+      <RoleMultiSelect value={owner} roles={roles} placeholder={t('ownerHint')} onChange={v => setOwner(v)} />
       <input value={desc} onChange={e => setDesc(e.target.value)}
         className={inputCls} style={inputStyle} placeholder={t('stepDesc')} />
       {type === 'checklist' && (
