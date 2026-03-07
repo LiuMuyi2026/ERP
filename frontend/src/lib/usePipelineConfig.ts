@@ -174,7 +174,7 @@ export function usePipelineConfigFetcher(tenantSlug?: string) {
   const doFetch = useRef(() => {});
   doFetch.current = async () => {
     try {
-      const data = await api.get('/pipeline-config');
+      const data = await api.get('/api/pipeline-config');
       _cachedConfig = data;
       _cacheTime = Date.now();
       setConfig(data);

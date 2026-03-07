@@ -474,7 +474,7 @@ export default function PipelineConfigSection() {
   useEffect(() => {
     (async () => {
       try {
-        const data = await api.get('/pipeline-config');
+        const data = await api.get('/api/pipeline-config');
         setWorkflowStages(data.workflow_stages ?? []);
         setStatuses(data.statuses?.values ?? []);
         setTransitions(data.statuses?.transitions ?? {});
@@ -500,7 +500,7 @@ export default function PipelineConfigSection() {
   const handleSave = useCallback(async () => {
     setSaving(true);
     try {
-      await api.patch('/pipeline-config', {
+      await api.patch('/api/pipeline-config', {
         workflow_stages: workflowStages,
         statuses: {
           values: statuses,
