@@ -1452,6 +1452,50 @@ TENANT_MIGRATION_DDL = [
     "CREATE INDEX IF NOT EXISTS idx_er_wechat ON entity_registry(wechat_id) WHERE wechat_id IS NOT NULL",
     "CREATE INDEX IF NOT EXISTS idx_er_type ON entity_registry(entity_type)",
     "CREATE INDEX IF NOT EXISTS idx_er_entity ON entity_registry(entity_id)",
+
+    # ── AI Features: Lead scoring columns ──
+    "ALTER TABLE leads ADD COLUMN IF NOT EXISTS ai_score INTEGER",
+    "ALTER TABLE leads ADD COLUMN IF NOT EXISTS ai_score_reasons JSONB DEFAULT '[]'",
+    "ALTER TABLE leads ADD COLUMN IF NOT EXISTS ai_score_updated_at TIMESTAMPTZ",
+    "ALTER TABLE leads ADD COLUMN IF NOT EXISTS ai_profile TEXT",
+    "ALTER TABLE leads ADD COLUMN IF NOT EXISTS ai_profile_updated_at TIMESTAMPTZ",
+
+    # ── AI Features: WhatsApp message classification ──
+    """CREATE TABLE IF NOT EXISTS whatsapp_message_classifications (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        message_id UUID NOT NULL,
+        intent VARCHAR(50) NOT NULL,
+        confidence REAL DEFAULT 0,
+        sub_intent VARCHAR(100),
+        suggested_action VARCHAR(100),
+        lead_id UUID,
+        created_at TIMESTAMPTZ DEFAULT NOW()
+    )""",
+    "CREATE INDEX IF NOT EXISTS idx_wmc_message ON whatsapp_message_classifications(message_id)",
+    "CREATE INDEX IF NOT EXISTS idx_wmc_intent ON whatsapp_message_classifications(intent)",
+
+    # ── AI Features: Copilot suggestion cache ──
+    """CREATE TABLE IF NOT EXISTS ai_copilot_cache (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        module VARCHAR(50) NOT NULL,
+        record_id VARCHAR(100),
+        user_id UUID,
+        suggestions JSONB DEFAULT '[]',
+        expires_at TIMESTAMPTZ NOT NULL,
+        created_at TIMESTAMPTZ DEFAULT NOW()
+    )""",
+    "CREATE INDEX IF NOT EXISTS idx_copilot_module ON ai_copilot_cache(module, record_id)",
+
+    # ── AI Features: Insights cache ──
+    """CREATE TABLE IF NOT EXISTS ai_insights_cache (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        insight_type VARCHAR(50) NOT NULL,
+        user_id UUID,
+        data JSONB DEFAULT '{}',
+        expires_at TIMESTAMPTZ NOT NULL,
+        created_at TIMESTAMPTZ DEFAULT NOW()
+    )""",
+    "CREATE INDEX IF NOT EXISTS idx_insights_type ON ai_insights_cache(insight_type)",
 ]
 
 

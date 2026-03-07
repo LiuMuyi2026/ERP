@@ -10,6 +10,7 @@ import { HandIcon } from '@/components/ui/HandIcon';
 import WhatsAppChatPanel from '@/components/messaging/WhatsAppChatPanel';
 import SlideOver from '@/components/ui/SlideOver';
 import LeadModal, { TenantUser } from '../../components/LeadModal';
+import LeadScoreCard from '@/components/ai/LeadScoreCard';
 
 // ── Types ───────────────────────────────────────────────────────────────────
 type Interaction = {
@@ -1838,6 +1839,13 @@ export default function Customer360Page() {
               <p className="text-xs leading-relaxed" style={{ color: '#5F5E5B' }}>{lead.cold_lead_reason}</p>
             </div>
           )}
+        </div>
+
+        <Divider />
+
+        {/* AI Lead Score */}
+        <div className="px-4 py-2">
+          <LeadScoreCard leadId={id} />
         </div>
 
         <Divider />

@@ -11,7 +11,7 @@ from app.config import settings
 from app.database import init_db, engine, AsyncSessionLocal
 
 # Legacy routers (kept for backward compatibility during migration)
-from app.routers import auth, platform, workspace, crm, hr, accounting, inventory, ai, integrations, admin, notifications, messages, orders, ai_providers, automation, ai_finder, whisper_ws, workflow_templates, whatsapp, ws_whatsapp, ws_messages, email
+from app.routers import auth, platform, workspace, crm, hr, accounting, inventory, ai, integrations, admin, notifications, messages, orders, ai_providers, automation, ai_finder, whisper_ws, workflow_templates, whatsapp, ws_whatsapp, ws_messages, email, ai_features
 
 # New modular system
 from app.core.registry import module_registry
@@ -116,6 +116,7 @@ app.include_router(whatsapp.router, prefix="/api")
 app.include_router(ws_whatsapp.router, prefix="/api")
 app.include_router(ws_messages.router, prefix="/api")
 app.include_router(email.router, prefix="/api")
+app.include_router(ai_features.router, prefix="/api")
 
 # ── New modular routes (auto-discovered from app/modules/) ────────────────
 # Registered in lifespan after discover_modules() — see above.

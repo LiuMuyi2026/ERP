@@ -734,6 +734,7 @@ export default function Sidebar({ tenant, userName, userRole, avatarUrl, collaps
 
   // App items with translated labels (static fallback + dynamic from module registry)
   const defaultAppItems = [
+    { key: 'dashboard',  label: 'AI Dashboard',                                path: 'dashboard',     icon: 'bar-chart',     bg: '#f0f9ff', color: '#0369a1', darkBg: 'rgba(14,165,233,0.15)', darkColor: '#7dd3fc' },
     { key: 'customers',  label: tNav('customerCenter'),  path: 'crm/customers', icon: 'building',      bg: '#e0e7ff', color: '#4338ca', darkBg: 'rgba(99,102,241,0.15)',  darkColor: '#a5b4fc' },
     { key: 'crm',        label: tNav('customerMgmt'),   path: 'crm',           icon: 'people-group',  bg: '#dbeafe', color: '#1e40af', darkBg: 'rgba(59,130,246,0.15)',  darkColor: '#93c5fd' },
     { key: 'messages',   label: tNav('messagesCenter'),  path: 'messages',      icon: 'chat-bubble',   bg: '#fce7f3', color: '#be185d', darkBg: 'rgba(236,72,153,0.15)',  darkColor: '#f9a8d4' },

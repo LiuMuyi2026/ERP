@@ -5,6 +5,7 @@ import { useParams } from 'next/navigation';
 import { api, ApiError } from '@/lib/api';
 import { useWhatsAppSocket } from '@/lib/useWhatsAppSocket';
 import { HandIcon } from '@/components/ui/HandIcon';
+import ConversationIntentBar from '@/components/ai/ConversationIntentBar';
 import toast from 'react-hot-toast';
 import { useLocale } from 'next-intl';
 
@@ -1846,6 +1847,9 @@ export default function WhatsAppChatPanel({
           </div>
         </div>
       </div>
+
+      {/* ── AI Intent Classification Bar ── */}
+      {effectiveContactId && <ConversationIntentBar contactId={effectiveContactId} />}
 
       {/* ── Disappearing messages dropdown (triggered from more menu) ── */}
       {showDisappearing && (

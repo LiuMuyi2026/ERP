@@ -7,6 +7,7 @@ import CommandPalette from '@/components/ui/CommandPalette';
 
 import { ThemeProvider } from '@/lib/theme';
 import GlobalAIToolbar from '@/components/layout/GlobalAIToolbar';
+import CopilotPanel from '@/components/ai/CopilotPanel';
 import { getAuthSnapshot, refreshProfile, logout } from '@/lib/auth';
 import { Toaster } from 'react-hot-toast';
 
@@ -303,6 +304,7 @@ export default function TenantLayout({ children }: { children: React.ReactNode }
       )}
 
       <CommandPalette open={cmdOpen} onClose={() => setCmdOpen(false)} tenant={tenant} />
+      {!isMobile && <CopilotPanel />}
       <Toaster position="top-center" />
     </div>
     </ThemeProvider>

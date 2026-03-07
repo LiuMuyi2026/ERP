@@ -4304,6 +4304,34 @@ async def _handle_messages_upsert(db: AsyncSession, instance: str, data: dict, t
             for uid in _ws_targets:
                 await wa_ws_manager.send_to_user(tenant_slug, uid, evt)
 
+    # Auto-classify inbound WhatsApp messages in background
+    for evt in _pending_ws_events:
+        if evt.get("direction") == "inbound" and evt.get("message", {}).get("content"):
+            msg = evt["message"]
+            import asyncio
+            asyncio.create_task(_background_classify(
+                tenant_slug, evt.get("account_id"), msg.get("id"), msg.get("content"), evt.get("push_name")
+            ))
+
+
+async def _background_classify(tenant_slug: str, account_id: str, message_id: str, content: str, contact_name: str):
+    """Background task to classify WhatsApp message intent."""
+    if not message_id or not content or len(content.strip()) < 5:
+        return
+    try:
+        from app.database import AsyncSessionLocal
+        from app.utils.sql import safe_set_search_path
+        async with AsyncSessionLocal() as db:
+            await safe_set_search_path(db, tenant_slug)
+            # Resolve tenant_id
+            tid_row = await db.execute(text("SELECT id FROM platform.tenants WHERE slug = :s"), {"s": tenant_slug})
+            tid = tid_row.fetchone()
+            tenant_id = str(tid.id) if tid else None
+            from app.routers.ai_features import auto_classify_whatsapp_message
+            await auto_classify_whatsapp_message(db, tenant_id, message_id, content, contact_name)
+    except Exception as e:
+        logger.debug("Background classify failed: %s", e)
+
 
 async def _handle_messages_update(db: AsyncSession, instance: str, data: dict, tenant_slug: str = ""):
     """Handle MESSAGES_UPDATE event — status changes (sent/delivered/read)."""
