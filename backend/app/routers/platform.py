@@ -1,3 +1,4 @@
+import json
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -8,6 +9,7 @@ from pydantic import BaseModel
 from app.deps import get_db, require_platform_admin
 from app.services.tenant import provision_tenant_schema
 from app.services.auth import get_password_hash, create_token_for_tenant_user
+from app.services.pipeline_defaults import DEFAULT_PIPELINE_DEFINITION
 from app.utils.sql import safe_set_search_path, build_update_clause, validate_tenant_slug
 
 router = APIRouter(prefix="/platform", tags=["platform"])
@@ -193,6 +195,30 @@ async def create_tenant(body: CreateTenantRequest, db: AsyncSession = Depends(ge
         text("UPDATE platform.tenants SET schema_provisioned = TRUE WHERE id = :id"),
         {"id": tenant_id}
     )
+
+    # Seed default pipeline template for the new tenant
+    existing = await db.execute(
+        text("SELECT id FROM platform.workflow_templates WHERE scope = 'tenant' AND tenant_id = :tid LIMIT 1"),
+        {"tid": tenant_id},
+    )
+    if not existing.fetchone():
+        await db.execute(
+            text("""
+                INSERT INTO platform.workflow_templates
+                (id, name, slug, description, definition, version, scope, tenant_id, is_active, created_by, updated_by)
+                VALUES (:id, :name, :slug, :description, CAST(:definition AS jsonb), 1, 'tenant', :tenant_id, TRUE, :created_by, :created_by)
+            """),
+            {
+                "id": str(uuid.uuid4()),
+                "name": "默认流程",
+                "slug": f"default-{body.slug}",
+                "description": "Auto-seeded default pipeline configuration",
+                "definition": json.dumps(DEFAULT_PIPELINE_DEFINITION, ensure_ascii=False),
+                "tenant_id": tenant_id,
+                "created_by": user_id,
+            },
+        )
+
     await db.commit()
     return {"id": tenant_id, "name": body.name, "slug": body.slug, "schema_provisioned": True}
 

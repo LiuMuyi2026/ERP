@@ -10,6 +10,8 @@ import { HandIcon } from '@/components/ui/HandIcon';
 import { useTranslations } from 'next-intl';
 import LeadFilesTab from './components/LeadFilesTab';
 import LeadModal from './components/LeadModal';
+import FollowUpReminders from '@/components/ai/FollowUpReminders';
+import { usePipelineConfig, buildStatusColors, buildStatusToStage } from '@/lib/usePipelineConfig';
 // ── Types ─────────────────────────────────────────────────────────────────────
 type Lead = {
   id: string; full_name: string; company?: string; email?: string;
@@ -57,87 +59,35 @@ type Payable = {
   invoice_no?: string; supplier_name?: string; assigned_name?: string;
 };
 
-// ── Funnel stages (6-stage workflow) ──────────────────────────────────────
-type FunnelStage = { key: string; labelKey: string; icon: string; color: string; bg: string };
-const FUNNEL_STAGE_DEFS: FunnelStage[] = [
-  { key: 'sales',       labelKey: 'stageSales',       icon: 'briefcase', color: '#7c3aed', bg: '#f5f3ff' },
-  { key: 'contract',    labelKey: 'stageContract',    icon: 'document-pen', color: '#0284c7', bg: '#e0f2fe' },
-  { key: 'procurement', labelKey: 'stageProcurement', icon: 'factory', color: '#c2410c', bg: '#fff7ed' },
-  { key: 'booking',     labelKey: 'stageBooking',     icon: 'ship', color: '#15803d', bg: '#f0fdf4' },
-  { key: 'shipping',    labelKey: 'stageShipping',    icon: 'package', color: '#d97706', bg: '#fffbeb' },
-  { key: 'collection',  labelKey: 'stageCollection',  icon: 'money-bag', color: '#059669', bg: '#d1fae5' },
-];
-
+// ── Funnel stages — driven by pipeline config ────────────────────────────
 type ResolvedFunnelStage = { key: string; label: string; icon: string; color: string; bg: string };
 
-function getFunnelStages(tCrm: any): ResolvedFunnelStage[] {
-  return FUNNEL_STAGE_DEFS.map(s => ({
-    ...s,
-    label: tCrm(s.labelKey as any) ?? s.labelKey,
+function resolveFunnelStages(stages: { key: string; label?: string; labelKey?: string; icon?: string; color?: string; bg?: string }[], tCrm: any): ResolvedFunnelStage[] {
+  return stages.map(s => ({
+    key: s.key,
+    label: (s.labelKey ? tCrm(s.labelKey as any) : s.label) ?? s.key,
+    icon: s.icon ?? 'briefcase',
+    color: s.color ?? '#7c3aed',
+    bg: s.bg ?? '#f5f3ff',
   }));
 }
 
-// Module-level reference for non-i18n uses (STATUS_TO_FUNNEL mapping etc.)
-const FUNNEL_STAGES = FUNNEL_STAGE_DEFS;
-
-// Map all lead statuses → funnel stage key
-const STATUS_TO_FUNNEL: Record<string, string> = {
-  // 销售洽谈
-  inquiry: 'sales', new: 'sales', replied: 'sales',
-  engaged: 'sales', qualified: 'sales', contacted: 'sales',
-  // 签定合同
-  quoted: 'contract', negotiating: 'contract',
-  // 采购流程
-  procuring: 'procurement',
-  // 订舱流程
-  booking: 'booking',
-  // 发货流程
-  fulfillment: 'shipping',
-  // 回款结算
-  payment: 'collection', converted: 'collection',
-};
-
-function getLeadStatusOptions(tCrm: any) {
-  return [
-    // Stage 1
-    { value: 'inquiry',     label: tCrm('statusInquiry'),     group: tCrm('groupSales') },
-    { value: 'replied',     label: tCrm('statusReplied'),     group: tCrm('groupSales') },
-    { value: 'qualified',   label: tCrm('statusQualified'),   group: tCrm('groupSales') },
-    // Stage 2
-    { value: 'quoted',      label: tCrm('statusQuoted'),      group: tCrm('groupContract') },
-    { value: 'negotiating', label: tCrm('statusNegotiating'), group: tCrm('groupContract') },
-    // Stage 3
-    { value: 'procuring',   label: tCrm('statusProcuring'),   group: tCrm('groupProcurement') },
-    // Stage 4
-    { value: 'booking',     label: tCrm('statusBooking'),     group: tCrm('groupBooking') },
-    // Stage 5
-    { value: 'fulfillment', label: tCrm('statusFulfillment'), group: tCrm('groupShipping') },
-    // Stage 6
-    { value: 'payment',     label: tCrm('statusPayment'),     group: tCrm('groupCollection') },
-    { value: 'converted',   label: tCrm('statusConverted'),   group: tCrm('groupCollection') },
-    // Other
-    { value: 'cold',        label: tCrm('statusCold'),        group: tCrm('groupOther') },
-    { value: 'lost',        label: tCrm('statusLost'),        group: tCrm('groupOther') },
-  ];
+/** Build status options from config for dropdowns */
+function buildLeadStatusOptions(
+  config: { statuses: { values: { key: string; label?: string; stage?: string | null }[] }; pipeline: { stages: { key: string; label?: string; labelKey?: string }[] } },
+  tCrm: any,
+) {
+  // Build stage key → group label map
+  const stageLabels: Record<string, string> = {};
+  for (const s of config.pipeline.stages) {
+    stageLabels[s.key] = (s.labelKey ? tCrm(s.labelKey as any) : s.label) ?? s.key;
+  }
+  return config.statuses.values.map(sv => ({
+    value: sv.key,
+    label: sv.label ?? sv.key,
+    group: sv.stage ? (stageLabels[sv.stage] ?? sv.stage) : tCrm('groupOther'),
+  }));
 }
-
-const LEAD_STATUS_COLORS: Record<string, string> = {
-  inquiry:     'bg-indigo-100 text-indigo-700',
-  new:         'bg-indigo-100 text-indigo-700',
-  replied:     'bg-teal-100 text-teal-700',
-  engaged:     'bg-teal-100 text-teal-700',
-  qualified:   'bg-purple-100 text-purple-700',
-  contacted:   'bg-teal-100 text-teal-700',
-  quoted:      'bg-sky-100 text-sky-700',
-  negotiating: 'bg-blue-100 text-blue-700',
-  procuring:   'bg-orange-100 text-orange-700',
-  booking:     'bg-green-100 text-green-700',
-  fulfillment: 'bg-amber-100 text-amber-700',
-  payment:     'bg-emerald-100 text-emerald-700',
-  converted:   'bg-green-100 text-green-800',
-  cold:        'bg-gray-100 text-gray-500',
-  lost:        'bg-gray-100 text-gray-500',
-};
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function fmt(period: string, granularity: string): string {
@@ -181,17 +131,18 @@ function SimpleBarChart({ data, color, granularity, noDataText }: {
 }
 
 // ── FunnelChart ───────────────────────────────────────────────────────────────
-function FunnelChart({ statusCounts, onStageClick, resolvedStages, filterTitle, viewText }: {
+function FunnelChart({ statusCounts, onStageClick, resolvedStages, statusToStage, filterTitle, viewText }: {
   statusCounts: Record<string, number>;
   onStageClick?: (key: string) => void;
   resolvedStages: ResolvedFunnelStage[];
+  statusToStage: Record<string, string>;
   filterTitle?: (stage: string, count: number) => string;
   viewText?: string;
 }) {
-  // Aggregate statuses into the 6 funnel stage keys
+  // Aggregate statuses into the funnel stage keys
   const aggregated: Record<string, number> = {};
   for (const [status, count] of Object.entries(statusCounts)) {
-    const key = STATUS_TO_FUNNEL[status] ?? status;
+    const key = statusToStage[status] ?? status;
     aggregated[key] = (aggregated[key] ?? 0) + count;
   }
 
@@ -256,6 +207,8 @@ function KpiDetailPanel({ type, onClose, viewScope }: {
 }) {
   const router = useRouter();
   const params = useParams<{ tenant: string }>();
+  const config = usePipelineConfig();
+  const STATUS_COLORS = buildStatusColors(config);
   const meta = KPI_META[type];
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);
@@ -324,7 +277,7 @@ function KpiDetailPanel({ type, onClose, viewScope }: {
                     {lead.company && <span className="text-xs truncate" style={{ color: '#9B9A97' }}>· {lead.company}</span>}
                   </div>
                   <div className="flex items-center gap-2 mt-0.5">
-                    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium ${LEAD_STATUS_COLORS[lead.status] ?? 'bg-gray-100 text-gray-500'}`}>
+                    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium ${STATUS_COLORS[lead.status] ?? 'bg-gray-100 text-gray-500'}`}>
                       {lead.status}
                     </span>
                     <span className="text-[10px]" style={{ color: '#C2C0BC' }}>
@@ -676,8 +629,11 @@ function InquiryPanel({ type, leads, loading, view, onViewChange, onClose }: {
   const params = useParams<{ tenant: string }>();
   const tCrm = useTranslations('crm');
   const tCommon = useTranslations('common');
-  const LEAD_STATUS_OPTIONS = getLeadStatusOptions(tCrm);
-  const FUNNEL_STAGES_RESOLVED = getFunnelStages(tCrm);
+  const config = usePipelineConfig();
+  const LEAD_STATUS_OPTIONS = buildLeadStatusOptions(config, tCrm);
+  const FUNNEL_STAGES_RESOLVED = resolveFunnelStages(config.pipeline.stages, tCrm);
+  const STATUS_COLORS = buildStatusColors(config);
+  const STATUS_TO_STAGE = buildStatusToStage(config);
   const title = type === 'new' ? tCrm('newInquiry') : tCrm('pendingInquiry');
   const accent = type === 'new' ? '#60a5fa' : '#f97316';
 
@@ -694,7 +650,7 @@ function InquiryPanel({ type, leads, loading, view, onViewChange, onClose }: {
 
   function statusBadge(status: string) {
     const opt = LEAD_STATUS_OPTIONS.find(o => o.value === status);
-    const cls = LEAD_STATUS_COLORS[status] ?? 'bg-gray-100 text-gray-500';
+    const cls = STATUS_COLORS[status] ?? 'bg-gray-100 text-gray-500';
     return (
       <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium ${cls}`}>
         {opt?.label ?? status}
@@ -706,7 +662,7 @@ function InquiryPanel({ type, leads, loading, view, onViewChange, onClose }: {
     return (
       <div className="space-y-1">
         {leads.map(lead => {
-          const fStage = FUNNEL_STAGES_RESOLVED.find(s => s.key === (STATUS_TO_FUNNEL[lead.status] ?? lead.status));
+          const fStage = FUNNEL_STAGES_RESOLVED.find(s => s.key === (STATUS_TO_STAGE[lead.status] ?? lead.status));
           const updatedAt = lead.updated_at ? new Date(lead.updated_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) : '—';
           return (
             <div key={lead.id}
@@ -743,7 +699,7 @@ function InquiryPanel({ type, leads, loading, view, onViewChange, onClose }: {
     return (
       <div className="grid grid-cols-2 gap-3">
         {leads.map(lead => {
-          const fStage = FUNNEL_STAGES_RESOLVED.find(s => s.key === (STATUS_TO_FUNNEL[lead.status] ?? lead.status));
+          const fStage = FUNNEL_STAGES_RESOLVED.find(s => s.key === (STATUS_TO_STAGE[lead.status] ?? lead.status));
           const updatedAt = lead.updated_at ? new Date(lead.updated_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) : null;
           return (
             <div key={lead.id}
@@ -782,7 +738,7 @@ function InquiryPanel({ type, leads, loading, view, onViewChange, onClose }: {
     const byStage: Record<string, Lead[]> = {};
     for (const s of relevantStages) byStage[s.key] = [];
     for (const l of leads) {
-      const key = STATUS_TO_FUNNEL[l.status] ?? l.status;
+      const key = STATUS_TO_STAGE[l.status] ?? l.status;
       if (byStage[key]) byStage[key].push(l);
       else (byStage['sales'] ??= []).push(l);
     }
@@ -838,7 +794,7 @@ function InquiryPanel({ type, leads, loading, view, onViewChange, onClose }: {
           <tbody>
             {leads.map((lead, i) => {
               const updatedAt = lead.updated_at ? new Date(lead.updated_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) : '—';
-              const fStage = FUNNEL_STAGES_RESOLVED.find(s => s.key === (STATUS_TO_FUNNEL[lead.status] ?? lead.status));
+              const fStage = FUNNEL_STAGES_RESOLVED.find(s => s.key === (STATUS_TO_STAGE[lead.status] ?? lead.status));
               return (
                 <tr key={lead.id}
                   className="cursor-pointer transition-colors"
@@ -928,7 +884,10 @@ function InquiryPanel({ type, leads, loading, view, onViewChange, onClose }: {
 function CRMDashboardTab({ onStageClick, globalScope }: { onStageClick?: (key: string) => void; globalScope?: ViewScope }) {
   const tCrm = useTranslations('crm');
   const tCommon = useTranslations('common');
-  const FUNNEL_STAGES_RESOLVED = getFunnelStages(tCrm);
+  const config = usePipelineConfig();
+  const FUNNEL_STAGES_RESOLVED = resolveFunnelStages(config.pipeline.stages, tCrm);
+  const STATUS_COLORS = buildStatusColors(config);
+  const STATUS_TO_STAGE = buildStatusToStage(config);
   const [scope, setScope] = useState<Scope>('all');
   const [trendPeriod, setTrendPeriod] = useState<TrendPeriod>('day');
   const [unfPeriod, setUnfPeriod] = useState<TrendPeriod>('day');
@@ -1039,9 +998,9 @@ function CRMDashboardTab({ onStageClick, globalScope }: { onStageClick?: (key: s
         >
           <div className="space-y-1 max-h-[280px] overflow-y-auto">
             {todos.map(todo => {
-              const fStage = FUNNEL_STAGES_RESOLVED.find(s => s.key === (STATUS_TO_FUNNEL[todo.status] ?? todo.status));
-              const statusOpt = getLeadStatusOptions(tCrm).find(o => o.value === todo.status);
-              const cls = LEAD_STATUS_COLORS[todo.status] ?? 'bg-gray-100 text-gray-500';
+              const fStage = FUNNEL_STAGES_RESOLVED.find(s => s.key === (STATUS_TO_STAGE[todo.status] ?? todo.status));
+              const statusOpt = buildLeadStatusOptions(config, tCrm).find(o => o.value === todo.status);
+              const cls = STATUS_COLORS[todo.status] ?? 'bg-gray-100 text-gray-500';
               return (
                 <div key={todo.lead_id}
                   className="flex items-center gap-3 px-3 py-2.5 rounded-xl cursor-pointer transition-all group"
@@ -1135,7 +1094,7 @@ function CRMDashboardTab({ onStageClick, globalScope }: { onStageClick?: (key: s
       >
         {funnelLoading
           ? <div className="h-40 flex items-center justify-center text-xs" style={{ color: '#9B9A97' }}>{tCrm('loadingText')}</div>
-          : <FunnelChart statusCounts={funnel} onStageClick={onStageClick} resolvedStages={FUNNEL_STAGES_RESOLVED} filterTitle={(stage, count) => tCrm('filterStageLeads', { stage, count })} viewText={tCrm('viewLeads')} />}
+          : <FunnelChart statusCounts={funnel} onStageClick={onStageClick} resolvedStages={FUNNEL_STAGES_RESOLVED} statusToStage={STATUS_TO_STAGE} filterTitle={(stage, count) => tCrm('filterStageLeads', { stage, count })} viewText={tCrm('viewLeads')} />}
       </DashboardCard>
 
       {/* Inquiry panel */}
@@ -1222,8 +1181,11 @@ function LeadsTab({ leads, users, onCreateLead, defaultStatusFilter }: {
   const router = useRouter();
   const tCrm = useTranslations('crm');
   const tCommon = useTranslations('common');
-  const LEAD_STATUS_OPTIONS = useMemo(() => getLeadStatusOptions(tCrm), [tCrm]);
-  const FUNNEL_STAGES_RESOLVED = useMemo(() => getFunnelStages(tCrm), [tCrm]);
+  const config = usePipelineConfig();
+  const LEAD_STATUS_OPTIONS = useMemo(() => buildLeadStatusOptions(config, tCrm), [config, tCrm]);
+  const FUNNEL_STAGES_RESOLVED = useMemo(() => resolveFunnelStages(config.pipeline.stages, tCrm), [config, tCrm]);
+  const STATUS_COLORS = useMemo(() => buildStatusColors(config), [config]);
+  const STATUS_TO_STAGE = useMemo(() => buildStatusToStage(config), [config]);
   const SORT_OPTIONS = useMemo(() => getSortOptions(tCrm), [tCrm]);
   const SOURCE_CHANNELS = useMemo(() => getSourceChannels(tCrm), [tCrm]);
   const CUSTOMER_TYPES = useMemo(() => getCustomerTypes(tCrm), [tCrm]);
@@ -1299,8 +1261,8 @@ function LeadsTab({ leads, users, onCreateLead, defaultStatusFilter }: {
       if (q && !l.full_name?.toLowerCase().includes(q) &&
                !l.company?.toLowerCase().includes(q) &&
                !l.email?.toLowerCase().includes(q)) return false;
-      // 业务漏斗筛选：按阶段匹配（通过 STATUS_TO_FUNNEL 映射）
-      if (funnelStage && STATUS_TO_FUNNEL[l.status] !== funnelStage)              return false;
+      // 业务漏斗筛选：按阶段匹配（通过 status_to_stage 映射）
+      if (funnelStage && STATUS_TO_STAGE[l.status] !== funnelStage)              return false;
       if (fStatus.length      && !fStatus.includes(l.status))                     return false;
       if (fGrade.length       && !fGrade.includes(l.custom_fields?.lead_grade))         return false;
       if (fChannel.length     && !fChannel.includes(l.custom_fields?.source_channel))   return false;
@@ -1381,10 +1343,10 @@ function LeadsTab({ leads, users, onCreateLead, defaultStatusFilter }: {
               const channel = lead.custom_fields?.source_channel as string | undefined;
               const custType = lead.custom_fields?.customer_type as string | undefined;
               const statusLabel = LEAD_STATUS_OPTIONS.find(o => o.value === lead.status)?.label ?? lead.status;
-              const statusCls = LEAD_STATUS_COLORS[lead.status] ?? 'bg-gray-100 text-gray-500';
+              const statusCls = STATUS_COLORS[lead.status] ?? 'bg-gray-100 text-gray-500';
               const gradeStyle = grade ? GRADE_COLORS[grade] : null;
               const creatorName = userMap[lead.created_by ?? ''] ?? userMap[lead.assigned_to ?? ''] ?? '—';
-              const funnelStageItem = FUNNEL_STAGES_RESOLVED.find(s => s.key === (STATUS_TO_FUNNEL[lead.status] ?? lead.status));
+              const funnelStageItem = FUNNEL_STAGES_RESOLVED.find(s => s.key === (STATUS_TO_STAGE[lead.status] ?? lead.status));
               const active7d = (() => {
                 const ts = lead.updated_at || lead.last_contacted_at;
                 if (!ts) return false;
@@ -1485,7 +1447,7 @@ function LeadsTab({ leads, users, onCreateLead, defaultStatusFilter }: {
       const byStage: Record<string, Lead[]> = {};
       for (const s of FUNNEL_STAGES_RESOLVED) byStage[s.key] = [];
       for (const l of filtered) {
-        const key = STATUS_TO_FUNNEL[l.status] ?? l.status;
+        const key = STATUS_TO_STAGE[l.status] ?? l.status;
         (byStage[key] ??= []).push(l);
       }
       return (
@@ -1613,8 +1575,8 @@ function LeadsTab({ leads, users, onCreateLead, defaultStatusFilter }: {
           const grade = lead.custom_fields?.lead_grade as string | undefined;
           const gs = grade ? GRADE_COLORS[grade] : null;
           const statusLabel = LEAD_STATUS_OPTIONS.find(o => o.value === lead.status)?.label ?? lead.status;
-          const statusCls = LEAD_STATUS_COLORS[lead.status] ?? 'bg-gray-100 text-gray-500';
-          const stage = FUNNEL_STAGES_RESOLVED.find(s => s.key === (STATUS_TO_FUNNEL[lead.status] ?? lead.status));
+          const statusCls = STATUS_COLORS[lead.status] ?? 'bg-gray-100 text-gray-500';
+          const stage = FUNNEL_STAGES_RESOLVED.find(s => s.key === (STATUS_TO_STAGE[lead.status] ?? lead.status));
           return (
             <div key={lead.id}
               className="bg-white rounded-xl overflow-hidden cursor-pointer transition-all"
@@ -1671,7 +1633,7 @@ function LeadsTab({ leads, users, onCreateLead, defaultStatusFilter }: {
 
   function getGroupKey(lead: Lead): string {
     switch (groupBy) {
-      case 'funnel_stage': return STATUS_TO_FUNNEL[lead.status] ?? lead.status;
+      case 'funnel_stage': return STATUS_TO_STAGE[lead.status] ?? lead.status;
       case 'company': return lead.company?.trim() || '未分类';
       case 'assigned_to': return userMap[lead.assigned_to ?? ''] || userMap[lead.created_by ?? ''] || '未分配';
       case 'source_channel': return lead.custom_fields?.source_channel || '未知来源';
@@ -1727,8 +1689,8 @@ function LeadsTab({ leads, users, onCreateLead, defaultStatusFilter }: {
                 const grade = lead.custom_fields?.lead_grade as string | undefined;
                 const gs = grade ? GRADE_COLORS[grade] : null;
                 const statusLabel = LEAD_STATUS_OPTIONS.find(o => o.value === lead.status)?.label ?? lead.status;
-                const statusCls = LEAD_STATUS_COLORS[lead.status] ?? 'bg-gray-100 text-gray-500';
-                const funnelStageItem = FUNNEL_STAGES_RESOLVED.find(s => s.key === (STATUS_TO_FUNNEL[lead.status] ?? lead.status));
+                const statusCls = STATUS_COLORS[lead.status] ?? 'bg-gray-100 text-gray-500';
+                const funnelStageItem = FUNNEL_STAGES_RESOLVED.find(s => s.key === (STATUS_TO_STAGE[lead.status] ?? lead.status));
                 return (
                   <div key={lead.id} className="flex items-center gap-3 px-4 py-2.5 transition-colors cursor-pointer"
                     onClick={() => router.push(`/${params.tenant}/crm/customer-360/${lead.id}`)}
@@ -1772,8 +1734,8 @@ function LeadsTab({ leads, users, onCreateLead, defaultStatusFilter }: {
                 const grade = lead.custom_fields?.lead_grade as string | undefined;
                 const gs = grade ? GRADE_COLORS[grade] : null;
                 const statusLabel = LEAD_STATUS_OPTIONS.find(o => o.value === lead.status)?.label ?? lead.status;
-                const statusCls = LEAD_STATUS_COLORS[lead.status] ?? 'bg-gray-100 text-gray-500';
-                const stage = FUNNEL_STAGES_RESOLVED.find(s => s.key === (STATUS_TO_FUNNEL[lead.status] ?? lead.status));
+                const statusCls = STATUS_COLORS[lead.status] ?? 'bg-gray-100 text-gray-500';
+                const stage = FUNNEL_STAGES_RESOLVED.find(s => s.key === (STATUS_TO_STAGE[lead.status] ?? lead.status));
                 return (
                   <div key={lead.id}
                     className="bg-white rounded-xl overflow-hidden cursor-pointer transition-all"
@@ -2544,6 +2506,7 @@ export default function CRMPage() {
 
       {/* Content */}
       <div className="flex-1 min-h-0 overflow-auto px-8 py-4">
+        {tab === 'dashboard' && <FollowUpReminders />}
         {tab === 'dashboard' && (
           <CRMDashboardTab onStageClick={(key) => { setTab('leads'); setLeadsFunnelFilter(key); }} globalScope={viewScope} />
         )}

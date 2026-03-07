@@ -11,6 +11,7 @@ import WhatsAppChatPanel from '@/components/messaging/WhatsAppChatPanel';
 import SlideOver from '@/components/ui/SlideOver';
 import LeadModal, { TenantUser } from '../../components/LeadModal';
 import LeadScoreCard from '@/components/ai/LeadScoreCard';
+import { usePipelineConfig, canAdvance as canAdvanceStatus } from '@/lib/usePipelineConfig';
 
 // ── Types ───────────────────────────────────────────────────────────────────
 type Interaction = {
@@ -1527,6 +1528,7 @@ function ColdLeadModal({ leadId, onClose, onSaved }: {
 // ── Main Page ─────────────────────────────────────────────────────────────────
 export default function Customer360Page() {
   const t = useTranslations('customer360');
+  const pipelineConfig = usePipelineConfig();
   const CH = getCH(t);
   const LEAD_STATUS = getLeadStatus(t);
   const [workflowStages, setWorkflowStages] = useState<WorkflowStage[]>([]);
@@ -1663,13 +1665,8 @@ export default function Customer360Page() {
   const isConverted = contracts.length > 0;
   const clientIsActive = isActive(lead.updated_at, lead.last_contacted_at);
 
-  // Determine if we can advance
-  const NEXT_STAGE_MAP: Record<string, boolean> = {
-    inquiry: true, new: true, replied: true, engaged: true,
-    qualified: true, quoted: true, negotiating: true,
-    procuring: true, booking: true, fulfillment: true, payment: true,
-  };
-  const canAdvance = NEXT_STAGE_MAP[lead.status] && !isCold;
+  // Determine if we can advance — driven by pipeline config transitions
+  const canAdvance = canAdvanceStatus(pipelineConfig, lead.status) && !isCold;
 
   const allCommsCount = interactions.length + (data.wa_messages?.length || 0);
   const TABS = [

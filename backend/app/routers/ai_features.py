@@ -1,6 +1,6 @@
 """
 AI Features Router — Copilot, WhatsApp Classification, Lead Scoring,
-Document Generation, and Dashboard Insights.
+Document Generation, Follow-up Reminders, and Anomaly Alerts.
 
 Endpoints:
   POST /ai/copilot/suggestions    — Context-aware business suggestions
@@ -8,14 +8,13 @@ Endpoints:
   GET  /ai/lead-score/{lead_id}   — Score + profile a lead
   POST /ai/lead-score/{lead_id}/refresh — Force re-score
   POST /ai/generate-document      — Generate business documents
-  GET  /ai/insights               — Dashboard AI insights (daily brief)
-  POST /ai/query                  — Natural language → SQL query
+  GET  /ai/follow-up-reminders    — Smart follow-up reminders (CRM)
+  GET  /ai/anomaly-alerts         — Inventory/order/accounting anomaly alerts
   GET  /ai/message-classifications/{contact_id} — Get classifications for a contact
 """
 
 import json
 import logging
-import re
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -55,9 +54,6 @@ class GenerateDocumentRequest(BaseModel):
     context_ids: list[str] = []
     extra_instructions: Optional[str] = None
 
-
-class NLQueryRequest(BaseModel):
-    question: str
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -704,235 +700,335 @@ Generate in the same language as the context data. Use proper formatting with he
 
 
 # ──────────────────────────────────────────────────────────────────────
-# 5. Dashboard AI Insights + Natural Language Query
+# 5. Smart Follow-up Reminders (CRM)
 # ──────────────────────────────────────────────────────────────────────
 
-@router.get("/insights")
-async def get_insights(ctx: dict = Depends(get_current_user_with_tenant)):
-    """Generate daily business insights brief."""
+@router.get("/follow-up-reminders")
+async def get_follow_up_reminders(ctx: dict = Depends(get_current_user_with_tenant)):
+    """Get data-driven follow-up reminders for CRM.
+    Returns: leads needing follow-up, expiring quotes, overdue receivables, contracts to renew.
+    Pure SQL — no AI call needed."""
     db = ctx["db"]
-    tid = ctx.get("tenant_id")
+    user_id = ctx["sub"]
+    reminders = []
 
-    # Check cache
+    # 1. Stale leads — no contact in 3+ days, still active
     try:
-        cache = await db.execute(text("""
-            SELECT data FROM ai_insights_cache
-            WHERE insight_type = 'daily_brief' AND expires_at > NOW()
-            ORDER BY created_at DESC LIMIT 1
+        rows = await db.execute(text("""
+            SELECT id, full_name, company, status,
+                   COALESCE(last_contacted_at, updated_at, created_at) as last_activity,
+                   EXTRACT(DAY FROM NOW() - COALESCE(last_contacted_at, updated_at, created_at)) as days_idle
+            FROM leads
+            WHERE status NOT IN ('converted', 'lost', 'cold')
+            AND COALESCE(last_contacted_at, updated_at, created_at) < NOW() - INTERVAL '3 days'
+            ORDER BY COALESCE(last_contacted_at, updated_at, created_at) ASC
+            LIMIT 20
         """))
-        cached = cache.fetchone()
-        if cached and cached.data:
-            return cached.data
-    except Exception:
-        pass
-
-    # Build data snapshot
-    data_parts = []
-
-    # Overdue receivables
-    try:
-        row = await db.execute(text("""
-            SELECT COUNT(*) as cnt, COALESCE(SUM(amount - COALESCE(received_amount,0)),0) as total
-            FROM crm_receivables
-            WHERE (status = 'overdue' OR (due_date < NOW() AND status NOT IN ('received','cancelled')))
-        """))
-        r = row.fetchone()
-        data_parts.append(f"Overdue receivables: {r.cnt} items, total: {r.total}")
-    except Exception:
-        pass
-
-    # Due today
-    try:
-        row = await db.execute(text("""
-            SELECT COUNT(*) as cnt, COALESCE(SUM(amount),0) as total
-            FROM crm_receivables WHERE due_date::date = CURRENT_DATE AND status NOT IN ('received','cancelled')
-        """))
-        r = row.fetchone()
-        data_parts.append(f"Due today: {r.cnt} receivables, total: {r.total}")
-    except Exception:
-        pass
-
-    # Stale leads (7+ days no contact)
-    try:
-        row = await db.execute(text("""
-            SELECT COUNT(*) as cnt FROM leads
-            WHERE status NOT IN ('converted','lost','cold')
-            AND (last_contacted_at IS NULL OR last_contacted_at < NOW() - INTERVAL '7 days')
-            AND (updated_at IS NULL OR updated_at < NOW() - INTERVAL '7 days')
-        """))
-        r = row.fetchone()
-        data_parts.append(f"Stale leads (7+ days no contact): {r.cnt}")
-    except Exception:
-        pass
-
-    # Low stock
-    try:
-        row = await db.execute(text("""
-            SELECT COUNT(*) as cnt FROM products
-            WHERE stock_qty <= COALESCE(min_stock_qty, 10) AND stock_qty >= 0
-        """))
-        r = row.fetchone()
-        data_parts.append(f"Low stock products: {r.cnt}")
-    except Exception:
-        pass
-
-    # New leads today
-    try:
-        row = await db.execute(text("SELECT COUNT(*) as cnt FROM leads WHERE created_at::date = CURRENT_DATE"))
-        r = row.fetchone()
-        data_parts.append(f"New leads today: {r.cnt}")
-    except Exception:
-        pass
-
-    # Recent WhatsApp unread
-    try:
-        row = await db.execute(text("SELECT SUM(unread_count) as cnt FROM whatsapp_contacts WHERE unread_count > 0"))
-        r = row.fetchone()
-        data_parts.append(f"Unread WhatsApp messages: {r.cnt or 0}")
-    except Exception:
-        pass
-
-    # Pending tasks
-    try:
-        row = await db.execute(text("SELECT COUNT(*) as cnt FROM tasks WHERE status IN ('pending','in_progress')"))
-        r = row.fetchone()
-        data_parts.append(f"Open tasks: {r.cnt}")
-    except Exception:
-        pass
-
-    if not data_parts:
-        return {"brief": [], "generated_at": datetime.now(timezone.utc).isoformat()}
-
-    prompt = f"""Based on this business data snapshot, generate a daily brief with 5-8 key insights.
-
-Data:
-{chr(10).join(data_parts)}
-
-Return JSON:
-{{
-  "brief": [
-    {{
-      "type": "alert" | "opportunity" | "reminder" | "metric",
-      "icon": "warning" | "trending_up" | "schedule" | "inventory" | "message" | "people" | "money",
-      "title": "<short title>",
-      "detail": "<1-2 sentence detail>",
-      "priority": "high" | "medium" | "low",
-      "action_url": "<optional: module path like /crm or /accounting>"
-    }}
-  ]
-}}
-
-Generate in Chinese. Prioritize actionable items first."""
-
-    result = await ai.run(
-        AITaskType.ANALYZE, prompt,
-        db=db, tenant_id=tid, user_id=ctx["sub"],
-        system_instruction="You are a business intelligence assistant. Generate concise, actionable daily briefs. Respond with JSON only.",
-        output_format="json",
-        feature_name="daily_insights",
-    )
-
-    response_data = {
-        "brief": result.result_json.get("brief", []) if result.result_json else [],
-        "raw_data": {line.split(":")[0].strip(): line.split(":", 1)[1].strip() if ":" in line else "" for line in data_parts},
-        "generated_at": datetime.now(timezone.utc).isoformat(),
-    }
-
-    # Cache for 1 hour
-    try:
-        await db.execute(text("""
-            INSERT INTO ai_insights_cache (insight_type, user_id, data, expires_at)
-            VALUES ('daily_brief', :uid, :data, NOW() + INTERVAL '1 hour')
-        """), {"uid": ctx["sub"], "data": json.dumps(response_data, default=str)})
-        await db.commit()
-    except Exception:
-        await db.rollback()
-
-    return response_data
-
-
-@router.post("/query")
-async def natural_language_query(body: NLQueryRequest, ctx: dict = Depends(get_current_user_with_tenant)):
-    """Convert natural language question to SQL and execute (SELECT only)."""
-    db = ctx["db"]
-    tid = ctx.get("tenant_id")
-
-    # Get table schema info
-    schema_info = """Available tables and key columns:
-- leads (id, full_name, company, email, phone, status, source, assigned_to, ai_score, created_at, updated_at, last_contacted_at)
-- crm_accounts (id, name, industry, country, credit_level, status)
-- crm_contracts (id, contract_no, lead_id, account_id, account_name, status, contract_amount, currency, created_at)
-- crm_receivables (id, contract_id, amount, received_amount, due_date, status, created_at)
-- products (id, name, sku, category, unit_price, stock_qty, min_stock_qty)
-- invoices (id, invoice_no, customer_name, total_amount, currency, status, created_at)
-- employees (id, full_name, email, department_id, position_id, status, employment_type)
-- whatsapp_contacts (id, display_name, push_name, lead_id, last_message_at, unread_count)
-- whatsapp_messages (id, wa_contact_id, direction, content, message_type, timestamp)
-- tasks (id, title, status, assigned_to, due_date)
-- lead_interactions (id, lead_id, channel, direction, summary, created_at)
-
-Common joins: leads.id = crm_contracts.lead_id, crm_contracts.id = crm_receivables.contract_id, leads.assigned_to = users.id"""
-
-    prompt = f"""Convert this natural language question to a PostgreSQL SELECT query.
-
-Question: "{body.question}"
-
-{schema_info}
-
-Rules:
-- ONLY generate SELECT queries (no INSERT/UPDATE/DELETE/DROP/ALTER)
-- Use ILIKE for text matching
-- Limit results to 50 rows maximum
-- Use clear column aliases for display
-- For Chinese names, search with ILIKE
-
-Return JSON:
-{{
-  "sql": "<the SQL query>",
-  "explanation": "<brief explanation of what the query does>",
-  "columns": ["<column names for display>"]
-}}"""
-
-    result = await ai.run(
-        AITaskType.ANALYZE, prompt,
-        db=db, tenant_id=tid, user_id=ctx["sub"],
-        system_instruction="You are a SQL expert. Generate safe, read-only PostgreSQL queries. Never generate DDL or DML statements. Respond with JSON only.",
-        output_format="json",
-        feature_name="nl_query",
-    )
-
-    if result.error or not result.result_json:
-        return {"error": result.error or "Failed to generate query", "rows": [], "columns": []}
-
-    sql = result.result_json.get("sql", "")
-    explanation = result.result_json.get("explanation", "")
-    columns = result.result_json.get("columns", [])
-
-    # Safety check — only allow SELECT
-    sql_upper = sql.strip().upper()
-    if not sql_upper.startswith("SELECT"):
-        return {"error": "Only SELECT queries are allowed", "rows": [], "columns": []}
-
-    # Block dangerous patterns
-    dangerous = re.compile(r'\b(DROP|DELETE|INSERT|UPDATE|ALTER|CREATE|TRUNCATE|EXEC|GRANT|REVOKE)\b', re.IGNORECASE)
-    if dangerous.search(sql):
-        return {"error": "Query contains disallowed statements", "rows": [], "columns": []}
-
-    # Execute
-    try:
-        rows = await db.execute(text(sql))
-        results = []
         for r in rows.fetchall():
-            results.append(dict(r._mapping))
-        return {
-            "sql": sql,
-            "explanation": explanation,
-            "columns": columns,
-            "rows": results[:50],
-            "total": len(results),
-        }
+            m = dict(r._mapping)
+            days = int(m["days_idle"] or 0)
+            priority = "high" if days >= 7 else "medium" if days >= 5 else "low"
+            reminders.append({
+                "type": "stale_lead",
+                "priority": priority,
+                "title": f"{m['full_name']}" + (f" ({m['company']})" if m.get("company") else ""),
+                "detail": f"{days}天未联系，当前状态: {m['status']}",
+                "record_id": str(m["id"]),
+                "action": "contact",
+                "days_idle": days,
+            })
     except Exception as e:
-        return {"sql": sql, "explanation": explanation, "error": str(e), "rows": [], "columns": []}
+        logger.debug(f"follow-up stale leads error: {e}")
+
+    # 2. Unread WhatsApp messages linked to leads
+    try:
+        rows = await db.execute(text("""
+            SELECT wc.id as contact_id, wc.display_name, wc.push_name, wc.unread_count,
+                   wc.last_message_at, l.id as lead_id, l.full_name, l.company
+            FROM whatsapp_contacts wc
+            LEFT JOIN leads l ON l.id = wc.lead_id
+            WHERE wc.unread_count > 0
+            ORDER BY wc.last_message_at DESC
+            LIMIT 10
+        """))
+        for r in rows.fetchall():
+            m = dict(r._mapping)
+            name = m.get("full_name") or m.get("display_name") or m.get("push_name") or "未知联系人"
+            reminders.append({
+                "type": "unread_whatsapp",
+                "priority": "high" if (m["unread_count"] or 0) >= 5 else "medium",
+                "title": name,
+                "detail": f"{m['unread_count']}条未读消息",
+                "record_id": str(m["contact_id"]),
+                "lead_id": str(m["lead_id"]) if m.get("lead_id") else None,
+                "action": "reply",
+            })
+    except Exception as e:
+        logger.debug(f"follow-up unread wa error: {e}")
+
+    # 3. Receivables due within 7 days
+    try:
+        rows = await db.execute(text("""
+            SELECT cr.id, cr.amount, cr.received_amount, cr.currency, cr.due_date, cr.status,
+                   cc.contract_no, l.full_name as lead_name
+            FROM crm_receivables cr
+            JOIN crm_contracts cc ON cc.id = cr.contract_id
+            LEFT JOIN leads l ON l.id = cc.lead_id
+            WHERE cr.status NOT IN ('received', 'cancelled')
+            AND cr.due_date IS NOT NULL
+            AND cr.due_date <= NOW() + INTERVAL '7 days'
+            ORDER BY cr.due_date ASC
+            LIMIT 15
+        """))
+        for r in rows.fetchall():
+            m = dict(r._mapping)
+            outstanding = float(m["amount"] or 0) - float(m["received_amount"] or 0)
+            is_overdue = m["due_date"] and m["due_date"].date() < datetime.now(timezone.utc).date() if hasattr(m["due_date"], "date") else False
+            reminders.append({
+                "type": "receivable_due",
+                "priority": "high" if is_overdue else "medium",
+                "title": f"{m.get('contract_no', '')} - {m.get('lead_name', '未知')}",
+                "detail": f"{'已逾期' if is_overdue else '即将到期'}: {outstanding:.2f} {m.get('currency', 'USD')}，到期日: {m['due_date']}",
+                "record_id": str(m["id"]),
+                "action": "collect",
+                "overdue": is_overdue,
+            })
+    except Exception as e:
+        logger.debug(f"follow-up receivables error: {e}")
+
+    # 4. Contracts with no recent activity (30+ days, not completed)
+    try:
+        rows = await db.execute(text("""
+            SELECT cc.id, cc.contract_no, cc.contract_amount, cc.currency, cc.status,
+                   l.full_name as lead_name, cc.updated_at,
+                   EXTRACT(DAY FROM NOW() - COALESCE(cc.updated_at, cc.created_at)) as days_idle
+            FROM crm_contracts cc
+            LEFT JOIN leads l ON l.id = cc.lead_id
+            WHERE cc.status NOT IN ('completed', 'cancelled', 'closed')
+            AND COALESCE(cc.updated_at, cc.created_at) < NOW() - INTERVAL '30 days'
+            ORDER BY cc.contract_amount DESC NULLS LAST
+            LIMIT 10
+        """))
+        for r in rows.fetchall():
+            m = dict(r._mapping)
+            days = int(m["days_idle"] or 0)
+            reminders.append({
+                "type": "stale_contract",
+                "priority": "medium",
+                "title": f"{m['contract_no']} - {m.get('lead_name', '未知')}",
+                "detail": f"{days}天无更新，金额: {m.get('contract_amount', 0)} {m.get('currency', 'USD')}",
+                "record_id": str(m["id"]),
+                "action": "review",
+            })
+    except Exception as e:
+        logger.debug(f"follow-up stale contracts error: {e}")
+
+    # Sort by priority
+    priority_order = {"high": 0, "medium": 1, "low": 2}
+    reminders.sort(key=lambda r: priority_order.get(r["priority"], 9))
+
+    return {"reminders": reminders, "total": len(reminders)}
+
+
+# ──────────────────────────────────────────────────────────────────────
+# 6. Anomaly Alerts (Inventory / Orders / Accounting)
+# ──────────────────────────────────────────────────────────────────────
+
+@router.get("/anomaly-alerts")
+async def get_anomaly_alerts(module: str = "all", ctx: dict = Depends(get_current_user_with_tenant)):
+    """Get data-driven anomaly alerts for inventory, orders, and accounting.
+    module: 'inventory', 'orders', 'accounting', or 'all'.
+    Pure SQL — no AI call needed."""
+    db = ctx["db"]
+    alerts = []
+
+    # ── Inventory alerts ──
+    if module in ("all", "inventory"):
+        # Low stock / below reorder point
+        try:
+            rows = await db.execute(text("""
+                SELECT id, name, sku, current_stock, reorder_point, category
+                FROM products
+                WHERE is_active = TRUE
+                AND current_stock <= reorder_point
+                AND reorder_point > 0
+                ORDER BY (current_stock / NULLIF(reorder_point, 0)) ASC NULLS FIRST
+                LIMIT 20
+            """))
+            for r in rows.fetchall():
+                m = dict(r._mapping)
+                stock_ratio = float(m["current_stock"] or 0) / float(m["reorder_point"]) if m["reorder_point"] else 0
+                reminders_priority = "high" if stock_ratio <= 0.3 else "medium" if stock_ratio <= 0.7 else "low"
+                alerts.append({
+                    "module": "inventory",
+                    "type": "low_stock",
+                    "priority": reminders_priority,
+                    "title": f"{m['name']} ({m.get('sku', '')})",
+                    "detail": f"当前库存: {m['current_stock']}，安全库存: {m['reorder_point']}",
+                    "record_id": str(m["id"]),
+                })
+        except Exception as e:
+            logger.debug(f"anomaly low stock error: {e}")
+
+        # Zero stock active products
+        try:
+            rows = await db.execute(text("""
+                SELECT id, name, sku FROM products
+                WHERE is_active = TRUE AND current_stock <= 0
+                LIMIT 10
+            """))
+            for r in rows.fetchall():
+                m = dict(r._mapping)
+                alerts.append({
+                    "module": "inventory",
+                    "type": "zero_stock",
+                    "priority": "high",
+                    "title": f"{m['name']} ({m.get('sku', '')})",
+                    "detail": "库存为零，无法出货",
+                    "record_id": str(m["id"]),
+                })
+        except Exception as e:
+            logger.debug(f"anomaly zero stock error: {e}")
+
+    # ── Orders alerts ──
+    if module in ("all", "orders"):
+        # Overdue purchase orders
+        try:
+            rows = await db.execute(text("""
+                SELECT id, po_number, expected_date, status, total, currency
+                FROM purchase_orders
+                WHERE status NOT IN ('received', 'cancelled', 'closed')
+                AND expected_date IS NOT NULL
+                AND expected_date < NOW()
+                ORDER BY expected_date ASC
+                LIMIT 10
+            """))
+            for r in rows.fetchall():
+                m = dict(r._mapping)
+                alerts.append({
+                    "module": "orders",
+                    "type": "overdue_po",
+                    "priority": "high",
+                    "title": f"采购单 {m['po_number']}",
+                    "detail": f"已逾期，预期到货日: {m['expected_date']}，金额: {m.get('total', 0)} {m.get('currency', 'USD')}",
+                    "record_id": str(m["id"]),
+                })
+        except Exception as e:
+            logger.debug(f"anomaly overdue PO error: {e}")
+
+        # Export orders with stale tasks
+        try:
+            rows = await db.execute(text("""
+                SELECT eo.id, eo.contract_no, eo.customer_name, eo.stage,
+                       t.title as task_title, t.planned_date,
+                       EXTRACT(DAY FROM NOW() - t.planned_date) as days_overdue
+                FROM export_flow_orders eo
+                JOIN export_flow_tasks t ON t.order_id = eo.id
+                WHERE t.status = 'pending'
+                AND t.planned_date IS NOT NULL
+                AND t.planned_date < NOW()
+                ORDER BY t.planned_date ASC
+                LIMIT 10
+            """))
+            for r in rows.fetchall():
+                m = dict(r._mapping)
+                alerts.append({
+                    "module": "orders",
+                    "type": "overdue_task",
+                    "priority": "high" if (m["days_overdue"] or 0) >= 7 else "medium",
+                    "title": f"{m['contract_no']} - {m.get('customer_name', '')}",
+                    "detail": f"任务「{m['task_title']}」已逾期{int(m['days_overdue'] or 0)}天",
+                    "record_id": str(m["id"]),
+                })
+        except Exception as e:
+            logger.debug(f"anomaly overdue task error: {e}")
+
+        # Pending approvals
+        try:
+            rows = await db.execute(text("""
+                SELECT a.id, a.action, a.reason, a.requested_at,
+                       eo.contract_no, eo.customer_name
+                FROM export_flow_approvals a
+                JOIN export_flow_orders eo ON eo.id = a.order_id
+                WHERE a.status = 'pending'
+                ORDER BY a.requested_at ASC
+                LIMIT 10
+            """))
+            for r in rows.fetchall():
+                m = dict(r._mapping)
+                alerts.append({
+                    "module": "orders",
+                    "type": "pending_approval",
+                    "priority": "medium",
+                    "title": f"{m['contract_no']} - {m['action']}",
+                    "detail": f"待审批: {m.get('reason', '无备注')}",
+                    "record_id": str(m["id"]),
+                })
+        except Exception as e:
+            logger.debug(f"anomaly pending approvals error: {e}")
+
+    # ── Accounting alerts ──
+    if module in ("all", "accounting"):
+        # Overdue receivables
+        try:
+            rows = await db.execute(text("""
+                SELECT cr.id, cr.amount, cr.received_amount, cr.currency, cr.due_date,
+                       cc.contract_no, l.full_name as lead_name,
+                       EXTRACT(DAY FROM NOW() - cr.due_date) as days_overdue
+                FROM crm_receivables cr
+                JOIN crm_contracts cc ON cc.id = cr.contract_id
+                LEFT JOIN leads l ON l.id = cc.lead_id
+                WHERE cr.status NOT IN ('received', 'cancelled')
+                AND cr.due_date < NOW()
+                ORDER BY (cr.amount - COALESCE(cr.received_amount, 0)) DESC
+                LIMIT 15
+            """))
+            for r in rows.fetchall():
+                m = dict(r._mapping)
+                outstanding = float(m["amount"] or 0) - float(m["received_amount"] or 0)
+                days = int(m["days_overdue"] or 0)
+                alerts.append({
+                    "module": "accounting",
+                    "type": "overdue_receivable",
+                    "priority": "high" if days >= 14 else "medium",
+                    "title": f"{m.get('contract_no', '')} - {m.get('lead_name', '未知')}",
+                    "detail": f"逾期{days}天，未收金额: {outstanding:.2f} {m.get('currency', 'USD')}",
+                    "record_id": str(m["id"]),
+                })
+        except Exception as e:
+            logger.debug(f"anomaly overdue receivable error: {e}")
+
+        # Large outstanding receivables (top 5 by amount)
+        try:
+            rows = await db.execute(text("""
+                SELECT cr.id, (cr.amount - COALESCE(cr.received_amount, 0)) as outstanding,
+                       cr.currency, cr.due_date, cc.contract_no, l.full_name as lead_name
+                FROM crm_receivables cr
+                JOIN crm_contracts cc ON cc.id = cr.contract_id
+                LEFT JOIN leads l ON l.id = cc.lead_id
+                WHERE cr.status NOT IN ('received', 'cancelled')
+                AND (cr.amount - COALESCE(cr.received_amount, 0)) > 0
+                ORDER BY (cr.amount - COALESCE(cr.received_amount, 0)) DESC
+                LIMIT 5
+            """))
+            for r in rows.fetchall():
+                m = dict(r._mapping)
+                alerts.append({
+                    "module": "accounting",
+                    "type": "large_outstanding",
+                    "priority": "low",
+                    "title": f"{m.get('contract_no', '')} - {m.get('lead_name', '未知')}",
+                    "detail": f"待收金额: {float(m['outstanding']):.2f} {m.get('currency', 'USD')}",
+                    "record_id": str(m["id"]),
+                })
+        except Exception as e:
+            logger.debug(f"anomaly large outstanding error: {e}")
+
+    # Sort by priority
+    priority_order = {"high": 0, "medium": 1, "low": 2}
+    alerts.sort(key=lambda a: priority_order.get(a["priority"], 9))
+
+    return {"alerts": alerts, "total": len(alerts)}
 
 
 # ──────────────────────────────────────────────────────────────────────

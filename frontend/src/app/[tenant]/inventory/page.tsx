@@ -8,6 +8,7 @@ import { useTranslations } from 'next-intl';
 import NotionTable, { Column } from '@/components/ui/NotionTable';
 import SlideOver from '@/components/ui/SlideOver';
 import { HandIcon } from '@/components/ui/HandIcon';
+import AnomalyAlertBar from '@/components/ai/AnomalyAlertBar';
 
 type ScInquiry = {
   lead_id: string;
@@ -838,6 +839,8 @@ export default function InventoryPage() {
             : tInventory('productsCount', { n: products.length })}
         </p>
       </div>
+
+      <div className="px-8"><AnomalyAlertBar module="inventory" /></div>
 
       {/* Summary cards — for inventory tab */}
       {tab === 'inventory' && (

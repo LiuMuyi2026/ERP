@@ -5,6 +5,7 @@ import { api } from '@/lib/api';
 import { useTranslations } from 'next-intl';
 import NotionTable, { Column } from '@/components/ui/NotionTable';
 import SlideOver from '@/components/ui/SlideOver';
+import AnomalyAlertBar from '@/components/ai/AnomalyAlertBar';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -169,6 +170,8 @@ export default function AccountingPage() {
         <h1 className="text-2xl font-bold mb-1" style={{ color: 'var(--notion-text)' }}>{tAccounting('financeTitle')}</h1>
         <p className="text-sm" style={{ color: 'var(--notion-text-muted)' }}>{tAccounting('financeSubtitle')}</p>
       </div>
+
+      <div className="px-8"><AnomalyAlertBar module="accounting" /></div>
 
       {/* KPI cards */}
       <div className="px-8 pb-4 grid grid-cols-4 gap-3">

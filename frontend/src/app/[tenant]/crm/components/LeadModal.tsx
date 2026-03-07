@@ -5,6 +5,7 @@ import { api } from '@/lib/api';
 import { getCurrentUser } from '@/lib/auth';
 import { HandIcon } from '@/components/ui/HandIcon';
 import { useTranslations } from 'next-intl';
+import { usePipelineConfig } from '@/lib/usePipelineConfig';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 export type TenantUser = {
@@ -55,7 +56,19 @@ type NameDupResult = {
 };
 
 // ── Helpers shared with parent pages ──────────────────────────────────────────
-export function getLeadStatusOptions(tCrm: any) {
+export function getLeadStatusOptions(tCrm: any, config?: { statuses: { values: { key: string; label?: string; stage?: string | null }[] }; pipeline: { stages: { key: string; label?: string; labelKey?: string }[] } }) {
+  if (config) {
+    const stageLabels: Record<string, string> = {};
+    for (const s of config.pipeline.stages) {
+      stageLabels[s.key] = (s.labelKey ? tCrm(s.labelKey as any) : s.label) ?? s.key;
+    }
+    return config.statuses.values.map(sv => ({
+      value: sv.key,
+      label: sv.label ?? sv.key,
+      group: sv.stage ? (stageLabels[sv.stage] ?? sv.stage) : tCrm('groupOther'),
+    }));
+  }
+  // Fallback for backward compat
   return [
     { value: 'contact',     label: tCrm('statusContact'),     group: tCrm('groupCustomer') },
     { value: 'inquiry',     label: tCrm('statusInquiry'),     group: tCrm('groupSales') },
@@ -127,7 +140,8 @@ export interface LeadModalProps {
 export default function LeadModal({ users, onClose, onSave, isLeadContext, customTitle, customSubmitLabel, defaultStatus, prefillData }: LeadModalProps) {
   const tCrm = useTranslations('crm');
   const tCommon = useTranslations('common');
-  const LEAD_STATUS_OPTIONS = getLeadStatusOptions(tCrm);
+  const config = usePipelineConfig();
+  const LEAD_STATUS_OPTIONS = getLeadStatusOptions(tCrm, config);
   const SOURCE_CHANNELS = getSourceChannels(tCrm);
   const CUSTOMER_TYPES = getCustomerTypes(tCrm);
 

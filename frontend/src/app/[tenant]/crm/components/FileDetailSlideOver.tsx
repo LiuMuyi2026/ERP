@@ -5,6 +5,7 @@ import { api } from '@/lib/api';
 import SlideOver from '@/components/ui/SlideOver';
 import SecureFileLink from '@/components/ui/SecureFileLink';
 import { useTranslations } from 'next-intl';
+import { usePipelineConfig } from '@/lib/usePipelineConfig';
 
 type TenantUser = { id: string; email: string; full_name: string | null; role: string };
 
@@ -18,8 +19,6 @@ type LeadFile = {
   involved_users?: { user_id: string; full_name: string; can_view: boolean; can_download: boolean }[];
   permissions?: { user_id: string; full_name: string; can_view: boolean; can_download: boolean }[];
 };
-
-const CATEGORIES = ['contract','quotation','inspection','shipping','invoice','correspondence','other'] as const;
 
 const CAT_LABEL_KEYS: Record<string, string> = {
   contract: 'catContract', quotation: 'catQuotation', inspection: 'catInspection',
@@ -45,6 +44,8 @@ export default function FileDetailSlideOver({
 }) {
   const tCrm = useTranslations('crm');
   const tCommon = useTranslations('common');
+  const config = usePipelineConfig();
+  const CATEGORIES = config.file_categories.map(c => c.key);
   const [activeTab, setActiveTab] = useState<'info' | 'permissions'>('info');
   const [category, setCategory] = useState('');
   const [description, setDescription] = useState('');
@@ -167,7 +168,7 @@ export default function FileDetailSlideOver({
                   <select value={category} onChange={e => setCategory(e.target.value)}
                     className="w-full px-3 py-2 rounded-md text-sm border" style={{ borderColor: 'var(--notion-border)', background: 'white' }}>
                     {CATEGORIES.map(c => (
-                      <option key={c} value={c}>{tCrm(CAT_LABEL_KEYS[c] as any)}</option>
+                      <option key={c} value={c}>{config.file_categories.find(fc => fc.key === c)?.label ?? tCrm(CAT_LABEL_KEYS[c] as any)}</option>
                     ))}
                   </select>
                 </div>

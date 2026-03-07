@@ -501,7 +501,9 @@
   "settings": {
     "navAdminGroup": "Admin",
     "navAdminMembers": "Members",
-    "navAdminPermissions": "Permissions"
+    "navAdminPermissions": "Permissions",
+    "navAIProviders": "AI 服務商",
+    "navPipeline": "流程配置"
   },
   "admin": {
     "appOperations": "Operations"

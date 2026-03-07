@@ -734,8 +734,7 @@ export default function Sidebar({ tenant, userName, userRole, avatarUrl, collaps
 
   // App items with translated labels (static fallback + dynamic from module registry)
   const defaultAppItems = [
-    { key: 'dashboard',  label: 'AI Dashboard',                                path: 'dashboard',     icon: 'bar-chart',     bg: '#f0f9ff', color: '#0369a1', darkBg: 'rgba(14,165,233,0.15)', darkColor: '#7dd3fc' },
-    { key: 'customers',  label: tNav('customerCenter'),  path: 'crm/customers', icon: 'building',      bg: '#e0e7ff', color: '#4338ca', darkBg: 'rgba(99,102,241,0.15)',  darkColor: '#a5b4fc' },
+{ key: 'customers',  label: tNav('customerCenter'),  path: 'crm/customers', icon: 'building',      bg: '#e0e7ff', color: '#4338ca', darkBg: 'rgba(99,102,241,0.15)',  darkColor: '#a5b4fc' },
     { key: 'crm',        label: tNav('customerMgmt'),   path: 'crm',           icon: 'people-group',  bg: '#dbeafe', color: '#1e40af', darkBg: 'rgba(59,130,246,0.15)',  darkColor: '#93c5fd' },
     { key: 'messages',   label: tNav('messagesCenter'),  path: 'messages',      icon: 'chat-bubble',   bg: '#fce7f3', color: '#be185d', darkBg: 'rgba(236,72,153,0.15)',  darkColor: '#f9a8d4' },
     { key: 'inventory',  label: tNav('supplyChain'),     path: 'inventory',     icon: 'factory',       bg: '#ffedd5', color: '#c2410c', darkBg: 'rgba(249,115,22,0.15)',  darkColor: '#fdba74' },
@@ -1219,7 +1218,18 @@ export default function Sidebar({ tenant, userName, userRole, avatarUrl, collaps
           <div style={{ height: 1, background: 'var(--sb-border)', margin: '4px 4px 8px' }} />
           <SectionHeader label={tNav('businessModules')} />
           <div className="space-y-1">
-            {appItems.map((item, idx) => {
+            {(() => {
+              // Find the most specific (longest) matching path to avoid parent routes highlighting
+              const activeKey = appItems.reduce<string | null>((best, item) => {
+                const href = `/${tenant}/${item.path}`;
+                if (pathname === href || pathname.startsWith(href + '/')) {
+                  if (!best) return item.key;
+                  const bestPath = appItems.find(i => i.key === best)!.path;
+                  return item.path.length > bestPath.length ? item.key : best;
+                }
+                return best;
+              }, null);
+              return appItems.map((item, idx) => {
               const perm = appPerms[item.key] ?? 'view';
               if (perm === 'none') return null;
               const href = `/${tenant}/${item.path}`;
@@ -1238,14 +1248,15 @@ export default function Sidebar({ tenant, userName, userRole, avatarUrl, collaps
                     color={item.color}
                     darkBg={item.darkBg}
                     darkColor={item.darkColor}
-                    active={pathname.startsWith(href)}
+                    active={item.key === activeKey}
                     readOnly={perm === 'view'}
                     href={href}
                     readOnlyLabel={tNav('viewOnly')}
                   />
                 </div>
               );
-            })}
+            });
+            })()}
           </div>
         </div>
       </div>

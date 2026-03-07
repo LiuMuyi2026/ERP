@@ -11,7 +11,7 @@ from app.config import settings
 from app.database import init_db, engine, AsyncSessionLocal
 
 # Legacy routers (kept for backward compatibility during migration)
-from app.routers import auth, platform, workspace, crm, hr, accounting, inventory, ai, integrations, admin, notifications, messages, orders, ai_providers, automation, ai_finder, whisper_ws, workflow_templates, whatsapp, ws_whatsapp, ws_messages, email, ai_features
+from app.routers import auth, platform, workspace, crm_customers, crm_business, pipeline_config as pipeline_config_router, hr, accounting, inventory, ai, integrations, admin, notifications, messages, orders, ai_providers, automation, ai_finder, whisper_ws, workflow_templates, whatsapp, ws_whatsapp, ws_messages, email, ai_features
 
 # New modular system
 from app.core.registry import module_registry
@@ -97,7 +97,9 @@ app.include_router(core_router, prefix="/api")
 app.include_router(auth.router, prefix="/api")
 app.include_router(platform.router, prefix="/api")
 app.include_router(workspace.router, prefix="/api")
-app.include_router(crm.router, prefix="/api")
+app.include_router(crm_customers.router, prefix="/api")
+app.include_router(crm_business.router, prefix="/api")
+app.include_router(pipeline_config_router.router, prefix="/api")
 app.include_router(hr.router, prefix="/api")
 app.include_router(accounting.router, prefix="/api")
 app.include_router(inventory.router, prefix="/api")

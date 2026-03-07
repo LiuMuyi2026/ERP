@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import { api } from '@/lib/api';
 import { useTranslations } from 'next-intl';
 import { HandIcon } from '@/components/ui/HandIcon';
@@ -28,12 +28,24 @@ interface AIChatSidebarProps {
 
 export default function AIChatSidebar({ tenant, open, onClose, pageContext, mainRef }: AIChatSidebarProps) {
   const t = useTranslations('workspace');
+  const tAi = useTranslations('ai');
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [leadSuggestion, setLeadSuggestion] = useState<LeadSuggestion | null>(null);
+  const [copiedIdx, setCopiedIdx] = useState<number | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const prevPageContextRef = useRef(pageContext);
+
+  const copyMessage = useCallback((content: string, idx: number) => {
+    navigator.clipboard.writeText(content).catch(() => {});
+    setCopiedIdx(idx);
+    setTimeout(() => setCopiedIdx(null), 1500);
+  }, []);
+
+  const handleQuickPrompt = useCallback((prompt: string) => {
+    setInput(prompt);
+  }, []);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -149,17 +161,42 @@ export default function AIChatSidebar({ tenant, open, onClose, pageContext, main
           <div className="text-center text-sm mt-8" style={{ color: 'var(--notion-text-muted)' }}>
             <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-violet-400 to-purple-600 flex items-center justify-center text-white font-bold mx-auto mb-3" style={{ fontSize: 12 }}>AI</div>
             <p>{t('aiChatWelcome1')}</p>
-            <p>{t('aiChatWelcome2')}</p>
+            <p className="mb-4">{t('aiChatWelcome2')}</p>
+            {/* Quick prompts */}
+            <div className="flex flex-wrap gap-1.5 justify-center">
+              {[tAi('promptAnalyze'), tAi('promptSummary'), tAi('promptWorkPlan'), tAi('promptEmail')].map(p => (
+                <button
+                  key={p}
+                  onClick={() => handleQuickPrompt(p)}
+                  className="text-xs px-2.5 py-1 rounded-full transition-colors hover:bg-[#ede9fe]"
+                  style={{ background: 'var(--notion-hover, #f3f4f6)', color: '#7c3aed', border: '1px solid #e9d5ff' }}
+                >
+                  {p}
+                </button>
+              ))}
+            </div>
           </div>
         )}
         {messages.map((msg, i) => (
-          <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-            <div className="max-w-[85%] rounded-xl px-3 py-2 text-sm" style={{
-              whiteSpace: 'pre-wrap',
-              background: msg.role === 'user' ? '#7c3aed' : 'var(--notion-sidebar, #f1f5f9)',
-              color: msg.role === 'user' ? '#fff' : 'var(--notion-text)',
-            }}>
-              {msg.content || (loading && i === messages.length - 1 ? '...' : '')}
+          <div key={i} className={`group flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+            <div className="max-w-[85%] relative">
+              <div className="rounded-xl px-3 py-2 text-sm" style={{
+                whiteSpace: 'pre-wrap',
+                background: msg.role === 'user' ? '#7c3aed' : 'var(--notion-sidebar, #f1f5f9)',
+                color: msg.role === 'user' ? '#fff' : 'var(--notion-text)',
+              }}>
+                {msg.content || (loading && i === messages.length - 1 ? '...' : '')}
+              </div>
+              {/* Copy button for assistant messages */}
+              {msg.role === 'assistant' && msg.content && (
+                <button
+                  onClick={() => copyMessage(msg.content, i)}
+                  className="absolute -bottom-1 right-1 opacity-0 group-hover:opacity-100 transition-opacity text-[10px] px-1.5 py-0.5 rounded"
+                  style={{ background: 'var(--notion-hover)', color: 'var(--notion-text-muted)' }}
+                >
+                  {copiedIdx === i ? '✓' : tAi('copy')}
+                </button>
+              )}
             </div>
           </div>
         ))}

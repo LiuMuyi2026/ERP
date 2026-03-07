@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import text
 
 from app.deps import get_current_user_with_tenant
+from app.services.pipeline_config import get_default_config, get_pipeline_config
 from app.utils.sql import build_update_clause, parse_date
 
 router = APIRouter(prefix="/operations", tags=["operations"])
@@ -19,25 +20,10 @@ def month_key(d: date_type | None) -> str | None:
     return f"{d.year:04d}-{d.month:02d}"
 
 
-DEFAULT_TASKS = [
-    {"code": "factory_inspection", "title": "出厂验货（厂检）", "owner_role": "业务员", "requires_attachment": True},
-    {"code": "statutory_inspection", "title": "法检/商检预约与跟进", "owner_role": "单证员", "requires_attachment": True},
-    {"code": "packing_details", "title": "催要货物明细并制作分箱明细", "owner_role": "单证员", "requires_attachment": True},
-    {"code": "purchase_inbound", "title": "高达采购入库登记", "owner_role": "单证员", "requires_attachment": False},
-    {"code": "final_payment_invoice", "title": "付尾款、发票核验与登记", "owner_role": "单证员/出纳员", "requires_attachment": True},
-    {"code": "delivery_notice", "title": "送货通知签字并发送供应商", "owner_role": "业务员/单证员", "requires_attachment": True},
-    {"code": "godad_billing", "title": "发货当月高达开单", "owner_role": "单证员", "requires_attachment": False},
-    {"code": "goods_receipt_confirmation", "title": "确认接货数量与包装质量", "owner_role": "业务员", "requires_attachment": True},
-    {"code": "customs_declaration", "title": "报关资料制作与发送货代", "owner_role": "单证员", "requires_attachment": True},
-    {"code": "clearance_and_photos", "title": "确认通关并索要装箱/装船照片", "owner_role": "业务员/单证员", "requires_attachment": True},
-    {"code": "shipment_notice", "title": "开船后2个工作日内制作装船通知", "owner_role": "单证员", "requires_attachment": True},
-    {"code": "docs_preparation", "title": "议付单据与附件制作并发送业务员", "owner_role": "单证员", "requires_attachment": True},
-    {"code": "docs_tracking", "title": "交单跟踪登记《TRACKING》", "owner_role": "单证员", "requires_attachment": True},
-    {"code": "payment_followup", "title": "回款/LC到款跟进", "owner_role": "业务员/单证员/出纳员", "requires_attachment": True},
-    {"code": "eta_reminder", "title": "ETA前7天到港提醒", "owner_role": "业务员", "requires_attachment": False},
-    {"code": "satisfaction_survey", "title": "到港15天满意度回访", "owner_role": "业务员/单证员", "requires_attachment": False},
-    {"code": "archive_evidence", "title": "电子归档与纸质归档", "owner_role": "业务员/单证员/财务", "requires_attachment": True},
-]
+def _get_tasks(config=None):
+    """Return operation tasks from pipeline config (or defaults)."""
+    cfg = config or get_default_config()
+    return cfg.operation_tasks
 
 
 class FlowOrderCreate(BaseModel):
@@ -258,57 +244,68 @@ async def apply_module_integrations(order_id: str, task_id: str, task_code: str,
             await upsert_flow_link(db, order_id, task_id, task_code, "crm_shipment", shipment_id)
 
 
-def evaluate_risk_rules(order, action: str) -> list[dict]:
+def evaluate_risk_rules(order, action: str, config=None) -> list[dict]:
+    """Evaluate approval rules from pipeline config against an order."""
+    cfg = config or get_default_config()
+    rules = cfg.approval_rules
+
     risk_items: list[dict] = []
-    sale_usd = float(order.sale_amount_usd or 0)
-    sale_cny = float(order.sale_amount_cny or 0)
-    recv_usd = float(order.outstanding_receivable_usd or 0)
-    recv_cny = float(order.outstanding_receivable_cny or 0)
+    order_data = {
+        "sale_amount_usd": float(order.sale_amount_usd or 0),
+        "sale_amount_cny": float(order.sale_amount_cny or 0),
+        "outstanding_receivable_usd": float(order.outstanding_receivable_usd or 0),
+        "outstanding_receivable_cny": float(order.outstanding_receivable_cny or 0),
+        "shipping_conditions_met": bool(order.shipping_conditions_met),
+    }
 
-    def approver_by_threshold(amount_usd: float, amount_cny: float):
-        if amount_usd > 100000 or amount_cny > 700000:
-            return "总经理（风控经理上报）"
-        return "业务经理"
+    for rule in rules:
+        if rule.get("action") != action:
+            continue
 
-    if action == "delivery_notice":
-        high_delivery_amount = sale_usd > 300000 or sale_cny > 2000000
-        need_manager = high_delivery_amount or not order.shipping_conditions_met
-        if need_manager:
-            reason = []
-            if high_delivery_amount:
-                reason.append("发货金额超 30 万美金 / 200 万人民币")
-            if not order.shipping_conditions_met:
-                reason.append("不满足销售合同发货条件")
-            risk_items.append(
-                {
-                    "rule": "delivery_notice_approval",
-                    "level": "medium",
-                    "required_approver": "业务经理",
-                    "reason": "；".join(reason),
-                }
-            )
+        conditions = rule.get("conditions", [])
+        logic = rule.get("condition_logic", "any")
+        matched = []
+        reasons = []
 
-    if action == "ship_customs":
-        if not order.shipping_conditions_met:
-            risk_items.append(
-                {
-                    "rule": "risk_shipping_customs",
-                    "level": "high",
-                    "required_approver": approver_by_threshold(sale_usd, sale_cny),
-                    "reason": "不满足合同发货前付款/信用证条件，属于风险发货报关",
-                }
-            )
+        for cond in conditions:
+            field_val = order_data.get(cond["field"])
+            op = cond["operator"]
+            target = cond["value"]
+            hit = False
+            if op == ">" and isinstance(field_val, (int, float)):
+                hit = field_val > target
+            elif op == ">=" and isinstance(field_val, (int, float)):
+                hit = field_val >= target
+            elif op == "<" and isinstance(field_val, (int, float)):
+                hit = field_val < target
+            elif op == "==" :
+                hit = field_val == target
+            elif op == "!=":
+                hit = field_val != target
+            matched.append(hit)
+            if hit:
+                reasons.append(cond.get("reason", f"{cond['field']} {op} {target}"))
 
-    if action == "release_goods":
-        if recv_usd > 0 or recv_cny > 0:
-            risk_items.append(
-                {
-                    "rule": "risk_release_goods",
-                    "level": "high",
-                    "required_approver": approver_by_threshold(recv_usd, recv_cny),
-                    "reason": "后TT订单仍有应收，客户要求放货，属于风险放货",
-                }
-            )
+        triggered = any(matched) if logic == "any" else all(matched)
+        if not triggered:
+            continue
+
+        # Determine approver (threshold-based or default)
+        approver = rule.get("default_approver", "业务经理")
+        thresholds = rule.get("approver_thresholds", [])
+        for th in thresholds:
+            usd_val = order_data.get("sale_amount_usd", 0) if "sale_amount" in str(rule.get("action")) else order_data.get("outstanding_receivable_usd", 0)
+            cny_val = order_data.get("sale_amount_cny", 0) if "sale_amount" in str(rule.get("action")) else order_data.get("outstanding_receivable_cny", 0)
+            if usd_val > th.get("usd", float("inf")) or cny_val > th.get("cny", float("inf")):
+                approver = th["approver"]
+                break
+
+        risk_items.append({
+            "rule": f"{action}_approval",
+            "level": rule.get("level", "medium"),
+            "required_approver": approver,
+            "reason": "；".join(reasons) if reasons else rule.get("reason", ""),
+        })
 
     return risk_items
 
@@ -379,7 +376,8 @@ async def create_order(body: FlowOrderCreate, ctx: dict = Depends(get_current_us
             },
         )
         if body.initialize_default_tasks:
-            for t in DEFAULT_TASKS:
+            config = await get_pipeline_config(db, ctx.get("tenant_id"))
+            for t in _get_tasks(config):
                 await db.execute(
                     text(
                         """
@@ -473,7 +471,9 @@ async def initialize_tasks(order_id: str, ctx: dict = Depends(get_current_user_w
     existing = await db.execute(text("SELECT COUNT(*) FROM export_flow_tasks WHERE order_id = :id"), {"id": order_id})
     if existing.scalar() > 0:
         raise HTTPException(status_code=409, detail="Tasks already initialized")
-    for t in DEFAULT_TASKS:
+    config = await get_pipeline_config(db, ctx.get("tenant_id"))
+    tasks = _get_tasks(config)
+    for t in tasks:
         await db.execute(
             text(
                 """
@@ -493,7 +493,7 @@ async def initialize_tasks(order_id: str, ctx: dict = Depends(get_current_user_w
             },
         )
     await db.commit()
-    return {"status": "initialized", "count": len(DEFAULT_TASKS)}
+    return {"status": "initialized", "count": len(tasks)}
 
 
 _FLOW_TASK_UPDATE_FIELDS = {"status", "planned_date", "notes", "assignee_name", "owner_role", "metadata"}
@@ -592,7 +592,8 @@ async def risk_check(order_id: str, body: RiskCheckRequest, ctx: dict = Depends(
     if not order:
         raise HTTPException(status_code=404, detail="Order not found")
 
-    risk_items = evaluate_risk_rules(order, body.action)
+    config = await get_pipeline_config(db, ctx.get("tenant_id"))
+    risk_items = evaluate_risk_rules(order, body.action, config)
 
     latest_approval = await find_latest_approval(order_id, body.action, db)
     approval_status = latest_approval.status if latest_approval else None
@@ -628,7 +629,8 @@ async def request_approval(order_id: str, body: ApprovalRequestCreate, ctx: dict
     if not order:
         raise HTTPException(status_code=404, detail="Order not found")
 
-    rules = evaluate_risk_rules(order, body.action)
+    config = await get_pipeline_config(db, ctx.get("tenant_id"))
+    rules = evaluate_risk_rules(order, body.action, config)
     default_approver = rules[0]["required_approver"] if rules else "业务经理"
 
     approval_id = str(uuid.uuid4())

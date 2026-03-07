@@ -7,6 +7,7 @@ import NotionTable, { Column } from '@/components/ui/NotionTable';
 import { HandIcon } from '@/components/ui/HandIcon';
 import { useTranslations } from 'next-intl';
 import FileDetailSlideOver from './FileDetailSlideOver';
+import { usePipelineConfig, buildFileCategoryColors } from '@/lib/usePipelineConfig';
 
 type TenantUser = { id: string; email: string; full_name: string | null; role: string };
 type Lead = { id: string; full_name: string; company?: string };
@@ -22,18 +23,7 @@ export type LeadFile = {
   permissions?: { user_id: string; full_name: string; can_view: boolean; can_download: boolean }[];
 };
 
-const CATEGORIES = ['contract','quotation','inspection','shipping','invoice','correspondence','other'] as const;
-
-const CAT_COLORS: Record<string, string> = {
-  contract: 'bg-blue-100 text-blue-700',
-  quotation: 'bg-purple-100 text-purple-700',
-  inspection: 'bg-orange-100 text-orange-700',
-  shipping: 'bg-green-100 text-green-700',
-  invoice: 'bg-yellow-100 text-yellow-700',
-  correspondence: 'bg-teal-100 text-teal-700',
-  other: 'bg-gray-100 text-gray-600',
-};
-
+// Fallback i18n label keys for file categories
 const CAT_LABEL_KEYS: Record<string, string> = {
   contract: 'catContract', quotation: 'catQuotation', inspection: 'catInspection',
   shipping: 'catShipping', invoice: 'catInvoice', correspondence: 'catCorrespondence', other: 'catOther',
@@ -47,6 +37,9 @@ export default function LeadFilesTab({
 }) {
   const tCrm = useTranslations('crm');
   const tCommon = useTranslations('common');
+  const config = usePipelineConfig();
+  const CATEGORIES = config.file_categories.map(c => c.key);
+  const CAT_COLORS = buildFileCategoryColors(config);
   const me = getCurrentUser();
   const isAdmin = me?.role === 'tenant_admin' || me?.role === 'platform_admin';
 
@@ -171,8 +164,8 @@ export default function LeadFilesTab({
     {
       key: 'category', label: tCrm('fileCategory'), width: '90px',
       render: (v: any) => (
-        <span className={`text-[11px] px-2 py-0.5 rounded-full whitespace-nowrap ${CAT_COLORS[v] || CAT_COLORS.other}`}>
-          {tCrm(CAT_LABEL_KEYS[v] as any || 'catOther')}
+        <span className={`text-[11px] px-2 py-0.5 rounded-full whitespace-nowrap ${CAT_COLORS[v] || 'bg-gray-100 text-gray-600'}`}>
+          {config.file_categories.find(c => c.key === v)?.label ?? tCrm(CAT_LABEL_KEYS[v] as any || 'catOther')}
         </span>
       ),
     },
@@ -236,7 +229,7 @@ export default function LeadFilesTab({
         <select value={filterCategory} onChange={e => setFilterCategory(e.target.value)}
           className="px-3 py-1.5 rounded-md text-sm border" style={{ borderColor: 'var(--notion-border)', background: 'white' }}>
           <option value="">{tCrm('allCategories')}</option>
-          {CATEGORIES.map(c => <option key={c} value={c}>{tCrm(CAT_LABEL_KEYS[c] as any)}</option>)}
+          {CATEGORIES.map(c => <option key={c} value={c}>{config.file_categories.find(fc => fc.key === c)?.label ?? tCrm(CAT_LABEL_KEYS[c] as any)}</option>)}
         </select>
 
         {/* Lead filter with search */}
@@ -383,7 +376,7 @@ export default function LeadFilesTab({
                 <label className="text-xs font-medium block mb-1" style={{ color: 'var(--notion-text-muted)' }}>{tCrm('selectCategory')}</label>
                 <select value={uploadForm.category} onChange={e => setUploadForm(f => ({ ...f, category: e.target.value }))}
                   className="w-full px-3 py-2 rounded-md text-sm border" style={{ borderColor: 'var(--notion-border)', background: 'white' }}>
-                  {CATEGORIES.map(c => <option key={c} value={c}>{tCrm(CAT_LABEL_KEYS[c] as any)}</option>)}
+                  {CATEGORIES.map(c => <option key={c} value={c}>{config.file_categories.find(fc => fc.key === c)?.label ?? tCrm(CAT_LABEL_KEYS[c] as any)}</option>)}
                 </select>
               </div>
 

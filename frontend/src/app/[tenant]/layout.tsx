@@ -10,6 +10,7 @@ import GlobalAIToolbar from '@/components/layout/GlobalAIToolbar';
 import CopilotPanel from '@/components/ai/CopilotPanel';
 import { getAuthSnapshot, refreshProfile, logout } from '@/lib/auth';
 import { Toaster } from 'react-hot-toast';
+import { PipelineConfigContext, usePipelineConfigFetcher } from '@/lib/usePipelineConfig';
 
 type MobileNavItem = {
   key: string;
@@ -112,8 +113,7 @@ export default function TenantLayout({ children }: { children: React.ReactNode }
 
   const openCmd = useCallback(() => setCmdOpen(true), []);
   const navItems: MobileNavItem[] = [
-    { key: 'dashboard', label: 'AI Dashboard', href: `/${tenant}/dashboard` },
-    { key: 'workspace', label: 'Workspace', href: `/${tenant}/workspace` },
+{ key: 'workspace', label: 'Workspace', href: `/${tenant}/workspace` },
     { key: 'crm', label: 'CRM', href: `/${tenant}/crm` },
     { key: 'messages', label: 'Messages', href: `/${tenant}/messages` },
     { key: 'orders', label: 'Orders', href: `/${tenant}/orders` },
@@ -149,8 +149,7 @@ export default function TenantLayout({ children }: { children: React.ReactNode }
   }
 
   const titleMap: Record<string, string> = {
-    dashboard: 'AI Dashboard',
-    workspace: 'Workspace',
+workspace: 'Workspace',
     crm: 'CRM',
     messages: 'Messages',
     orders: 'Orders',
@@ -271,8 +270,11 @@ export default function TenantLayout({ children }: { children: React.ReactNode }
     </div>
   );
 
+  const { config: pipelineConfig } = usePipelineConfigFetcher(tenant);
+
   return (
     <ThemeProvider>
+    <PipelineConfigContext.Provider value={pipelineConfig}>
     <div className="flex h-[100dvh] overflow-hidden" style={{ background: 'var(--notion-bg)' }}>
       {isMobile ? (
         mobileContent
@@ -309,6 +311,7 @@ export default function TenantLayout({ children }: { children: React.ReactNode }
       {!isMobile && <CopilotPanel />}
       <Toaster position="top-center" />
     </div>
+    </PipelineConfigContext.Provider>
     </ThemeProvider>
   );
 }

@@ -501,7 +501,9 @@
   "settings": {
     "navAdminGroup": "Admin",
     "navAdminMembers": "Members",
-    "navAdminPermissions": "Permissions"
+    "navAdminPermissions": "Permissions",
+    "navAIProviders": "Provider AI",
+    "navPipeline": "Config. Pipeline"
   },
   "admin": {
     "appOperations": "Operations"

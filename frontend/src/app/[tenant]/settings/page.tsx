@@ -11,6 +11,7 @@ import { HandIcon } from '@/components/ui/HandIcon';
 import { UserAvatar, parseAvatarConfig, serializeAvatarConfig, AvatarConfig } from '@/components/ui/UserAvatar';
 import { AvatarPicker } from '@/components/ui/AvatarPicker';
 import { DEFAULT_EMAIL_UI_PREFS, loadEmailUiPrefs, saveEmailUiPrefs, type EmailUiPrefs } from '@/lib/emailPrefs';
+import PipelineConfigSection from './PipelineConfigSection';
 
 const LANGUAGES: { code: LangCode; label: string; native: string }[] = [
   { code: 'en', label: 'English', native: 'English' },
@@ -22,7 +23,7 @@ const LANGUAGES: { code: LangCode; label: string; native: string }[] = [
   { code: 'pt', label: 'Portuguese', native: 'Português' },
 ];
 
-type Section = 'account' | 'appearance' | 'workspace' | 'members' | 'notifications' | 'email' | 'integrations' | 'ai' | 'ai-providers' | 'ai-finder' | 'whatsapp' | 'admin-members' | 'admin-permissions' | 'admin-whatsapp' | 'admin-email' | 'admin-ai';
+type Section = 'account' | 'appearance' | 'workspace' | 'members' | 'notifications' | 'email' | 'integrations' | 'ai' | 'ai-providers' | 'ai-finder' | 'whatsapp' | 'admin-members' | 'admin-permissions' | 'admin-whatsapp' | 'admin-email' | 'admin-ai' | 'admin-pipeline';
 
 interface NavGroup { group?: string; items: { id: Section; icon: string; labelKey: string }[] }
 
@@ -47,6 +48,7 @@ const NAV_GROUPS: NavGroup[] = [
       { id: 'admin-whatsapp', icon: 'chat-bubble', labelKey: 'navWhatsApp' },
       { id: 'admin-email', icon: 'envelope', labelKey: 'navEmail' },
       { id: 'admin-ai', icon: 'key', labelKey: 'navAIProviders' },
+      { id: 'admin-pipeline', icon: 'gear', labelKey: 'navPipeline' },
     ],
   },
 ];
@@ -116,6 +118,7 @@ export default function SettingsPage() {
             {section === 'admin-whatsapp' && <WhatsAppAdminSection />}
             {section === 'admin-email' && <EmailSettingsSection />}
             {section === 'admin-ai' && <AIProvidersSection />}
+            {section === 'admin-pipeline' && <PipelineConfigSection />}
           </div>
         ) : (
           <div className="max-w-2xl mx-auto px-10 py-8">

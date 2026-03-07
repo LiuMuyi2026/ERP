@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { api } from '@/lib/api';
 import { HandIcon } from '@/components/ui/HandIcon';
+import AnomalyAlertBar from '@/components/ai/AnomalyAlertBar';
 import { useTranslations } from 'next-intl';
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -454,6 +455,8 @@ export default function OrdersPage() {
               </button>
             )}
           </div>
+
+          <AnomalyAlertBar module="orders" />
 
           {/* Tabs */}
           <div className="flex items-center gap-1 mb-4 p-1 rounded-xl w-fit"

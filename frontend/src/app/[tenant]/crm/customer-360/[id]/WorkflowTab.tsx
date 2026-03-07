@@ -7,6 +7,7 @@ import { getCurrentUser } from '@/lib/auth';
 import SecureFileLink from '@/components/ui/SecureFileLink';
 import { HandIcon } from '@/components/ui/HandIcon';
 import { useTranslations } from 'next-intl';
+import { StepRendererComponent } from './stepRenderers';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -326,6 +327,8 @@ interface WorkflowStep {
   owner?: string;                  // 负责岗位 label (informational)
   approval?: string;               // 审批条件描述
   metaField?: StepMetaField;
+  type?: string;                   // step type for registry-based rendering
+  stepDef?: TemplateStepDef;       // original template definition (fields, checklist_items, etc.)
 }
 
 interface WorkflowStage {
@@ -346,6 +349,11 @@ interface TemplateStepDef {
   desc?: string;
   owner?: string;
   metaField?: StepMetaField;
+  type?: string;                   // step type: checklist, file_upload, approval, data_input, supplier_select, custom
+  fields?: { key: string; label: string; type?: string; options?: string[] }[];
+  checklist_items?: { key: string; label: string }[];
+  file_category?: string;
+  approver_role?: string;
 }
 
 interface TemplateStageDef {
@@ -385,6 +393,8 @@ function mergeStepDefinition(stepDef: TemplateStepDef, fallback?: WorkflowStep, 
     owner: stepDef.owner ?? fallback?.owner,
     approval: fallback?.approval,
     metaField: stepDef.metaField ?? fallback?.metaField,
+    type: stepDef.type ?? fallback?.type,
+    stepDef: stepDef.type ? stepDef : undefined,
   };
 }
 
@@ -1516,6 +1526,39 @@ export function WorkflowTab({ leadId, isCold, onMarkCold }: {
                       minHeight: isConfirmSupplierExpanded ? 320 : undefined,
                     }}
                   >
+
+                    {/* ── Type-based step rendering (registry) ── */}
+                    {step.type && step.type !== 'custom' && (() => {
+                      const stepData = getStepData<Record<string, any>>(activeStage, step.key);
+                      return (
+                        <div className="p-4">
+                          <StepRendererComponent
+                            type={step.type}
+                            leadId={leadId}
+                            stageKey={stage.key}
+                            stepKey={step.key}
+                            stepLabel={step.label}
+                            stepDesc={step.desc}
+                            isDone={isDone}
+                            stepData={stepData}
+                            onSaveStepData={async (key, data) => {
+                              patchStepData(activeStage, key, data);
+                            }}
+                            onToggleStep={(key) => {
+                              toggleStep(activeStage, key);
+                            }}
+                            currentUser={{ id: myId, name: users.find(u => u.id === myId)?.full_name }}
+                            users={users}
+                            stepDef={step.stepDef ? {
+                              fields: step.stepDef.fields,
+                              checklist_items: step.stepDef.checklist_items,
+                              file_category: step.stepDef.file_category,
+                              approver_role: step.stepDef.approver_role,
+                            } : undefined}
+                          />
+                        </div>
+                      );
+                    })()}
 
                     {/* ── 询盘归类 ── */}
                     {step.key === 'classify' && (() => {
